@@ -76,6 +76,14 @@ export class AuthService {
         },
       });
 
+      // Parse class number (01-999)
+      const classNum = parseInt(registerDto.classNumber, 10);
+      if (isNaN(classNum) || classNum < 1 || classNum > 999) {
+        throw new BadRequestException(
+          'Class number must be between 01 and 999',
+        );
+      }
+
       // Create member profile
       await tx.member.create({
         data: {
@@ -87,7 +95,7 @@ export class AuthService {
           communityId,
           city: registerDto.city,
           encounterType: registerDto.encounterType,
-          classNumber: parseInt(registerDto.classNumber, 10),
+          classNumber: classNum, // Store as integer (e.g., 18, not 1801)
         },
       });
 

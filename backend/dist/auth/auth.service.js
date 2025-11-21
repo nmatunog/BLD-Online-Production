@@ -90,6 +90,10 @@ let AuthService = class AuthService {
                     role,
                 },
             });
+            const classNum = parseInt(registerDto.classNumber, 10);
+            if (isNaN(classNum) || classNum < 1 || classNum > 999) {
+                throw new common_1.BadRequestException('Class number must be between 01 and 999');
+            }
             await tx.member.create({
                 data: {
                     userId: user.id,
@@ -100,7 +104,7 @@ let AuthService = class AuthService {
                     communityId,
                     city: registerDto.city,
                     encounterType: registerDto.encounterType,
-                    classNumber: parseInt(registerDto.classNumber, 10),
+                    classNumber: classNum,
                 },
             });
             return user;
