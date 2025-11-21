@@ -8,9 +8,9 @@ async function bootstrap() {
     const app = await core_1.NestFactory.create(app_module_1.AppModule);
     const apiPrefix = process.env.API_PREFIX || 'api/v1';
     app.setGlobalPrefix(apiPrefix);
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3002';
     app.enableCors({
-        origin: frontendUrl,
+        origin: [frontendUrl, 'http://localhost:3000', 'http://localhost:3002'],
         credentials: true,
     });
     app.useGlobalPipes(new common_1.ValidationPipe({
