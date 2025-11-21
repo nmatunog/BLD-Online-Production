@@ -239,8 +239,39 @@ let AuthService = class AuthService {
     async generateCommunityId(city, encounterType, classNumber) {
         const cityCode = city.substring(0, 3).toUpperCase();
         const encounterCode = encounterType.toUpperCase();
-        const formattedClassNumber = classNumber.padStart(4, '0');
-        return `${cityCode}-${encounterCode}${formattedClassNumber}`;
+        const classNum = parseInt(classNumber, 10);
+        if (isNaN(classNum) || classNum < 1 || classNum > 999) {
+            throw new common_1.BadRequestException('Class number must be between 01 and 999');
+        }
+        const formattedClassNumber = classNum.toString().padStart(2, '0');
+        const existingMembers = await this.prisma.member.findMany({
+            where: {
+                city: cityCode,
+                encounterType: encounterCode,
+                classNumber: classNum,
+            },
+            orderBy: {
+                createdAt: 'asc',
+            },
+        });
+        let nextSequence = 1;
+        if (existingMembers.length > 0) {
+            const sequences = existingMembers
+                .map((member) => {
+                const match = member.communityId.match(/\d{2}$/);
+                return match ? parseInt(match[0], 10) : 0;
+            })
+                .filter((seq) => seq > 0);
+            if (sequences.length > 0) {
+                const maxSequence = Math.max(...sequences);
+                nextSequence = maxSequence + 1;
+            }
+        }
+        if (nextSequence > 99) {
+            throw new common_1.BadRequestException(`Maximum sequence number (99) reached for ${cityCode}-${encounterCode} Class ${formattedClassNumber}`);
+        }
+        const formattedSequence = nextSequence.toString().padStart(2, '0');
+        return `${cityCode}-${encounterCode}${formattedClassNumber}${formattedSequence}`;
     }
 };
 exports.AuthService = AuthService;

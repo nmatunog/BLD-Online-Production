@@ -40,7 +40,7 @@ let MemberLookupService = class MemberLookupService {
         return member;
     }
     isValidCommunityIdFormat(communityId) {
-        const pattern = /^[A-Z]{3}-[A-Z]{2,4}\d{4}$/;
+        const pattern = /^[A-Z]{3}-[A-Z]{2,4}\d{2}\d{2}$/;
         return pattern.test(communityId);
     }
     normalizeCommunityId(communityId) {

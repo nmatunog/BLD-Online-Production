@@ -43,10 +43,15 @@ export class MemberLookupService {
 
   /**
    * Validate communityId format
-   * Format: CITY-ENCOUNTERTYPECLASSNUMBER (e.g., "CEB-ME1801")
+   * Format: CITY-ENCOUNTERTYPECLASSNUMBER+SEQUENCE
+   * Example: CEB-ME1801 (Cebu, ME, Class 18, Sequence 01)
+   *          CEB-ME1802 (Cebu, ME, Class 18, Sequence 02)
+   * Pattern: 3-letter city code, hyphen, 2-4 letter encounter type, 2-digit class, 2-digit sequence
    */
   isValidCommunityIdFormat(communityId: string): boolean {
-    const pattern = /^[A-Z]{3}-[A-Z]{2,4}\d{4}$/;
+    // Format: CITY-ENCOUNTERTYPECLASSNUMBER+SEQUENCE
+    // Example: CEB-ME1801, CEB-SE2001, MAN-SPE1502
+    const pattern = /^[A-Z]{3}-[A-Z]{2,4}\d{2}\d{2}$/;
     return pattern.test(communityId);
   }
 

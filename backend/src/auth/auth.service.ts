@@ -291,12 +291,73 @@ export class AuthService {
     encounterType: string,
     classNumber: string,
   ): Promise<string> {
-    // Format: CITY-ENCOUNTERTYPECLASSNUMBER
-    // Example: CEB-ME1801
+    // Format: CITY-ENCOUNTERTYPECLASSNUMBER+SEQUENCE
+    // Example: CEB-ME1801 (Cebu, ME, Class 18, Sequence 01)
+    //         CEB-ME1802 (Cebu, ME, Class 18, Sequence 02)
+    // Class numbers: 01-999 (2 digits)
+    // Sequence: 01-99 (2 digits, starts at 01 for each class)
+    
     const cityCode = city.substring(0, 3).toUpperCase();
     const encounterCode = encounterType.toUpperCase();
-    const formattedClassNumber = classNumber.padStart(4, '0');
-    return `${cityCode}-${encounterCode}${formattedClassNumber}`;
+    
+    // Parse and validate class number (01-999)
+    const classNum = parseInt(classNumber, 10);
+    if (isNaN(classNum) || classNum < 1 || classNum > 999) {
+      throw new BadRequestException(
+        'Class number must be between 01 and 999',
+      );
+    }
+    
+    // Format class number as 2 digits (01-999)
+    const formattedClassNumber = classNum.toString().padStart(2, '0');
+    
+    // Find the next sequence number for this specific class
+    // Query existing members with same city, encounterType, and classNumber
+    const existingMembers = await this.prisma.member.findMany({
+      where: {
+        city: cityCode,
+        encounterType: encounterCode,
+        classNumber: classNum,
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+    });
+    
+    // Calculate next sequence number
+    // If no members exist for this class, start at 01
+    // Otherwise, find the highest sequence and increment
+    let nextSequence = 1;
+    
+    if (existingMembers.length > 0) {
+      // Extract sequence numbers from existing communityIds
+      const sequences = existingMembers
+        .map((member) => {
+          // Extract last 2 digits (sequence) from communityId
+          // Format: CEB-ME1801 -> extract "01"
+          const match = member.communityId.match(/\d{2}$/);
+          return match ? parseInt(match[0], 10) : 0;
+        })
+        .filter((seq) => seq > 0);
+      
+      if (sequences.length > 0) {
+        const maxSequence = Math.max(...sequences);
+        nextSequence = maxSequence + 1;
+      }
+    }
+    
+    // Validate sequence doesn't exceed 99
+    if (nextSequence > 99) {
+      throw new BadRequestException(
+        `Maximum sequence number (99) reached for ${cityCode}-${encounterCode} Class ${formattedClassNumber}`,
+      );
+    }
+    
+    // Format sequence as 2 digits (01-99)
+    const formattedSequence = nextSequence.toString().padStart(2, '0');
+    
+    // Combine: CITY-ENCOUNTERTYPE + CLASS (2 digits) + SEQUENCE (2 digits)
+    return `${cityCode}-${encounterCode}${formattedClassNumber}${formattedSequence}`;
   }
 }
 
