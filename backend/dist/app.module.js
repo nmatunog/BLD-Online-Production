@@ -11,6 +11,7 @@ const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const core_1 = require("@nestjs/core");
 const prisma_module_1 = require("./common/prisma/prisma.module");
+const member_lookup_module_1 = require("./common/services/member-lookup.module");
 const auth_module_1 = require("./auth/auth.module");
 const jwt_auth_guard_1 = require("./common/guards/jwt-auth.guard");
 let AppModule = class AppModule {
@@ -24,6 +25,7 @@ exports.AppModule = AppModule = __decorate([
                 envFilePath: ['.env.local', '.env'],
             }),
             prisma_module_1.PrismaModule,
+            member_lookup_module_1.MemberLookupModule,
             auth_module_1.AuthModule,
         ],
         providers: [

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { PrismaModule } from './common/prisma/prisma.module';
+import { MemberLookupModule } from './common/services/member-lookup.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 // Import other modules as they are implemented
@@ -21,6 +22,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
       envFilePath: ['.env.local', '.env'],
     }),
     PrismaModule,
+    MemberLookupModule,
     AuthModule,
     // Add other modules as they are implemented
     // MembersModule,
