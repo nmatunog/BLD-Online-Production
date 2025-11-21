@@ -1,0 +1,237 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_USER
+  ADMINISTRATOR
+  DCS
+  MINISTRY_COORDINATOR
+  MEMBER
+}
+
+enum EventStatus {
+  UPCOMING
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum CheckInMethod {
+  QR_CODE
+  MANUAL
+}
+
+enum RegistrationType {
+  MEMBER
+  NON_MEMBER
+  COUPLE
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+  CANCELLED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String?  @unique
+  phone        String?  @unique
+  passwordHash String
+  role         UserRole @default(MEMBER)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  member       Member?
+  sessions     Session[]
+
+  @@index([email])
+  @@index([phone])
+  @@index([role])
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  refreshToken String   @unique
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([refreshToken])
+}
+
+model Member {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  firstName       String
+  lastName        String
+  middleName      String?
+  suffix          String?
+  nickname        String?
+  communityId     String   @unique
+  city            String
+  encounterType   String
+  classNumber     Int
+  apostolate      String?
+  ministry        String?
+  serviceArea      String?
+  photoUrl        String? // BunnyCDN URL
+  qrCodeUrl       String? // BunnyCDN URL
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attendances     Attendance[]
+  registrations   EventRegistration[]
+
+  @@index([communityId])
+  @@index([city])
+  @@index([encounterType])
+}
+
+model Event {
+  id                String        @id @default(uuid())
+  title             String
+  eventType         String
+  category          String
+  description       String?
+  startDate         DateTime
+  endDate           DateTime
+  startTime         String?
+  endTime           String?
+  location          String
+  venue             String?
+  status            EventStatus  @default(UPCOMING)
+  hasRegistration   Boolean      @default(false)
+  registrationFee   Decimal?
+  maxParticipants   Int?
+  qrCodeUrl         String? // BunnyCDN URL
+  // Recurring event fields
+  isRecurring       Boolean      @default(false)
+  recurrencePattern String? // daily, weekly, monthly
+  recurrenceDays    String[] // For weekly: ["monday", "wednesday"]
+  recurrenceInterval Int? // Every N days/weeks/months
+  monthlyType       String? // dayOfMonth, dayOfWeek
+  monthlyDayOfMonth Int?
+  monthlyWeekOfMonth Int?
+  monthlyDayOfWeek   String?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  attendances       Attendance[]
+  registrations     EventRegistration[]
+  account           EventAccount?
+
+  @@index([status])
+  @@index([startDate])
+  @@index([eventType])
+}
+
+model Attendance {
+  id          String        @id @default(uuid())
+  memberId    String
+  eventId     String
+  checkInTime DateTime      @default(now())
+  method      CheckInMethod @default(MANUAL)
+  createdAt   DateTime      @default(now())
+
+  member      Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  event       Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([memberId, eventId])
+  @@index([eventId])
+  @@index([memberId])
+  @@index([checkInTime])
+}
+
+model EventRegistration {
+  id              String        @id @default(uuid())
+  eventId         String
+  memberId        String?
+  registrationType RegistrationType
+  firstName       String
+  lastName        String
+  middleName      String?
+  email           String?
+  phone           String?
+  spouseFirstName String?
+  spouseLastName  String?
+  roomAssignment  String?
+  paymentStatus   PaymentStatus @default(PENDING)
+  paymentAmount   Decimal?
+  paymentReference String?
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  member          Member?       @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  event           Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([memberId])
+  @@index([registrationType])
+  @@index([paymentStatus])
+}
+
+model EventAccount {
+  id          String   @id @default(uuid())
+  eventId     String   @unique
+  isClosed   Boolean  @default(false)
+  closedAt    DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event       Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  incomeEntries IncomeEntry[]
+  expenseEntries ExpenseEntry[]
+
+  @@index([eventId])
+  @@index([isClosed])
+}
+
+model IncomeEntry {
+  id          String   @id @default(uuid())
+  accountId   String
+  description String
+  amount      Decimal
+  source      String?
+  receivedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  account     EventAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([receivedAt])
+}
+
+model ExpenseEntry {
+  id          String   @id @default(uuid())
+  accountId   String
+  description String
+  amount      Decimal
+  category    String?
+  paidAt      DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  account     EventAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([paidAt])
+}
+
