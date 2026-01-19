@@ -36,6 +36,10 @@ export class RegisterDto {
   nickname?: string;
 
   @IsString()
+  @IsOptional()
+  suffix?: string;
+
+  @IsString()
   @IsNotEmpty()
   city!: string;
 

@@ -13,15 +13,26 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RequestPasswordResetDto, ResetPasswordDto } from './dto/reset-password.dto';
 import { AuthResult } from './interfaces/auth-result.interface';
 import { UserRole } from '@prisma/client';
+import { normalizePhoneNumber } from '../common/utils/phone.util';
+import { EmailService } from '../common/services/email.service';
 
 @Injectable()
 export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private emailService: EmailService,
   ) {}
 
   async register(registerDto: RegisterDto): Promise<AuthResult> {
+    // Normalize phone number if provided
+    const normalizedPhone = registerDto.phone
+      ? normalizePhoneNumber(registerDto.phone)
+      : null;
+    const normalizedEmail = registerDto.email
+      ? registerDto.email.trim().toLowerCase()
+      : null;
+
     // Check if user already exists
     if (registerDto.email) {
       const existingUser = await this.prisma.user.findUnique({
@@ -32,26 +43,59 @@ export class AuthService {
       }
     }
 
-    if (registerDto.phone) {
-      const existingUser = await this.prisma.user.findUnique({
-        where: { phone: registerDto.phone },
+    // Check for existing phone (check both normalized and original formats)
+    if (normalizedPhone) {
+      const existingUser = await this.prisma.user.findFirst({
+        where: {
+          OR: [
+            { phone: normalizedPhone },
+            registerDto.phone ? { phone: registerDto.phone } : {},
+          ],
+        },
       });
       if (existingUser) {
         throw new ConflictException('Phone number already registered');
       }
     }
 
-    if (!registerDto.email && !registerDto.phone) {
+    if (!registerDto.email && !normalizedPhone) {
       throw new BadRequestException('Either email or phone is required');
     }
 
     // Hash password
     const passwordHash = await bcrypt.hash(registerDto.password, 10);
 
+    // Preflight: if a user exists with same email/phone but no member, clean it so retries succeed
+    if (normalizedEmail || normalizedPhone) {
+      const existingUser = await this.prisma.user.findFirst({
+        where: {
+          OR: [
+            normalizedEmail ? { email: normalizedEmail } : undefined,
+            normalizedPhone ? { phone: normalizedPhone } : undefined,
+          ].filter(Boolean) as any,
+        },
+        include: { member: true },
+      });
+
+      if (existingUser) {
+        if (existingUser.member) {
+          throw new ConflictException(
+            normalizedPhone
+              ? 'Mobile number is already registered.'
+              : 'Email is already registered.',
+          );
+        }
+
+        // Orphaned user without member profile: clean up to allow retry
+        await this.prisma.user.delete({ where: { id: existingUser.id } });
+      }
+    }
+
     // Determine role (first user gets SUPER_USER, or check master super user)
     const userCount = await this.prisma.user.count();
     const isMasterSuperUser =
       registerDto.email === process.env.MASTER_SUPER_USER_EMAIL ||
+      normalizedPhone === process.env.MASTER_SUPER_USER_PHONE ||
       registerDto.phone === process.env.MASTER_SUPER_USER_PHONE;
     const role: UserRole = isMasterSuperUser || userCount === 0
       ? UserRole.SUPER_USER
@@ -66,11 +110,11 @@ export class AuthService {
 
     // Create user and member in transaction
     const result = await this.prisma.$transaction(async (tx) => {
-      // Create user
+      // Create user (use normalized phone number)
       const user = await tx.user.create({
         data: {
-          email: registerDto.email || null,
-          phone: registerDto.phone || null,
+          email: normalizedEmail,
+          phone: normalizedPhone || null,
           passwordHash,
           role,
         },
@@ -85,12 +129,13 @@ export class AuthService {
       }
 
       // Create member profile
-      await tx.member.create({
+      const member = await tx.member.create({
         data: {
           userId: user.id,
           firstName: registerDto.firstName,
           lastName: registerDto.lastName,
           middleName: registerDto.middleName || null,
+          suffix: registerDto.suffix || null,
           nickname: registerDto.nickname || null,
           communityId,
           city: registerDto.city,
@@ -99,11 +144,16 @@ export class AuthService {
         },
       });
 
-      return user;
+      return { user, member };
     });
 
-    // Generate tokens
-    return this.generateTokens(result);
+    // Generate tokens with member info (including communityId)
+    return this.generateTokens(result.user, {
+      nickname: result.member.nickname,
+      lastName: result.member.lastName,
+      firstName: result.member.firstName,
+      communityId: result.member.communityId,
+    });
   }
 
   async login(loginDto: LoginDto): Promise<AuthResult> {
@@ -111,12 +161,24 @@ export class AuthService {
       throw new BadRequestException('Either email or phone is required');
     }
 
-    // Find user
+    // Normalize phone number if provided
+    const normalizedPhone = loginDto.phone
+      ? normalizePhoneNumber(loginDto.phone)
+      : null;
+
+    // Find user - try both original and normalized phone formats
     const user = await this.prisma.user.findFirst({
       where: {
         OR: [
           loginDto.email ? { email: loginDto.email } : {},
-          loginDto.phone ? { phone: loginDto.phone } : {},
+          normalizedPhone
+            ? {
+                OR: [
+                  { phone: normalizedPhone },
+                  { phone: loginDto.phone }, // Also try original format
+                ],
+              }
+            : {},
         ],
       },
       include: {
@@ -143,8 +205,18 @@ export class AuthService {
       throw new UnauthorizedException('Account is deactivated');
     }
 
-    // Generate tokens
-    return this.generateTokens(user);
+    // Generate tokens with member info (including communityId)
+    return this.generateTokens(
+      user,
+      user.member
+        ? {
+            nickname: user.member.nickname,
+            lastName: user.member.lastName,
+            firstName: user.member.firstName,
+            communityId: user.member.communityId,
+          }
+        : null,
+    );
   }
 
   async refreshToken(refreshTokenDto: RefreshTokenDto): Promise<AuthResult> {
@@ -169,8 +241,24 @@ export class AuthService {
         throw new UnauthorizedException('Account is deactivated');
       }
 
-      // Generate new tokens
-      return this.generateTokens(session.user);
+      // Fetch member info for refresh token
+      const userWithMember = await this.prisma.user.findUnique({
+        where: { id: session.user.id },
+        include: { member: true },
+      });
+
+      // Generate new tokens with member info (including communityId)
+      return this.generateTokens(
+        session.user,
+        userWithMember?.member
+          ? {
+              nickname: userWithMember.member.nickname,
+              lastName: userWithMember.member.lastName,
+              firstName: userWithMember.member.firstName,
+              communityId: userWithMember.member.communityId,
+            }
+          : null,
+      );
     } catch (error) {
       throw new UnauthorizedException('Invalid refresh token');
     }
@@ -178,7 +266,7 @@ export class AuthService {
 
   async requestPasswordReset(
     requestDto: RequestPasswordResetDto,
-  ): Promise<{ message: string }> {
+  ): Promise<{ message: string; resetLink?: string }> {
     if (!requestDto.email && !requestDto.phone) {
       throw new BadRequestException('Either email or phone is required');
     }
@@ -198,7 +286,7 @@ export class AuthService {
     }
 
     // Generate reset token
-    this.jwtService.sign(
+    const resetToken = this.jwtService.sign(
       { userId: user.id, type: 'password-reset' },
       {
         secret: process.env.JWT_SECRET,
@@ -206,8 +294,59 @@ export class AuthService {
       },
     );
 
-    // TODO: Send email/SMS with reset token via Resend
-    // This will be implemented in Phase 4
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`;
+
+    // Send email/SMS with reset token
+    try {
+      // Get user's name for email personalization
+      const member = await this.prisma.member.findUnique({
+        where: { userId: user.id },
+        select: { firstName: true, lastName: true, nickname: true },
+      });
+
+      const userName = member
+        ? member.nickname || `${member.firstName} ${member.lastName}`
+        : 'User';
+
+      // Send email if available
+      if (user.email) {
+        const result = await this.emailService.sendPasswordResetEmail(
+          user.email,
+          resetToken,
+          userName,
+        );
+        // If email wasn't sent (dev mode), return the reset link
+        if (!result.sent && result.resetLink) {
+          return { 
+            message: 'Password reset link generated (email not configured)', 
+            resetLink: result.resetLink 
+          };
+        }
+      }
+
+      // Send SMS if phone is available and email is not
+      if (!user.email && user.phone) {
+        const result = await this.emailService.sendPasswordResetSMS(user.phone, resetToken);
+        // If SMS wasn't sent (dev mode), return the reset link
+        if (!result.sent && result.resetLink) {
+          return { 
+            message: 'Password reset link generated (SMS not configured)', 
+            resetLink: result.resetLink 
+          };
+        }
+      }
+    } catch (error) {
+      // Log error but don't fail the request (security: don't reveal if user exists)
+      console.error('Error sending password reset notification:', error);
+      // In development, return the reset link if email/SMS failed
+      if (process.env.NODE_ENV !== 'production') {
+        return { 
+          message: 'Password reset link generated (notification failed)', 
+          resetLink 
+        };
+      }
+    }
 
     return { message: 'If the account exists, a password reset link has been sent' };
   }
@@ -247,12 +386,20 @@ export class AuthService {
     }
   }
 
-  private async generateTokens(user: {
-    id: string;
-    email: string | null;
-    phone: string | null;
-    role: UserRole;
-  }): Promise<AuthResult> {
+  private async generateTokens(
+    user: {
+      id: string;
+      email: string | null;
+      phone: string | null;
+      role: UserRole;
+    },
+    member: {
+      nickname: string | null;
+      lastName: string;
+      firstName: string;
+      communityId?: string;
+    } | null,
+  ): Promise<AuthResult> {
     const payload = {
       sub: user.id,
       email: user.email,
@@ -291,6 +438,14 @@ export class AuthService {
         phone: user.phone,
         role: user.role,
       },
+      member: member
+        ? {
+            nickname: member.nickname,
+            lastName: member.lastName,
+            firstName: member.firstName,
+            communityId: member.communityId,
+          }
+        : undefined,
     };
   }
 

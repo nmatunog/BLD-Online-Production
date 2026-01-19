@@ -14,6 +14,12 @@ export interface AuthResult {
     phone: string | null;
     role: string;
   };
+  member?: {
+    nickname: string | null;
+    lastName: string;
+    firstName: string;
+    communityId?: string;
+  };
 }
 
 export interface LoginRequest {
@@ -29,6 +35,7 @@ export interface RegisterRequest {
   firstName: string;
   lastName: string;
   middleName?: string;
+  suffix?: string;
   nickname?: string;
   city: string;
   encounterType: string;

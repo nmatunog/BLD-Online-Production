@@ -1,0 +1,2257 @@
+'use client';
+
+import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { FileText, Download, Calendar, Users, CheckCircle, DollarSign, BarChart3, Loader2, Filter, RefreshCw, X, TrendingUp, Eye, EyeOff, Church, MessageCircle, AlertCircle } from 'lucide-react';
+import { reportsService, ReportType, RecurringReportType, PeriodType, type ReportResult, type AttendanceReport, type RegistrationReport, type MemberReport, type EventReport, type RecurringAttendanceReport } from '@/services/reports.service';
+import { eventsService, type Event } from '@/services/events.service';
+import { membersService, type Member } from '@/services/members.service';
+import { attendanceService, type Attendance } from '@/services/attendance.service';
+import { authService } from '@/services/auth.service';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { toast } from 'sonner';
+import DashboardHeader from '@/components/layout/DashboardHeader';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement,
+} from 'chart.js';
+import { Bar, Pie } from 'react-chartjs-2';
+import jsPDF from 'jspdf';
+
+// Register Chart.js components
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  ArcElement
+);
+
+export default function ReportsPage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(false);
+  const [reportType, setReportType] = useState<ReportType>(ReportType.ATTENDANCE);
+  const [reportData, setReportData] = useState<ReportResult | null>(null);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [userRole, setUserRole] = useState<string>('');
+
+  // Analytics dashboard states
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [dashboardMetrics, setDashboardMetrics] = useState<{
+    totalMembers: number;
+    totalEvents: number;
+    attendanceRate: number;
+    thisMonthEvents: number;
+    activeMinistries: number;
+  } | null>(null);
+  const [recurringEventMetrics, setRecurringEventMetrics] = useState<{
+    corporateWorship: { count: number; attendanceRate: number; totalAttendances: number };
+    wordSharingCircles: { count: number; attendanceRate: number; totalAttendances: number };
+    nonRecurring: { count: number; attendanceRate: number; totalAttendances: number };
+  } | null>(null);
+  const [attendanceRecords, setAttendanceRecords] = useState<Attendance[]>([]);
+
+  // Recurring attendance report states
+  const [showRecurringReport, setShowRecurringReport] = useState(false);
+  const [recurringReportData, setRecurringReportData] = useState<RecurringAttendanceReport | null>(null);
+  const [recurringReportConfig, setRecurringReportConfig] = useState({
+    reportType: RecurringReportType.COMMUNITY,
+    period: PeriodType.MONTHLY,
+    startDate: '',
+    endDate: '',
+    memberId: '',
+    ministry: '',
+    apostolate: '',
+    selectedMonth: '',
+    selectedYear: new Date().getFullYear().toString(),
+    selectedQuarter: '',
+  });
+
+  // Filters
+  const [filters, setFilters] = useState({
+    eventId: '',
+    startDate: '',
+    endDate: '',
+    encounterType: '',
+    ministry: '',
+    city: '',
+  });
+
+  // Advanced filtering states
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [advancedFilters, setAdvancedFilters] = useState({
+    searchTerm: '',
+    dateRange: { start: '', end: '' },
+    ministries: [] as string[],
+    eventTypes: [] as string[],
+    attendanceRange: { min: 0, max: 100 },
+    sortBy: 'date' as 'date' | 'title' | 'attendance',
+    sortOrder: 'desc' as 'asc' | 'desc',
+  });
+  const [filteredEvents, setFilteredEvents] = useState<Event[]>([]);
+
+  useEffect(() => {
+    if (!authService.isAuthenticated()) {
+      router.push('/login');
+      return;
+    }
+
+    const authData = localStorage.getItem('authData');
+    if (authData) {
+      try {
+        const parsed = JSON.parse(authData);
+        setUserRole(parsed.user?.role || '');
+      } catch (error) {
+        console.error('Error parsing auth data:', error);
+      }
+    }
+
+    loadEvents();
+    loadMembers();
+    loadAttendanceRecords();
+  }, [router]);
+
+  // Load analytics when data is available
+  useEffect(() => {
+    if (showAnalytics && members.length > 0 && events.length > 0) {
+      loadDashboardMetrics();
+    }
+  }, [showAnalytics, members.length, events.length]);
+
+  const loadEvents = async () => {
+    try {
+      const result = await eventsService.getAll({ limit: 100 });
+      if (result.success && result.data) {
+        setEvents(Array.isArray(result.data.data) ? result.data.data : []);
+      }
+    } catch (error) {
+      console.error('Error loading events:', error);
+    }
+  };
+
+  const loadMembers = async () => {
+    try {
+      const result = await membersService.getAll({ limit: 1000 });
+      if (result.success && result.data) {
+        setMembers(Array.isArray(result.data.data) ? result.data.data : []);
+      }
+    } catch (error) {
+      console.error('Error loading members:', error);
+    }
+  };
+
+  const loadAttendanceRecords = async () => {
+    try {
+      const result = await attendanceService.getAll({ limit: 10000 });
+      if (result.success && result.data) {
+        setAttendanceRecords(Array.isArray(result.data.data) ? result.data.data : []);
+      }
+    } catch (error) {
+      console.error('Error loading attendance records:', error);
+    }
+  };
+
+  // Calculate recurring event metrics
+  const calculateRecurringEventMetrics = useCallback((attendanceRecords: Attendance[], events: Event[], members: Member[]) => {
+    // Categorize events
+    const corporateWorshipEvents = events.filter(event => 
+      event.title && event.title.toLowerCase().includes('corporate worship')
+    );
+
+    const wordSharingEvents = events.filter(event => 
+      event.title && (
+        event.title.toLowerCase().includes('word sharing') ||
+        event.title.toLowerCase().includes('wsc') ||
+        event.title.toLowerCase().includes('word sharing circle')
+      )
+    );
+
+    const nonRecurringEvents = events.filter(event => 
+      event.title && 
+      !event.title.toLowerCase().includes('corporate worship') && 
+      !event.title.toLowerCase().includes('word sharing') &&
+      !event.title.toLowerCase().includes('wsc') &&
+      !event.title.toLowerCase().includes('word sharing circle')
+    );
+
+    // Calculate metrics for each category
+    const calculateCategoryMetrics = (categoryEvents: Event[], categoryName: string) => {
+      const categoryAttendanceRecords = attendanceRecords.filter(record => 
+        categoryEvents.some(event => event.id === record.eventId)
+      );
+
+      const totalPossibleAttendances = members.length * categoryEvents.length;
+      const actualAttendances = categoryAttendanceRecords.length;
+      const attendanceRate = totalPossibleAttendances > 0 
+        ? Math.round((actualAttendances / totalPossibleAttendances) * 100)
+        : 0;
+
+      return {
+        count: categoryEvents.length,
+        attendanceRate,
+        totalAttendances: actualAttendances,
+      };
+    };
+
+    return {
+      corporateWorship: calculateCategoryMetrics(corporateWorshipEvents, 'Corporate Worship'),
+      wordSharingCircles: calculateCategoryMetrics(wordSharingEvents, 'Word Sharing Circles'),
+      nonRecurring: calculateCategoryMetrics(nonRecurringEvents, 'Non-Recurring'),
+    };
+  }, []);
+
+  // Calculate attendance rate
+  const calculateAttendanceRate = useCallback((attendanceRecords: Attendance[], members: Member[], events: Event[]) => {
+    if (members.length === 0 || events.length === 0) return 0;
+    
+    const totalPossibleAttendances = members.length * events.length;
+    const actualAttendances = attendanceRecords.length;
+    
+    return totalPossibleAttendances > 0 
+      ? Math.round((actualAttendances / totalPossibleAttendances) * 100)
+      : 0;
+  }, []);
+
+  // Load dashboard metrics
+  const loadDashboardMetrics = useCallback(async () => {
+    setAnalyticsLoading(true);
+    try {
+      // Calculate attendance rate
+      const attendanceRate = calculateAttendanceRate(attendanceRecords, members, events);
+
+      // Calculate recurring event metrics
+      const recurringMetrics = calculateRecurringEventMetrics(attendanceRecords, events, members);
+      setRecurringEventMetrics(recurringMetrics);
+
+      // Get unique ministries
+      const uniqueMinistries = new Set(members.map(m => m.ministry).filter(Boolean));
+
+      // Calculate this month events
+      const now = new Date();
+      const thisMonthEvents = events.filter(e => {
+        const eventDate = new Date(e.startDate);
+        return eventDate.getMonth() === now.getMonth() && eventDate.getFullYear() === now.getFullYear();
+      }).length;
+
+      const metrics = {
+        totalMembers: members.length,
+        totalEvents: events.length,
+        attendanceRate,
+        thisMonthEvents,
+        activeMinistries: uniqueMinistries.size,
+      };
+
+      setDashboardMetrics(metrics);
+    } catch (error) {
+      console.error('Error loading dashboard metrics:', error);
+      // Fallback metrics
+      const uniqueMinistries = new Set(members.map(m => m.ministry).filter(Boolean));
+      const now = new Date();
+      const thisMonthEvents = events.filter(e => {
+        const eventDate = new Date(e.startDate);
+        return eventDate.getMonth() === now.getMonth() && eventDate.getFullYear() === now.getFullYear();
+      }).length;
+
+      setDashboardMetrics({
+        totalMembers: members.length,
+        totalEvents: events.length,
+        attendanceRate: 0,
+        thisMonthEvents,
+        activeMinistries: uniqueMinistries.size,
+      });
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, [attendanceRecords, members, events, calculateAttendanceRate, calculateRecurringEventMetrics]);
+
+  // Calculate period dates based on period type
+  const calculatePeriodDates = useCallback((period: PeriodType, selectedMonth?: string, selectedYear?: string, selectedQuarter?: string) => {
+    const currentYear = selectedYear ? parseInt(selectedYear) : new Date().getFullYear();
+    const currentMonth = selectedMonth ? parseInt(selectedMonth) - 1 : new Date().getMonth();
+
+    switch (period) {
+      case PeriodType.MONTHLY:
+        if (!selectedMonth || !selectedYear) {
+          const now = new Date();
+          const start = new Date(now.getFullYear(), now.getMonth(), 1);
+          const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+          return {
+            startDate: start.toISOString().split('T')[0],
+            endDate: end.toISOString().split('T')[0],
+          };
+        }
+        const monthStart = new Date(currentYear, currentMonth, 1);
+        const monthEnd = new Date(currentYear, currentMonth + 1, 0);
+        return {
+          startDate: monthStart.toISOString().split('T')[0],
+          endDate: monthEnd.toISOString().split('T')[0],
+        };
+
+      case PeriodType.QUARTERLY:
+        if (!selectedQuarter || !selectedYear) {
+          const now = new Date();
+          const quarter = Math.floor(now.getMonth() / 3);
+          const quarterStart = new Date(now.getFullYear(), quarter * 3, 1);
+          const quarterEnd = new Date(now.getFullYear(), (quarter + 1) * 3, 0);
+          return {
+            startDate: quarterStart.toISOString().split('T')[0],
+            endDate: quarterEnd.toISOString().split('T')[0],
+          };
+        }
+        const quarter = selectedQuarter === 'Q1' ? 0 : selectedQuarter === 'Q2' ? 3 : selectedQuarter === 'Q3' ? 6 : 9;
+        const qStart = new Date(currentYear, quarter, 1);
+        const qEnd = new Date(currentYear, quarter + 3, 0);
+        return {
+          startDate: qStart.toISOString().split('T')[0],
+          endDate: qEnd.toISOString().split('T')[0],
+        };
+
+      case PeriodType.YTD:
+        const ytdStart = new Date(currentYear, 0, 1);
+        const ytdEnd = new Date();
+        return {
+          startDate: ytdStart.toISOString().split('T')[0],
+          endDate: ytdEnd.toISOString().split('T')[0],
+        };
+
+      case PeriodType.ANNUAL:
+        if (!selectedYear) {
+          const now = new Date();
+          const yearStart = new Date(now.getFullYear(), 0, 1);
+          const yearEnd = new Date(now.getFullYear(), 11, 31);
+          return {
+            startDate: yearStart.toISOString().split('T')[0],
+            endDate: yearEnd.toISOString().split('T')[0],
+          };
+        }
+        const yearStart = new Date(currentYear, 0, 1);
+        const yearEnd = new Date(currentYear, 11, 31);
+        return {
+          startDate: yearStart.toISOString().split('T')[0],
+          endDate: yearEnd.toISOString().split('T')[0],
+        };
+
+      default:
+        return { startDate: '', endDate: '' };
+    }
+  }, []);
+
+  const handlePeriodChange = (period: PeriodType) => {
+    setRecurringReportConfig(prev => {
+      const dates = calculatePeriodDates(period, prev.selectedMonth, prev.selectedYear, prev.selectedQuarter);
+      return { ...prev, period, startDate: dates.startDate, endDate: dates.endDate };
+    });
+  };
+
+  const handleMonthChange = (month: string) => {
+    setRecurringReportConfig(prev => {
+      const dates = calculatePeriodDates(prev.period, month, prev.selectedYear, prev.selectedQuarter);
+      return { ...prev, selectedMonth: month, startDate: dates.startDate, endDate: dates.endDate };
+    });
+  };
+
+  const handleYearChange = (year: string) => {
+    setRecurringReportConfig(prev => {
+      const dates = calculatePeriodDates(prev.period, prev.selectedMonth, year, prev.selectedQuarter);
+      return { ...prev, selectedYear: year, startDate: dates.startDate, endDate: dates.endDate };
+    });
+  };
+
+  const handleQuarterChange = (quarter: string) => {
+    setRecurringReportConfig(prev => {
+      const dates = calculatePeriodDates(prev.period, prev.selectedMonth, prev.selectedYear, quarter);
+      return { ...prev, selectedQuarter: quarter, startDate: dates.startDate, endDate: dates.endDate };
+    });
+  };
+
+  // Generate month options
+  const monthOptions = useMemo(() => {
+    return [
+      { value: '1', label: 'January' },
+      { value: '2', label: 'February' },
+      { value: '3', label: 'March' },
+      { value: '4', label: 'April' },
+      { value: '5', label: 'May' },
+      { value: '6', label: 'June' },
+      { value: '7', label: 'July' },
+      { value: '8', label: 'August' },
+      { value: '9', label: 'September' },
+      { value: '10', label: 'October' },
+      { value: '11', label: 'November' },
+      { value: '12', label: 'December' },
+    ];
+  }, []);
+
+  // Generate year options (current year ± 2 years)
+  const yearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    return Array.from({ length: 5 }, (_, i) => currentYear - 2 + i).map(year => ({
+      value: year.toString(),
+      label: year.toString(),
+    }));
+  }, []);
+
+  // Generate quarter options
+  const quarterOptions = useMemo(() => {
+    return [
+      { value: 'Q1', label: 'Q1 (Jan-Mar)' },
+      { value: 'Q2', label: 'Q2 (Apr-Jun)' },
+      { value: 'Q3', label: 'Q3 (Jul-Sep)' },
+      { value: 'Q4', label: 'Q4 (Oct-Dec)' },
+    ];
+  }, []);
+
+  const generateReport = async () => {
+    setLoading(true);
+    try {
+      const params: any = {
+        reportType,
+        ...filters,
+      };
+
+      // Remove empty filters
+      Object.keys(params).forEach(key => {
+        if (params[key] === '' || params[key] === undefined) {
+          delete params[key];
+        }
+      });
+
+      const result = await reportsService.generateReport(params);
+      setReportData(result.data);
+      toast.success('Report Generated', {
+        description: 'Report has been generated successfully.',
+      });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to generate report';
+      toast.error('Error', {
+        description: errorMessage,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const generateRecurringAttendanceReport = async () => {
+    if (!recurringReportConfig.startDate || !recurringReportConfig.endDate) {
+      toast.error('Date Range Required', {
+        description: 'Please select a period or enter start and end dates.',
+      });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const params: any = {
+        reportType: ReportType.RECURRING_ATTENDANCE,
+        recurringReportType: recurringReportConfig.reportType,
+        period: recurringReportConfig.period,
+        startDate: recurringReportConfig.startDate,
+        endDate: recurringReportConfig.endDate,
+      };
+
+      if (recurringReportConfig.reportType === RecurringReportType.INDIVIDUAL && recurringReportConfig.memberId) {
+        params.memberId = recurringReportConfig.memberId;
+      }
+      if (recurringReportConfig.reportType === RecurringReportType.MINISTRY && recurringReportConfig.ministry) {
+        params.ministry = recurringReportConfig.ministry;
+      }
+      if (recurringReportConfig.reportType === RecurringReportType.COMMUNITY && recurringReportConfig.apostolate) {
+        params.apostolate = recurringReportConfig.apostolate;
+      }
+
+      const result = await reportsService.generateReport(params);
+      setRecurringReportData(result.data as RecurringAttendanceReport);
+      setShowRecurringReport(true);
+      toast.success('Recurring Attendance Report Generated', {
+        description: 'Report has been generated successfully.',
+      });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to generate report';
+      toast.error('Error', {
+        description: errorMessage,
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const exportToCSV = () => {
+    if (!reportData) {
+      toast.error('No Report Data', {
+        description: 'Please generate a report first.',
+      });
+      return;
+    }
+
+    const data = (reportData as any).data || [];
+    if (data.length === 0) {
+      toast.error('No Data to Export', {
+        description: 'The report contains no data.',
+      });
+      return;
+    }
+
+    const filename = `${reportType.toLowerCase()}-report-${new Date().toISOString().split('T')[0]}`;
+    reportsService.exportToCSV(data, filename);
+    toast.success('Report Exported', {
+      description: 'Report has been exported to CSV.',
+    });
+  };
+
+  const exportRecurringReportToCSV = () => {
+    if (!recurringReportData) return;
+
+    const data = recurringReportData.data || [];
+    if (data.length === 0) {
+      toast.error('No Data to Export');
+      return;
+    }
+
+    const filename = `recurring-attendance-report-${new Date().toISOString().split('T')[0]}`;
+    reportsService.exportToCSV(data, filename);
+    toast.success('Report Exported to CSV');
+  };
+
+  const exportRecurringReportToPDF = () => {
+    if (!recurringReportData) return;
+
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    let yPosition = 20;
+
+    // Helper function to add text with word wrapping
+    const addText = (text: string, x: number, y: number, options: { fontSize?: number; fontStyle?: string; color?: [number, number, number]; maxWidth?: number } = {}) => {
+      const { fontSize = 12, fontStyle = 'normal', color = [0, 0, 0], maxWidth = pageWidth - 40 } = options;
+      doc.setFontSize(fontSize);
+      doc.setFont('helvetica', fontStyle as any);
+      doc.setTextColor(...color);
+      const lines = doc.splitTextToSize(text, maxWidth);
+      doc.text(lines, x, y);
+      return y + (lines.length * fontSize * 0.4);
+    };
+
+    // Report Header
+    yPosition = addText('BLD Cebu Community Online Portal - Attendance Report', 20, yPosition, { fontSize: 20, fontStyle: 'bold', color: [0, 0, 139] });
+    yPosition += 5;
+    
+    const ministry = recurringReportConfig.ministry || 'All Ministries';
+    const apostolate = recurringReportConfig.apostolate || 'All Apostolates';
+    yPosition = addText(`${ministry} - ${apostolate}`, 20, yPosition, { fontSize: 14, color: [0, 0, 139] });
+    
+    const periodText = `${recurringReportConfig.startDate} to ${recurringReportConfig.endDate}`;
+    yPosition = addText(`Period: ${periodText}`, 20, yPosition, { fontSize: 12, color: [100, 100, 100] });
+    yPosition += 10;
+
+    // Summary Statistics
+    yPosition = addText('Summary Statistics', 20, yPosition, { fontSize: 16, fontStyle: 'bold' });
+    yPosition += 10;
+
+    const summary = recurringReportData.statistics;
+    const summaryData = [
+      ['Total Members', summary.totalMembers.toString()],
+      ['Average Attendance', `${summary.averageAttendance}%`],
+      ['Corporate Worship Instances', summary.totalInstances.corporateWorship.toString()],
+      ['Word Sharing Circles Instances', summary.totalInstances.wordSharingCircles.toString()],
+    ];
+
+    summaryData.forEach(([label, value]) => {
+      yPosition = addText(`${label}:`, 20, yPosition, { fontSize: 12, fontStyle: 'bold' });
+      yPosition = addText(value, 80, yPosition, { fontSize: 12 });
+      yPosition += 5;
+    });
+
+    yPosition += 10;
+
+    // Member Attendance Table
+    if (recurringReportData.data.length > 0) {
+      if (yPosition > 250) {
+        doc.addPage();
+        yPosition = 20;
+      }
+
+      yPosition = addText('Member Attendance', 20, yPosition, { fontSize: 16, fontStyle: 'bold' });
+      yPosition += 10;
+
+      // Table headers
+      const headers = ['Community ID', 'Last Name', 'First Name', 'MI', 'CW', 'CW%', 'WSC', 'WSC%', 'Total', 'Overall%'];
+      const colWidths = [25, 30, 30, 10, 12, 15, 12, 15, 12, 15];
+      let xPos = 20;
+
+      headers.forEach((header, index) => {
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        doc.text(header, xPos, yPosition);
+        xPos += colWidths[index];
+      });
+
+      yPosition += 8;
+
+      // Table rows
+      recurringReportData.data.forEach((member, index) => {
+        if (yPosition > 280) {
+          doc.addPage();
+          yPosition = 20;
+        }
+
+        xPos = 20;
+        const rowData = [
+          member.communityId || '',
+          member.lastName || '',
+          member.firstName || '',
+          member.middleInitial || '',
+          member.corporateWorshipAttended?.toString() || '0',
+          `${member.corporateWorshipPercentage || 0}%`,
+          member.wordSharingCirclesAttended?.toString() || '0',
+          `${member.wordSharingCirclesPercentage || 0}%`,
+          member.totalAttended?.toString() || '0',
+          `${member.percentage || 0}%`,
+        ];
+
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'normal');
+        rowData.forEach((cell, cellIndex) => {
+          doc.text(cell, xPos, yPosition);
+          xPos += colWidths[cellIndex];
+        });
+
+        yPosition += 6;
+      });
+    }
+
+    // Save PDF
+    const filename = `recurring-attendance-report-${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(filename);
+    toast.success('Report Exported to PDF');
+  };
+
+  // Chart data for recurring attendance report
+  const chartData = useMemo(() => {
+    if (!recurringReportData) return null;
+
+    const data = recurringReportData.data;
+    const labels = data.slice(0, 20).map(m => `${m.lastName}, ${m.firstName}`);
+    const cwData = data.slice(0, 20).map(m => m.corporateWorshipAttended || 0);
+    const wscData = data.slice(0, 20).map(m => m.wordSharingCirclesAttended || 0);
+
+    return {
+      bar: {
+        labels,
+        datasets: [
+          {
+            label: 'Corporate Worship',
+            data: cwData,
+            backgroundColor: 'rgba(59, 130, 246, 0.5)',
+            borderColor: 'rgb(59, 130, 246)',
+            borderWidth: 1,
+          },
+          {
+            label: 'Word Sharing Circles',
+            data: wscData,
+            backgroundColor: 'rgba(16, 185, 129, 0.5)',
+            borderColor: 'rgb(16, 185, 129)',
+            borderWidth: 1,
+          },
+        ],
+      },
+      pie: {
+        labels: ['Corporate Worship', 'Word Sharing Circles'],
+        datasets: [
+          {
+            data: [
+              recurringReportData.statistics.totalCorporateWorshipAttended,
+              recurringReportData.statistics.totalWordSharingCirclesAttended,
+            ],
+            backgroundColor: ['rgba(59, 130, 246, 0.5)', 'rgba(16, 185, 129, 0.5)'],
+            borderColor: ['rgb(59, 130, 246)', 'rgb(16, 185, 129)'],
+            borderWidth: 1,
+          },
+        ],
+      },
+    };
+  }, [recurringReportData]);
+
+  const formatDate = (dateString: string): string => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+    } catch {
+      return dateString;
+    }
+  };
+
+  const formatDateTime = (dateString: string): string => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return dateString;
+    }
+  };
+
+  const formatCurrency = (amount: number): string => {
+    return new Intl.NumberFormat('en-PH', {
+      style: 'currency',
+      currency: 'PHP',
+    }).format(amount);
+  };
+
+  const allowedRoles = ['SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR'];
+  const canAccess = allowedRoles.includes(userRole);
+
+  if (!canAccess && userRole) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+        <Card className="max-w-md w-full">
+          <CardContent className="p-8 text-center">
+            <div className="text-6xl mb-4">🔒</div>
+            <h2 className="text-2xl font-bold mb-2 text-gray-800">Access Denied</h2>
+            <p className="text-lg text-gray-600 mb-4">
+              You don't have permission to access Reports.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Get unique ministries and apostolates
+  const ministries = useMemo(() => {
+    const unique = new Set(members.map(m => m.ministry).filter(Boolean));
+    return Array.from(unique).sort();
+  }, [members]);
+
+  const apostolates = useMemo(() => {
+    const unique = new Set(members.map(m => m.apostolate).filter(Boolean));
+    return Array.from(unique).sort();
+  }, [members]);
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <DashboardHeader />
+      <div className="p-4 md:p-6">
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Reports</h1>
+              <p className="text-gray-600 mt-1">Generate and export reports</p>
+            </div>
+            <div className="flex gap-2 mt-4 sm:mt-0">
+              <Button 
+                onClick={() => setShowAnalytics(!showAnalytics)} 
+                variant={showAnalytics ? "default" : "outline"}
+                className="bg-purple-600 hover:bg-purple-700 text-white"
+              >
+                {showAnalytics ? (
+                  <>
+                    <EyeOff className="w-4 h-4 mr-2" />
+                    Hide Analytics
+                  </>
+                ) : (
+                  <>
+                    <Eye className="w-4 h-4 mr-2" />
+                    Show Analytics
+                  </>
+                )}
+              </Button>
+              {reportData && (
+                <Button onClick={exportToCSV}>
+                  <Download className="w-4 h-4 mr-2" />
+                  Export to CSV
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Analytics Dashboard */}
+          {showAnalytics && (
+            <div className="space-y-6">
+              {/* Analytics Dashboard Section */}
+              <Card className="bg-gradient-to-br from-purple-50 to-blue-50 border-purple-200">
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-purple-800 text-2xl">Analytics Dashboard</CardTitle>
+                      <p className="text-purple-600 mt-1 text-sm">
+                        Visual analytics and insights for attendance patterns, ministry performance, and member engagement trends.
+                      </p>
+                    </div>
+                    <Button
+                      onClick={loadDashboardMetrics}
+                      disabled={analyticsLoading}
+                      variant="outline"
+                      className="bg-white hover:bg-purple-50"
+                    >
+                      {analyticsLoading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Loading...
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Refresh Data
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {analyticsLoading ? (
+                    <div className="flex items-center justify-center py-12">
+                      <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
+                    </div>
+                  ) : dashboardMetrics ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {/* Total Members */}
+                      <Card className="bg-white border-purple-200">
+                        <CardContent className="p-6">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-gray-600 mb-1">Total Members</p>
+                              <p className="text-3xl font-bold text-purple-600">{dashboardMetrics.totalMembers}</p>
+                            </div>
+                            <div className="p-3 bg-purple-100 rounded-full">
+                              <Users className="w-6 h-6 text-purple-600" />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* Total Events */}
+                      <Card className="bg-white border-purple-200">
+                        <CardContent className="p-6">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-gray-600 mb-1">Total Events</p>
+                              <p className="text-3xl font-bold text-purple-600">{dashboardMetrics.totalEvents}</p>
+                            </div>
+                            <div className="p-3 bg-purple-100 rounded-full">
+                              <Calendar className="w-6 h-6 text-purple-600" />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* Attendance Rate */}
+                      <Card className="bg-white border-green-200">
+                        <CardContent className="p-6">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-gray-600 mb-1">Attendance Rate</p>
+                              <p className="text-3xl font-bold text-green-600">{dashboardMetrics.attendanceRate}%</p>
+                              <p className="text-xs text-gray-500 mt-1">Based on actual check-ins vs possible attendances</p>
+                            </div>
+                            <div className="p-3 bg-green-100 rounded-full">
+                              <TrendingUp className="w-6 h-6 text-green-600" />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* This Month Events */}
+                      <Card className="bg-white border-orange-200">
+                        <CardContent className="p-6">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-gray-600 mb-1">This Month Events</p>
+                              <p className="text-3xl font-bold text-orange-600">{dashboardMetrics.thisMonthEvents}</p>
+                            </div>
+                            <div className="p-3 bg-orange-100 rounded-full">
+                              <Calendar className="w-6 h-6 text-orange-600" />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  ) : (
+                    <div className="text-center py-12 text-gray-500">
+                      <BarChart3 className="w-12 h-12 mx-auto mb-4 text-gray-400" />
+                      <p>Click "Refresh Data" to load analytics</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Recurring Event Analytics */}
+              {recurringEventMetrics && (
+                <Card className="bg-gradient-to-br from-blue-50 to-purple-50 border-blue-200">
+                  <CardHeader>
+                    <CardTitle className="text-blue-800 text-xl">Recurring Event Analytics</CardTitle>
+                    <p className="text-blue-600 text-sm mt-1">
+                      Track attendance performance for recurring events to identify patterns and engagement levels.
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Corporate Worship */}
+                      <Card className="bg-white border-purple-200">
+                        <CardContent className="p-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="p-3 bg-purple-100 rounded-full">
+                              <Church className="w-6 h-6 text-purple-600" />
+                            </div>
+                            <h4 className="font-semibold text-purple-800">Corporate Worship</h4>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <span className="text-sm text-gray-600">Events:</span>
+                              <span className="font-semibold text-purple-600">{recurringEventMetrics.corporateWorship.count}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-gray-600">Attendance Rate:</span>
+                              <span className="font-semibold text-green-600">{recurringEventMetrics.corporateWorship.attendanceRate}%</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-gray-600">Total Attendances:</span>
+                              <span className="font-semibold text-purple-600">{recurringEventMetrics.corporateWorship.totalAttendances}</span>
+                            </div>
+                            <div className="mt-3 h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-purple-600 transition-all duration-500"
+                                style={{ width: `${Math.min(recurringEventMetrics.corporateWorship.attendanceRate, 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* Word Sharing Circles */}
+                      <Card className="bg-white border-blue-200">
+                        <CardContent className="p-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="p-3 bg-blue-100 rounded-full">
+                              <MessageCircle className="w-6 h-6 text-blue-600" />
+                            </div>
+                            <h4 className="font-semibold text-blue-800">Word Sharing Circles</h4>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <span className="text-sm text-gray-600">Events:</span>
+                              <span className="font-semibold text-blue-600">{recurringEventMetrics.wordSharingCircles.count}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-gray-600">Attendance Rate:</span>
+                              <span className="font-semibold text-green-600">{recurringEventMetrics.wordSharingCircles.attendanceRate}%</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-gray-600">Total Attendances:</span>
+                              <span className="font-semibold text-blue-600">{recurringEventMetrics.wordSharingCircles.totalAttendances}</span>
+                            </div>
+                            <div className="mt-3 h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-blue-600 transition-all duration-500"
+                                style={{ width: `${Math.min(recurringEventMetrics.wordSharingCircles.attendanceRate, 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* Non-Recurring Events */}
+                      <Card className="bg-white border-gray-200">
+                        <CardContent className="p-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="p-3 bg-gray-100 rounded-full">
+                              <Calendar className="w-6 h-6 text-gray-600" />
+                            </div>
+                            <h4 className="font-semibold text-gray-800">Non-Recurring Events</h4>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex justify-between">
+                              <span className="text-sm text-gray-600">Events:</span>
+                              <span className="font-semibold text-gray-600">{recurringEventMetrics.nonRecurring.count}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-gray-600">Attendance Rate:</span>
+                              <span className="font-semibold text-gray-600">{recurringEventMetrics.nonRecurring.attendanceRate}%</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-gray-600">Total Attendances:</span>
+                              <span className="font-semibold text-gray-600">{recurringEventMetrics.nonRecurring.totalAttendances}</span>
+                            </div>
+                            <div className="mt-3 h-2 bg-gray-200 rounded-full overflow-hidden">
+                              <div 
+                                className="h-full bg-gray-400 transition-all duration-500"
+                                style={{ width: `${Math.min(recurringEventMetrics.nonRecurring.attendanceRate, 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
+          {/* Recurring Attendance Reports Section */}
+          <Card className="bg-purple-50 border-purple-200">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-purple-800 flex items-center gap-2">
+                    <BarChart3 className="w-6 h-6" />
+                    Recurring Attendance Reports
+                  </CardTitle>
+                  <p className="text-sm text-purple-600 mt-2">
+                    Generate comprehensive attendance reports for Corporate Worship and Word Sharing Circles with multiple report types and periods.
+                  </p>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Report Configuration */}
+                <Card className="bg-white border-purple-200">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Report Configuration</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* Report Type */}
+                    <div>
+                      <Label htmlFor="recurringReportType">Report Type</Label>
+                      <Select
+                        value={recurringReportConfig.reportType}
+                        onValueChange={(value) => setRecurringReportConfig({ ...recurringReportConfig, reportType: value as RecurringReportType })}
+                      >
+                        <SelectTrigger id="recurringReportType">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={RecurringReportType.INDIVIDUAL}>Individual Member</SelectItem>
+                          <SelectItem value={RecurringReportType.MINISTRY}>Ministry Report</SelectItem>
+                          <SelectItem value={RecurringReportType.COMMUNITY}>Community Report</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Period */}
+                    <div>
+                      <Label htmlFor="period">Period</Label>
+                      <Select
+                        value={recurringReportConfig.period}
+                        onValueChange={handlePeriodChange}
+                      >
+                        <SelectTrigger id="period">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={PeriodType.MONTHLY}>Monthly</SelectItem>
+                          <SelectItem value={PeriodType.QUARTERLY}>Quarterly</SelectItem>
+                          <SelectItem value={PeriodType.YTD}>Year to Date</SelectItem>
+                          <SelectItem value={PeriodType.ANNUAL}>Annual</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Month Selection (for Monthly) */}
+                    {recurringReportConfig.period === PeriodType.MONTHLY && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label htmlFor="month">Month</Label>
+                          <Select
+                            value={recurringReportConfig.selectedMonth}
+                            onValueChange={handleMonthChange}
+                          >
+                            <SelectTrigger id="month">
+                              <SelectValue placeholder="Select Month" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {monthOptions.map((month) => (
+                                <SelectItem key={month.value} value={month.value}>
+                                  {month.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label htmlFor="year">Year</Label>
+                          <Select
+                            value={recurringReportConfig.selectedYear}
+                            onValueChange={handleYearChange}
+                          >
+                            <SelectTrigger id="year">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {yearOptions.map((year) => (
+                                <SelectItem key={year.value} value={year.value}>
+                                  {year.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Quarter Selection (for Quarterly) */}
+                    {recurringReportConfig.period === PeriodType.QUARTERLY && (
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <Label htmlFor="quarter">Quarter</Label>
+                          <Select
+                            value={recurringReportConfig.selectedQuarter}
+                            onValueChange={handleQuarterChange}
+                          >
+                            <SelectTrigger id="quarter">
+                              <SelectValue placeholder="Select Quarter" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {quarterOptions.map((quarter) => (
+                                <SelectItem key={quarter.value} value={quarter.value}>
+                                  {quarter.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label htmlFor="year">Year</Label>
+                          <Select
+                            value={recurringReportConfig.selectedYear}
+                            onValueChange={handleYearChange}
+                          >
+                            <SelectTrigger id="year">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {yearOptions.map((year) => (
+                                <SelectItem key={year.value} value={year.value}>
+                                  {year.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Year Selection (for Annual) */}
+                    {recurringReportConfig.period === PeriodType.ANNUAL && (
+                      <div>
+                        <Label htmlFor="year">Year</Label>
+                        <Select
+                          value={recurringReportConfig.selectedYear}
+                          onValueChange={handleYearChange}
+                        >
+                          <SelectTrigger id="year">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {yearOptions.map((year) => (
+                              <SelectItem key={year.value} value={year.value}>
+                                {year.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    {/* Individual Member Selection */}
+                    {recurringReportConfig.reportType === RecurringReportType.INDIVIDUAL && (
+                      <div>
+                        <Label htmlFor="memberId">Select Member</Label>
+                        <Select
+                          value={recurringReportConfig.memberId}
+                          onValueChange={(value) => setRecurringReportConfig({ ...recurringReportConfig, memberId: value })}
+                        >
+                          <SelectTrigger id="memberId">
+                            <SelectValue placeholder="Select a member..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {members.map((member) => {
+                              const middleInitial = member.middleName ? member.middleName.charAt(0).toUpperCase() : '';
+                              return (
+                                <SelectItem key={member.id} value={member.communityId}>
+                                  {member.lastName}, {member.firstName} {middleInitial} ({member.communityId})
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    {/* Ministry Selection */}
+                    {recurringReportConfig.reportType === RecurringReportType.MINISTRY && (
+                      <div>
+                        <Label htmlFor="ministrySelect">Select Ministry</Label>
+                        <Select
+                          value={recurringReportConfig.ministry}
+                          onValueChange={(value) => setRecurringReportConfig({ ...recurringReportConfig, ministry: value })}
+                        >
+                          <SelectTrigger id="ministrySelect">
+                            <SelectValue placeholder="Select a ministry..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ministries.map((ministry) => (
+                              <SelectItem key={ministry} value={ministry}>
+                                {ministry}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    {/* Apostolate Selection */}
+                    {recurringReportConfig.reportType === RecurringReportType.COMMUNITY && (
+                      <div>
+                        <Label htmlFor="apostolate">Select Apostolate (Optional)</Label>
+                        <Select
+                          value={recurringReportConfig.apostolate || 'ALL'}
+                          onValueChange={(value) => setRecurringReportConfig({ ...recurringReportConfig, apostolate: value === 'ALL' ? '' : value })}
+                        >
+                          <SelectTrigger id="apostolate">
+                            <SelectValue placeholder="All Apostolates" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ALL">All Apostolates</SelectItem>
+                            {apostolates.map((apostolate) => (
+                              <SelectItem key={apostolate} value={apostolate}>
+                                {apostolate}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    <Button onClick={generateRecurringAttendanceReport} disabled={loading} className="w-full bg-purple-600 hover:bg-purple-700">
+                      {loading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <BarChart3 className="w-4 h-4 mr-2" />
+                          Generate Recurring Report
+                        </>
+                      )}
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {/* Report Features */}
+                <Card className="bg-white border-purple-200">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Report Features</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                      <div className="flex items-start gap-3">
+                        <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
+                        <div>
+                          <h5 className="font-semibold text-green-800 mb-1">Comprehensive Analytics</h5>
+                          <p className="text-sm text-green-600">Track attendance for Corporate Worship and Word Sharing Circles with percentage calculations.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                      <div className="flex items-start gap-3">
+                        <Calendar className="w-5 h-5 text-purple-600 mt-0.5" />
+                        <div>
+                          <h5 className="font-semibold text-purple-800 mb-1">Multiple Periods</h5>
+                          <p className="text-sm text-purple-600">Generate reports for monthly, quarterly, year-to-date, or annual periods.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                      <div className="flex items-start gap-3">
+                        <Users className="w-5 h-5 text-blue-600 mt-0.5" />
+                        <div>
+                          <h5 className="font-semibold text-blue-800 mb-1">Flexible Grouping</h5>
+                          <p className="text-sm text-blue-600">Individual member cards, ministry reports, or community-wide analysis.</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                      <div className="flex items-start gap-3">
+                        <BarChart3 className="w-5 h-5 text-orange-600 mt-0.5" />
+                        <div>
+                          <h5 className="font-semibold text-orange-800 mb-1">Smart Sorting</h5>
+                          <p className="text-sm text-orange-600">PLSG, Service, and Intercessory sorted by ME Class No., others alphabetically.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Individual Member Reports Section */}
+          <Card className="bg-green-50 border-green-200">
+            <CardHeader>
+              <CardTitle className="text-green-800 flex items-center gap-2">
+                <Users className="w-6 h-6" />
+                Individual Member Reports
+              </CardTitle>
+              <p className="text-sm text-green-600 mt-2">
+                Generate detailed attendance reports for specific members across all events or a specific time period.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Generate Member Report */}
+                <Card className="bg-white border-green-200">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Generate Member Report</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <Label htmlFor="individualMemberId">Select Member</Label>
+                      <Select
+                        value={recurringReportConfig.memberId}
+                        onValueChange={(value) => setRecurringReportConfig({ ...recurringReportConfig, memberId: value, reportType: RecurringReportType.INDIVIDUAL })}
+                      >
+                        <SelectTrigger id="individualMemberId">
+                          <SelectValue placeholder="Select a member..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {members.map((member) => {
+                            const middleInitial = member.middleName ? member.middleName.charAt(0).toUpperCase() : '';
+                            return (
+                              <SelectItem key={member.id} value={member.communityId}>
+                                {member.lastName}, {member.firstName} {middleInitial} ({member.communityId})
+                              </SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="individualPeriod">Time Period</Label>
+                      <Select
+                        value={recurringReportConfig.period}
+                        onValueChange={(period) => {
+                          const dates = calculatePeriodDates(period as PeriodType, recurringReportConfig.selectedMonth, recurringReportConfig.selectedYear, recurringReportConfig.selectedQuarter);
+                          setRecurringReportConfig({ ...recurringReportConfig, period: period as PeriodType, startDate: dates.startDate, endDate: dates.endDate });
+                        }}
+                      >
+                        <SelectTrigger id="individualPeriod">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={PeriodType.MONTHLY}>Last Month</SelectItem>
+                          <SelectItem value={PeriodType.QUARTERLY}>Last Quarter</SelectItem>
+                          <SelectItem value={PeriodType.YTD}>Year to Date</SelectItem>
+                          <SelectItem value={PeriodType.ANNUAL}>Last Year</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <Button 
+                      onClick={() => {
+                        setRecurringReportConfig(prev => ({ ...prev, reportType: RecurringReportType.INDIVIDUAL }));
+                        generateRecurringAttendanceReport();
+                      }}
+                      disabled={loading || !recurringReportConfig.memberId}
+                      className="w-full bg-green-600 hover:bg-green-700"
+                    >
+                      {loading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Users className="w-4 h-4 mr-2" />
+                          Generate Member Report
+                        </>
+                      )}
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {/* Member Report Features */}
+                <Card className="bg-white border-green-200">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Member Report Features</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                      <div className="flex items-start gap-3">
+                        <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
+                        <div>
+                          <h5 className="font-semibold text-green-800 mb-1">Attendance History</h5>
+                          <p className="text-sm text-green-600">Complete attendance record for the selected time period</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                      <div className="flex items-start gap-3">
+                        <BarChart3 className="w-5 h-5 text-purple-600 mt-0.5" />
+                        <div>
+                          <h5 className="font-semibold text-purple-800 mb-1">Performance Metrics</h5>
+                          <p className="text-sm text-purple-600">Attendance percentage and participation statistics</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                      <div className="flex items-start gap-3">
+                        <Calendar className="w-5 h-5 text-purple-600 mt-0.5" />
+                        <div>
+                          <h5 className="font-semibold text-purple-800 mb-1">Event Breakdown</h5>
+                          <p className="text-sm text-purple-600">Detailed breakdown by event type and date</p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Event-Specific Reports Section */}
+          <Card className="bg-purple-50 border-purple-200">
+            <CardHeader>
+              <CardTitle className="text-purple-800 flex items-center gap-2">
+                <Calendar className="w-6 h-6" />
+                Event-Specific Reports
+              </CardTitle>
+              <p className="text-sm text-purple-600 mt-2">
+                Generate detailed reports for individual events showing who attended, when they checked in, and event performance metrics.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Generate Event Report */}
+                <Card className="bg-white border-purple-200">
+                  <CardHeader>
+                    <CardTitle className="text-lg">Generate Event Report</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div>
+                      <Label htmlFor="eventReportEventId">Select Event</Label>
+                      <Select
+                        value={filters.eventId || 'ALL'}
+                        onValueChange={(value) => {
+                          setFilters({ ...filters, eventId: value === 'ALL' ? '' : value });
+                          setReportType(ReportType.ATTENDANCE);
+                        }}
+                      >
+                        <SelectTrigger id="eventReportEventId">
+                          <SelectValue placeholder="Select an event..." />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ALL">All Events</SelectItem>
+                          {events.map((event) => (
+                            <SelectItem key={event.id} value={event.id}>
+                              {event.title} - {formatDate(event.startDate)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div>
+                      <Label htmlFor="reportFormat">Report Format</Label>
+                      <Select
+                        value="json"
+                        onValueChange={() => {}}
+                      >
+                        <SelectTrigger id="reportFormat">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="json">JSON (Data Export)</SelectItem>
+                          <SelectItem value="csv">CSV (Spreadsheet)</SelectItem>
+                          <SelectItem value="excel">Excel (Formatted)</SelectItem>
+                          <SelectItem value="pdf">PDF (Printable)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <Button 
+                      onClick={() => {
+                        setReportType(ReportType.ATTENDANCE);
+                        generateReport();
+                      }}
+                      disabled={loading || !filters.eventId}
+                      className="w-full bg-purple-600 hover:bg-purple-700"
+                    >
+                      {loading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <BarChart3 className="w-4 h-4 mr-2" />
+                          Generate Event Report
+                        </>
+                      )}
+                    </Button>
+                  </CardContent>
+                </Card>
+
+                {/* What You'll Get */}
+                <Card className="bg-white border-purple-200">
+                  <CardHeader>
+                    <CardTitle className="text-lg">What You'll Get</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                      <div className="flex items-start gap-3">
+                        <FileText className="w-5 h-5 text-green-600 mt-0.5" />
+                        <div>
+                          <h5 className="font-semibold text-green-800 mb-1">Attendance List</h5>
+                          <p className="text-sm text-green-600">Complete list of all members who attended the event with check-in times</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                      <div className="flex items-start gap-3">
+                        <BarChart3 className="w-5 h-5 text-purple-600 mt-0.5" />
+                        <div>
+                          <h5 className="font-semibold text-purple-800 mb-1">Event Statistics</h5>
+                          <p className="text-sm text-purple-600">Total attendees, check-in patterns, and attendance rates</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                      <div className="flex items-start gap-3">
+                        <Users className="w-5 h-5 text-purple-600 mt-0.5" />
+                        <div>
+                          <h5 className="font-semibold text-purple-800 mb-1">Member Details</h5>
+                          <p className="text-sm text-purple-600">Contact information and member profiles for follow-up</p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Standard Reports Section */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Standard Reports</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="reportType">Report Type</Label>
+                <Select value={reportType} onValueChange={(value) => setReportType(value as ReportType)}>
+                  <SelectTrigger id="reportType">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ReportType.ATTENDANCE}>
+                      <div className="flex items-center">
+                        <CheckCircle className="w-4 h-4 mr-2" />
+                        Attendance Report
+                      </div>
+                    </SelectItem>
+                    <SelectItem value={ReportType.REGISTRATION}>
+                      <div className="flex items-center">
+                        <Users className="w-4 h-4 mr-2" />
+                        Registration Report
+                      </div>
+                    </SelectItem>
+                    <SelectItem value={ReportType.MEMBER}>
+                      <div className="flex items-center">
+                        <Users className="w-4 h-4 mr-2" />
+                        Member Report
+                      </div>
+                    </SelectItem>
+                    <SelectItem value={ReportType.EVENT}>
+                      <div className="flex items-center">
+                        <Calendar className="w-4 h-4 mr-2" />
+                        Event Report
+                      </div>
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Filters */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {reportType === ReportType.ATTENDANCE || reportType === ReportType.REGISTRATION ? (
+                  <div>
+                    <Label htmlFor="eventId">Event</Label>
+                    <Select value={filters.eventId || 'ALL'} onValueChange={(value) => setFilters({ ...filters, eventId: value === 'ALL' ? '' : value })}>
+                      <SelectTrigger id="eventId">
+                        <SelectValue placeholder="All Events" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All Events</SelectItem>
+                        {events.map((event) => (
+                          <SelectItem key={event.id} value={event.id}>
+                            {event.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
+
+                <div>
+                  <Label htmlFor="startDate">Start Date</Label>
+                  <Input
+                    id="startDate"
+                    type="date"
+                    value={filters.startDate}
+                    onChange={(e) => setFilters({ ...filters, startDate: e.target.value })}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="endDate">End Date</Label>
+                  <Input
+                    id="endDate"
+                    type="date"
+                    value={filters.endDate}
+                    onChange={(e) => setFilters({ ...filters, endDate: e.target.value })}
+                  />
+                </div>
+
+                {reportType === ReportType.MEMBER && (
+                  <>
+                    <div>
+                      <Label htmlFor="encounterType">Encounter Type</Label>
+                      <Input
+                        id="encounterType"
+                        value={filters.encounterType}
+                        onChange={(e) => setFilters({ ...filters, encounterType: e.target.value })}
+                        placeholder="e.g., ME, SE, FE"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="ministry">Ministry</Label>
+                      <Input
+                        id="ministry"
+                        value={filters.ministry}
+                        onChange={(e) => setFilters({ ...filters, ministry: e.target.value })}
+                        placeholder="Ministry name"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="city">City</Label>
+                      <Input
+                        id="city"
+                        value={filters.city}
+                        onChange={(e) => setFilters({ ...filters, city: e.target.value })}
+                        placeholder="City name"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {reportType === ReportType.EVENT && (
+                  <div>
+                    <Label htmlFor="encounterType">Encounter Type</Label>
+                    <Input
+                      id="encounterType"
+                      value={filters.encounterType}
+                      onChange={(e) => setFilters({ ...filters, encounterType: e.target.value })}
+                      placeholder="e.g., ME, SE, FE"
+                    />
+                  </div>
+                )}
+              </div>
+
+              <Button onClick={generateReport} disabled={loading} className="w-full">
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <FileText className="w-4 h-4 mr-2" />
+                    Generate Report
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+
+          {/* Advanced Filtering & Search Section */}
+          <Card className="bg-gradient-to-r from-green-50 to-teal-50 border-green-200">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-green-800 flex items-center gap-2">
+                    <Filter className="w-6 h-6" />
+                    Advanced Filtering & Search
+                  </CardTitle>
+                  <p className="text-sm text-green-600 mt-2">
+                    Use advanced filters to find specific events, members, or attendance patterns. Filter by date range, ministry, event type, and more.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
+                    variant="outline"
+                    className="bg-white hover:bg-green-50"
+                  >
+                    {showAdvancedFilters ? (
+                      <>
+                        <EyeOff className="w-4 h-4 mr-2" />
+                        Hide Filters
+                      </>
+                    ) : (
+                      <>
+                        <Filter className="w-4 h-4 mr-2" />
+                        Show Filters
+                      </>
+                    )}
+                  </Button>
+                  {showAdvancedFilters && (
+                    <>
+                      <Button
+                        onClick={() => {
+                          // Apply filters logic here
+                          toast.success('Filters Applied', {
+                            description: 'Filters have been applied successfully.',
+                          });
+                        }}
+                        className="bg-teal-600 hover:bg-teal-700"
+                      >
+                        Apply Filters
+                      </Button>
+                      <Button
+                        onClick={() => {
+                          setAdvancedFilters({
+                            searchTerm: '',
+                            dateRange: { start: '', end: '' },
+                            ministries: [],
+                            eventTypes: [],
+                            attendanceRange: { min: 0, max: 100 },
+                            sortBy: 'date',
+                            sortOrder: 'desc',
+                          });
+                          setFilteredEvents([]);
+                          toast.success('Filters Cleared');
+                        }}
+                        variant="outline"
+                        className="bg-white hover:bg-gray-50"
+                      >
+                        Clear All
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            {showAdvancedFilters && (
+              <CardContent>
+                <Card className="bg-white border-green-200">
+                  <CardContent className="p-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {/* Search Events */}
+                      <div>
+                        <Label htmlFor="searchEvents">Search Events</Label>
+                        <Input
+                          id="searchEvents"
+                          type="text"
+                          value={advancedFilters.searchTerm}
+                          onChange={(e) => setAdvancedFilters({ ...advancedFilters, searchTerm: e.target.value })}
+                          placeholder="Search by title, description, or location..."
+                        />
+                      </div>
+
+                      {/* Date Range */}
+                      <div>
+                        <Label>Date Range</Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input
+                            type="date"
+                            value={advancedFilters.dateRange.start}
+                            onChange={(e) => setAdvancedFilters({
+                              ...advancedFilters,
+                              dateRange: { ...advancedFilters.dateRange, start: e.target.value },
+                            })}
+                            placeholder="Start Date"
+                          />
+                          <Input
+                            type="date"
+                            value={advancedFilters.dateRange.end}
+                            onChange={(e) => setAdvancedFilters({
+                              ...advancedFilters,
+                              dateRange: { ...advancedFilters.dateRange, end: e.target.value },
+                            })}
+                            placeholder="End Date"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Sort By */}
+                      <div>
+                        <Label htmlFor="sortBy">Sort By</Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Select
+                            value={advancedFilters.sortBy}
+                            onValueChange={(value) => setAdvancedFilters({ ...advancedFilters, sortBy: value as any })}
+                          >
+                            <SelectTrigger id="sortBy">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="date">Date</SelectItem>
+                              <SelectItem value="title">Title</SelectItem>
+                              <SelectItem value="attendance">Attendance</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Select
+                            value={advancedFilters.sortOrder}
+                            onValueChange={(value) => setAdvancedFilters({ ...advancedFilters, sortOrder: value as any })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="asc">Ascending</SelectItem>
+                              <SelectItem value="desc">Descending</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      {/* Filter by Ministry */}
+                      <div>
+                        <Label>Filter by Ministry</Label>
+                        <div className="max-h-40 overflow-y-auto border rounded-lg p-2 space-y-2">
+                          {ministries.map((ministry) => (
+                            <div key={ministry} className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                id={`ministry-${ministry}`}
+                                checked={advancedFilters.ministries.includes(ministry)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setAdvancedFilters({
+                                      ...advancedFilters,
+                                      ministries: [...advancedFilters.ministries, ministry],
+                                    });
+                                  } else {
+                                    setAdvancedFilters({
+                                      ...advancedFilters,
+                                      ministries: advancedFilters.ministries.filter(m => m !== ministry),
+                                    });
+                                  }
+                                }}
+                                className="rounded"
+                              />
+                              <Label htmlFor={`ministry-${ministry}`} className="text-sm cursor-pointer">
+                                {ministry}
+                              </Label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Filter by Event Type */}
+                      <div>
+                        <Label>Filter by Event Type</Label>
+                        <div className="space-y-2 border rounded-lg p-2">
+                          {['Corporate Worship', 'Word Sharing Circles', 'Special Event', 'Ministry Event', 'Training', 'Meeting'].map((type) => (
+                            <div key={type} className="flex items-center space-x-2">
+                              <input
+                                type="checkbox"
+                                id={`eventType-${type}`}
+                                checked={advancedFilters.eventTypes.includes(type)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setAdvancedFilters({
+                                      ...advancedFilters,
+                                      eventTypes: [...advancedFilters.eventTypes, type],
+                                    });
+                                  } else {
+                                    setAdvancedFilters({
+                                      ...advancedFilters,
+                                      eventTypes: advancedFilters.eventTypes.filter(t => t !== type),
+                                    });
+                                  }
+                                }}
+                                className="rounded"
+                              />
+                              <Label htmlFor={`eventType-${type}`} className="text-sm cursor-pointer">
+                                {type}
+                              </Label>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Attendance Range */}
+                      <div>
+                        <Label>Attendance Range (%)</Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={advancedFilters.attendanceRange.min}
+                            onChange={(e) => setAdvancedFilters({
+                              ...advancedFilters,
+                              attendanceRange: {
+                                ...advancedFilters.attendanceRange,
+                                min: parseInt(e.target.value) || 0,
+                              },
+                            })}
+                            placeholder="Min"
+                          />
+                          <Input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={advancedFilters.attendanceRange.max}
+                            onChange={(e) => setAdvancedFilters({
+                              ...advancedFilters,
+                              attendanceRange: {
+                                ...advancedFilters.attendanceRange,
+                                max: parseInt(e.target.value) || 100,
+                              },
+                            })}
+                            placeholder="Max"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </CardContent>
+            )}
+          </Card>
+
+          {/* Report Results */}
+          {reportData && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Report Results</CardTitle>
+                  <Badge variant="outline">
+                    Generated: {formatDateTime((reportData as any).summary.generatedAt)}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {/* Statistics */}
+                {'statistics' in reportData && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                    {Object.entries(reportData.statistics).map(([key, value]) => (
+                      <div key={key} className="bg-gray-50 p-4 rounded-lg">
+                        <p className="text-sm text-gray-600 capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</p>
+                        <p className="text-2xl font-bold text-gray-900">
+                          {typeof value === 'number' ? value.toLocaleString() : String(value)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Data Table */}
+                {'data' in reportData && reportData.data.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        {reportType === ReportType.ATTENDANCE && (
+                          <>
+                            <TableHead>Member</TableHead>
+                            <TableHead>Community ID</TableHead>
+                            <TableHead>Event</TableHead>
+                            <TableHead>Check-in Time</TableHead>
+                            <TableHead>Method</TableHead>
+                          </>
+                        )}
+                        {reportType === ReportType.REGISTRATION && (
+                          <>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Type</TableHead>
+                            <TableHead>Event</TableHead>
+                            <TableHead>Payment Status</TableHead>
+                            <TableHead>Amount</TableHead>
+                            <TableHead>Room</TableHead>
+                          </>
+                        )}
+                        {reportType === ReportType.MEMBER && (
+                          <>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Community ID</TableHead>
+                            <TableHead>City</TableHead>
+                            <TableHead>Encounter Type</TableHead>
+                            <TableHead>Ministry</TableHead>
+                            <TableHead>Status</TableHead>
+                          </>
+                        )}
+                        {reportType === ReportType.EVENT && (
+                          <>
+                            <TableHead>Event</TableHead>
+                            <TableHead>Category</TableHead>
+                            <TableHead>Date</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Attendances</TableHead>
+                            <TableHead>Registrations</TableHead>
+                          </>
+                        )}
+                      </TableHeader>
+                      <TableBody>
+                        {reportType === ReportType.ATTENDANCE &&
+                          (reportData as AttendanceReport).data.map((item) => (
+                            <TableRow key={item.id}>
+                              <TableCell>
+                                {item.member.nickname
+                                  ? `${item.member.nickname} ${item.member.lastName}`
+                                  : `${item.member.firstName} ${item.member.lastName}`}
+                              </TableCell>
+                              <TableCell className="font-mono">{item.member.communityId}</TableCell>
+                              <TableCell>{item.event.title}</TableCell>
+                              <TableCell>{formatDateTime(item.checkInTime)}</TableCell>
+                              <TableCell>
+                                <Badge variant={item.method === 'QR_CODE' ? 'default' : 'secondary'}>
+                                  {item.method}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+
+                        {reportType === ReportType.REGISTRATION &&
+                          (reportData as RegistrationReport).data.map((item) => (
+                            <TableRow key={item.id}>
+                              <TableCell>
+                                {item.firstName} {item.lastName}
+                              </TableCell>
+                              <TableCell>
+                                <Badge>{item.registrationType}</Badge>
+                              </TableCell>
+                              <TableCell>{item.event.title}</TableCell>
+                              <TableCell>
+                                <Badge
+                                  variant={
+                                    item.paymentStatus === 'PAID'
+                                      ? 'default'
+                                      : item.paymentStatus === 'PENDING'
+                                      ? 'secondary'
+                                      : 'destructive'
+                                  }
+                                >
+                                  {item.paymentStatus}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                {item.paymentAmount ? formatCurrency(item.paymentAmount) : '-'}
+                              </TableCell>
+                              <TableCell>{item.roomAssignment || '-'}</TableCell>
+                            </TableRow>
+                          ))}
+
+                        {reportType === ReportType.MEMBER &&
+                          (reportData as MemberReport).data.map((item) => (
+                            <TableRow key={item.id}>
+                              <TableCell>
+                                {item.nickname
+                                  ? `${item.nickname} ${item.lastName}`
+                                  : `${item.firstName} ${item.lastName}`}
+                              </TableCell>
+                              <TableCell className="font-mono">{item.communityId}</TableCell>
+                              <TableCell>{item.city}</TableCell>
+                              <TableCell>
+                                {item.encounterType} {item.classNumber}
+                              </TableCell>
+                              <TableCell>{item.ministry || '-'}</TableCell>
+                              <TableCell>
+                                <Badge variant={item.user.isActive ? 'default' : 'secondary'}>
+                                  {item.user.isActive ? 'Active' : 'Inactive'}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+
+                        {reportType === ReportType.EVENT &&
+                          (reportData as EventReport).data.map((item) => (
+                            <TableRow key={item.id}>
+                              <TableCell className="font-medium">{item.title}</TableCell>
+                              <TableCell>{item.category}</TableCell>
+                              <TableCell>{formatDate(item.startDate)}</TableCell>
+                              <TableCell>
+                                <Badge>{item.status}</Badge>
+                              </TableCell>
+                              <TableCell>{item.attendances.length}</TableCell>
+                              <TableCell>{item.registrations.length}</TableCell>
+                            </TableRow>
+                          ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    No data found for the selected filters.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+
+      {/* Recurring Attendance Report Dialog */}
+      <Dialog open={showRecurringReport} onOpenChange={setShowRecurringReport}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold text-purple-800">
+              Recurring Attendance Report
+            </DialogTitle>
+          </DialogHeader>
+
+          {recurringReportData && (
+            <div className="space-y-6">
+              {/* Report Header */}
+              <div className="bg-purple-50 p-4 rounded-lg">
+                <h4 className="text-xl font-semibold text-purple-800 mb-2">
+                  {recurringReportConfig.ministry || 'All Ministries'} - {recurringReportConfig.apostolate || 'All Apostolates'}
+                </h4>
+                <p className="text-purple-600">
+                  Period: {recurringReportConfig.startDate} to {recurringReportConfig.endDate}
+                </p>
+              </div>
+
+              {/* Summary Statistics */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-gray-50 p-4 rounded-lg text-center">
+                  <div className="text-2xl font-bold text-gray-800">{recurringReportData.statistics.totalMembers}</div>
+                  <div className="text-sm text-gray-600">Total Members</div>
+                </div>
+                <div className="bg-green-50 p-4 rounded-lg text-center">
+                  <div className="text-2xl font-bold text-green-800">{recurringReportData.statistics.averageAttendance}%</div>
+                  <div className="text-sm text-green-600">Average Attendance</div>
+                </div>
+                <div className="bg-purple-50 p-4 rounded-lg text-center">
+                  <div className="text-2xl font-bold text-purple-800">{recurringReportData.statistics.totalInstances.corporateWorship}</div>
+                  <div className="text-sm text-purple-600">Corporate Worship Instances</div>
+                </div>
+                <div className="bg-blue-50 p-4 rounded-lg text-center">
+                  <div className="text-2xl font-bold text-blue-800">{recurringReportData.statistics.totalInstances.wordSharingCircles}</div>
+                  <div className="text-sm text-blue-600">Word Sharing Circles Instances</div>
+                </div>
+              </div>
+
+              {/* Charts */}
+              {chartData && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Attendance by Member (Top 20)</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Bar data={chartData.bar} options={{ responsive: true, maintainAspectRatio: false }} />
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Overall Distribution</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <Pie data={chartData.pie} options={{ responsive: true, maintainAspectRatio: false }} />
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
+
+              {/* Member Attendance Table */}
+              {recurringReportData.data.length > 0 && (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="font-mono text-xs">Community ID</TableHead>
+                        <TableHead>Last Name</TableHead>
+                        <TableHead>First Name</TableHead>
+                        <TableHead>MI</TableHead>
+                        <TableHead className="text-center">CW</TableHead>
+                        <TableHead className="text-center">CW%</TableHead>
+                        <TableHead className="text-center">WSC</TableHead>
+                        <TableHead className="text-center">WSC%</TableHead>
+                        <TableHead className="text-center">Total</TableHead>
+                        <TableHead className="text-center">Overall%</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {recurringReportData.data.map((member, index) => {
+                        // Get middleInitial from the member data (may need to derive from middleName)
+                        const middleInitial = (member as any).middleInitial || 
+                          ((member as any).middleName ? (member as any).middleName.charAt(0).toUpperCase() : '');
+                        return (
+                          <TableRow key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                            <TableCell className="font-mono text-sm">{member.communityId}</TableCell>
+                            <TableCell>{member.lastName}</TableCell>
+                            <TableCell>{member.firstName}</TableCell>
+                            <TableCell>{middleInitial}</TableCell>
+                          <TableCell className="text-center">{member.corporateWorshipAttended || 0}</TableCell>
+                          <TableCell className="text-center font-medium text-purple-600">{member.corporateWorshipPercentage || 0}%</TableCell>
+                          <TableCell className="text-center">{member.wordSharingCirclesAttended || 0}</TableCell>
+                          <TableCell className="text-center font-medium text-green-600">{member.wordSharingCirclesPercentage || 0}%</TableCell>
+                          <TableCell className="text-center font-medium">{member.totalAttended || 0}</TableCell>
+                          <TableCell className="text-center font-medium text-purple-600">{member.percentage || 0}%</TableCell>
+                        </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+
+              {/* Export Buttons */}
+              <div className="flex flex-wrap justify-end gap-3">
+                <Button onClick={() => setShowRecurringReport(false)} variant="outline">
+                  Close
+                </Button>
+                <Button onClick={exportRecurringReportToCSV} className="bg-green-600 hover:bg-green-700">
+                  <Download className="w-4 h-4 mr-2" />
+                  Export CSV
+                </Button>
+                <Button onClick={exportRecurringReportToPDF} className="bg-red-600 hover:bg-red-700">
+                  <FileText className="w-4 h-4 mr-2" />
+                  Export PDF
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

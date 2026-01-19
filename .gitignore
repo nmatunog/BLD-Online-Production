@@ -1,0 +1,29 @@
+# OS
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env
+.env
+.env.*
+
+# Node
+node_modules/
+
+# Next.js
+frontend/.next/
+frontend/out/
+
+# Nest build output
+backend/dist/
+backend/coverage/
+
+# Prisma generated
+backend/node_modules/.prisma/
+
+# Misc
+*.tsbuildinfo

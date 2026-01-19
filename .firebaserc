@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "default": "bld-cebu-portal-dev",
+    "dev": "bld-cebu-portal-dev",
+    "prod": "bldcebu-portal"
+  }
+}

@@ -6,12 +6,13 @@ import { MemberLookupModule } from './common/services/member-lookup.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 // Import other modules as they are implemented
-// import { MembersModule } from './members/members.module';
-// import { EventsModule } from './events/events.module';
-// import { AttendanceModule } from './attendance/attendance.module';
-// import { RegistrationsModule } from './registrations/registrations.module';
-// import { ReportsModule } from './reports/reports.module';
-// import { AccountingModule } from './accounting/accounting.module';
+import { MembersModule } from './members/members.module';
+import { EventsModule } from './events/events.module';
+import { AttendanceModule } from './attendance/attendance.module';
+import { UsersModule } from './users/users.module';
+import { RegistrationsModule } from './registrations/registrations.module';
+import { AccountingModule } from './accounting/accounting.module';
+import { ReportsModule } from './reports/reports.module';
 // import { EmailModule } from './email/email.module';
 // import { PaymentModule } from './payment/payment.module';
 
@@ -24,13 +25,14 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
     PrismaModule,
     MemberLookupModule,
     AuthModule,
+    MembersModule,
+    EventsModule,
+    AttendanceModule,
+    UsersModule,
+    RegistrationsModule,
+    AccountingModule,
+    ReportsModule,
     // Add other modules as they are implemented
-    // MembersModule,
-    // EventsModule,
-    // AttendanceModule,
-    // RegistrationsModule,
-    // ReportsModule,
-    // AccountingModule,
     // EmailModule,
     // PaymentModule,
   ],

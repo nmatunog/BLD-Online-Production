@@ -1,0 +1,26 @@
+{
+  "hosting": {
+    "public": "frontend/public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/api/**",
+        "run": {
+          "serviceId": "bld-portal-backend",
+          "region": "asia-southeast1"
+        }
+      },
+      {
+        "source": "**",
+        "run": {
+          "serviceId": "bld-portal-frontend",
+          "region": "asia-southeast1"
+        }
+      }
+    ]
+  }
+}

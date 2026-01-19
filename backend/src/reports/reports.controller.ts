@@ -1,66 +1,56 @@
-import {
-  Controller,
-  Get,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ReportsService } from './reports.service';
-import { ReportQueryDto } from './dto/report-query.dto';
-import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { Roles } from '../auth/decorators/roles.decorator';
-import { RolesGuard } from '../auth/guards/roles.guard';
+import { ReportQueryDto, ReportType } from './dto/report-query.dto';
 
+@ApiTags('Reports')
 @Controller('reports')
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles('SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR')
+@UseGuards(JwtAuthGuard)
+@ApiBearerAuth()
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
   @Get()
-  async generateReport(@Query() query: ReportQueryDto) {
+  @ApiOperation({ summary: 'Generate report (auto-dispatch by reportType)' })
+  @ApiResponse({ status: 200, description: 'Report generated successfully' })
+  async generate(@Query() query: ReportQueryDto) {
     return this.reportsService.generateReport(query);
   }
 
   @Get('attendance')
-  async getAttendanceReport(@Query() query: ReportQueryDto) {
+  @ApiOperation({ summary: 'Generate attendance report' })
+  async attendance(@Query() query: Omit<ReportQueryDto, 'reportType'>) {
     return this.reportsService.generateAttendanceReport({
-      ...query,
-      reportType: 'ATTENDANCE' as any,
+      ...(query as any),
+      reportType: ReportType.ATTENDANCE,
     });
   }
 
   @Get('registration')
-  async getRegistrationReport(@Query() query: ReportQueryDto) {
+  @ApiOperation({ summary: 'Generate registration report' })
+  async registration(@Query() query: Omit<ReportQueryDto, 'reportType'>) {
     return this.reportsService.generateRegistrationReport({
-      ...query,
-      reportType: 'REGISTRATION' as any,
+      ...(query as any),
+      reportType: ReportType.REGISTRATION,
     });
   }
 
   @Get('member')
-  async getMemberReport(@Query() query: ReportQueryDto) {
+  @ApiOperation({ summary: 'Generate member report' })
+  async member(@Query() query: Omit<ReportQueryDto, 'reportType'>) {
     return this.reportsService.generateMemberReport({
-      ...query,
-      reportType: 'MEMBER' as any,
+      ...(query as any),
+      reportType: ReportType.MEMBER,
     });
   }
 
   @Get('event')
-  async getEventReport(@Query() query: ReportQueryDto) {
+  @ApiOperation({ summary: 'Generate event report' })
+  async event(@Query() query: Omit<ReportQueryDto, 'reportType'>) {
     return this.reportsService.generateEventReport({
-      ...query,
-      reportType: 'EVENT' as any,
-    });
-  }
-
-  @Get('recurring-attendance')
-  async getRecurringAttendanceReport(@Query() query: ReportQueryDto) {
-    return this.reportsService.generateRecurringAttendanceReport({
-      ...query,
-      reportType: 'RECURRING_ATTENDANCE' as any,
+      ...(query as any),
+      reportType: ReportType.EVENT,
     });
   }
 }
-
-
-

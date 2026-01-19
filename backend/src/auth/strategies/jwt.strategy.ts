@@ -25,6 +25,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     email: string | null;
     phone: string | null;
     role: string;
+    ministry?: string;
+    shepherdEncounterType?: string;
+    shepherdClassNumber?: number;
   }> {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
@@ -39,6 +42,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: user.email,
       phone: user.phone,
       role: user.role,
+      ministry: user.ministry || undefined,
+      shepherdEncounterType: user.shepherdEncounterType || undefined,
+      shepherdClassNumber: user.shepherdClassNumber || undefined,
     };
   }
 }

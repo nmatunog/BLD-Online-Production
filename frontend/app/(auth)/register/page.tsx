@@ -13,6 +13,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
+import ChatbotSignUp from '@/components/chatbot/ChatbotSignUp';
+import { parseAuthError } from '@/utils/error-handler';
 
 const registerSchema = z.object({
   email: z.string().email().optional().or(z.literal('')),
@@ -71,10 +73,22 @@ export default function RegisterPage() {
         classNumber: data.classNumber,
       });
 
-      toast.success('Registration successful! Redirecting...');
-      router.push('/dashboard');
+      toast.success('✅ Registration successful!', {
+        description: 'Your account has been created. Redirecting to dashboard...',
+      });
+      setTimeout(() => {
+        router.push('/dashboard');
+      }, 1500);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Registration failed');
+      const parsedError = parseAuthError(error);
+      
+      // Show error toast with title and message
+      toast.error(parsedError.title, {
+        description: parsedError.message,
+        duration: 6000,
+      });
+      
+      console.error('Registration error:', error);
     } finally {
       setIsLoading(false);
     }
@@ -420,6 +434,7 @@ export default function RegisterPage() {
           </div>
         </form>
       </Card>
+      <ChatbotSignUp />
     </div>
   );
 }

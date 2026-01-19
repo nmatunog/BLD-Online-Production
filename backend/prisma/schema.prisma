@@ -15,6 +15,7 @@ enum UserRole {
   ADMINISTRATOR
   DCS
   MINISTRY_COORDINATOR
+  CLASS_SHEPHERD
   MEMBER
 }
 
@@ -50,15 +51,24 @@ model User {
   passwordHash String
   role         UserRole @default(MEMBER)
   isActive     Boolean  @default(true)
+  // Class Shepherd specific fields - which encounter class they shepherd
+  // Note: Class Shepherds shepherd a DIFFERENT class than their own
+  // e.g., A person from ME Class 18 can be assigned to shepherd ME Class 101
+  // The shepherdEncounterType and shepherdClassNumber store the class they shepherd, NOT their own class
+  shepherdEncounterType  String? // e.g., "ME", "SE", "SPE", "YE" - the class they shepherd
+  shepherdClassNumber    Int?    // e.g., 101 for ME Class 101 - the class they shepherd
+  ministry               String? // For MINISTRY_COORDINATOR
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   member       Member?
   sessions     Session[]
+  eventClassShepherds EventClassShepherd[]
 
   @@index([email])
   @@index([phone])
   @@index([role])
+  @@index([shepherdEncounterType, shepherdClassNumber])
 }
 
 model Session {
@@ -116,10 +126,14 @@ model Event {
   location          String
   venue             String?
   status            EventStatus  @default(UPCOMING)
+  cancellationReason String? // Reason for cancellation (optional)
   hasRegistration   Boolean      @default(false)
   registrationFee   Decimal?
   maxParticipants   Int?
   qrCodeUrl         String? // BunnyCDN URL
+  // Encounter Event fields - for Encounter type events (ME, SE, SPE, FE, YE)
+  encounterType     String? // e.g., "ME", "SE", "SPE", "FE", "YE"
+  classNumber       Int? // e.g., 18 for ME Class 18, 101 for SE Class 101
   // Recurring event fields
   isRecurring       Boolean      @default(false)
   recurrencePattern String? // daily, weekly, monthly
@@ -135,8 +149,10 @@ model Event {
   attendances       Attendance[]
   registrations     EventRegistration[]
   account           EventAccount?
+  classShepherds    EventClassShepherd[]
 
   @@index([status])
+  @@index([encounterType, classNumber])
   @@index([startDate])
   @@index([eventType])
 }
@@ -170,6 +186,14 @@ model EventRegistration {
   phone           String?
   spouseFirstName String?
   spouseLastName  String?
+  spouseMiddleName String?
+  // Couple registration linking
+  coupleRegistrationId String?  // Links registrations together for ME events
+  coupleRole      String?       // HUSBAND, WIFE, PERSON1, PERSON2
+  // Additional fields
+  specialRequirements String?   // Special requirements/notes
+  emergencyContact    String?    // Emergency contact info (JSON string or text)
+  memberCommunityId  String?    // Community ID (for non-members who get assigned one)
   roomAssignment  String?
   paymentStatus   PaymentStatus @default(PENDING)
   paymentAmount   Decimal?
@@ -185,6 +209,7 @@ model EventRegistration {
   @@index([memberId])
   @@index([registrationType])
   @@index([paymentStatus])
+  @@index([coupleRegistrationId])
 }
 
 model EventAccount {
@@ -233,5 +258,27 @@ model ExpenseEntry {
 
   @@index([accountId])
   @@index([paidAt])
+}
+
+// Event Class Shepherd Assignment
+// Links Class Shepherds to specific Encounter Events and their classes
+// Allows up to 4 shepherds per encounter class per event
+model EventClassShepherd {
+  id              String   @id @default(uuid())
+  eventId         String
+  userId          String   // User with CLASS_SHEPHERD role
+  encounterType   String   // e.g., "ME", "SE", "SPE", "YE"
+  classNumber     Int      // e.g., 18 for ME Class 18
+  assignedBy      String   // User ID who assigned this shepherd
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  event           Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId, encounterType, classNumber]) // Prevent duplicate assignments
+  @@index([eventId])
+  @@index([userId])
+  @@index([encounterType, classNumber])
 }
 
