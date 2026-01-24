@@ -1,0 +1,20 @@
+# Railway Nixpacks configuration
+# This ensures OpenSSL is installed for Prisma
+
+[phases.setup]
+nixPkgs = ["nodejs-20_x", "openssl"]
+
+[phases.install]
+cmds = [
+  "apt-get update -y",
+  "apt-get install -y openssl libssl-dev",
+  "npm install"
+]
+
+[phases.build]
+cmds = [
+  "npm run build"
+]
+
+[start]
+cmd = "npm start"
