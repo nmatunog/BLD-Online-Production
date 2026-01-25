@@ -10,11 +10,12 @@ export class HealthController {
   @ApiOperation({ summary: 'Health check endpoint' })
   @ApiResponse({ status: 200, description: 'Service is healthy' })
   check() {
-    console.log('✅ Health check endpoint called');
+    console.log('✅ Health check endpoint called at', new Date().toISOString());
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
       service: 'BLD Cebu Online Portal API',
+      uptime: process.uptime(),
     };
   }
 }
