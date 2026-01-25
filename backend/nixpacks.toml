@@ -1,8 +1,5 @@
 # Railway Nixpacks configuration
-# Simple configuration - let Railway handle OpenSSL automatically
-
-[phases.setup]
-nixPkgs = ["nodejs-20_x"]
+# Let Railway auto-detect Node.js - no explicit nixPkgs needed
 
 [phases.install]
 cmds = [
