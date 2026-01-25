@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, BadRequestException } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 
@@ -12,9 +12,51 @@ async function bootstrap(): Promise<void> {
 
   // CORS configuration
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const allowedOrigins = [
+    frontendUrl,
+    'http://localhost:3000',
+    'http://localhost:3002',
+    'https://app.BLDCebu.com',
+    'https://www.app.BLDCebu.com',
+  ];
+  
+  // Log CORS configuration for debugging
+  console.log('🌐 CORS configured for origins:', allowedOrigins);
+  
   app.enableCors({
-    origin: [frontendUrl, 'http://localhost:3000', 'http://localhost:3002'],
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) {
+        return callback(null, true);
+      }
+      
+      // Check if origin is in allowed list
+      if (allowedOrigins.some(allowed => origin === allowed || origin.startsWith(allowed))) {
+        return callback(null, true);
+      }
+      
+      // For production, allow Vercel domains and custom domain
+      if (process.env.NODE_ENV === 'production') {
+        // Allow Vercel domains
+        if (origin.includes('.vercel.app')) {
+          return callback(null, true);
+        }
+        // Allow custom domain
+        if (origin.includes('BLDCebu.com')) {
+          return callback(null, true);
+        }
+        // Allow Cloud Run domains (for backward compatibility)
+        if (origin.includes('.run.app')) {
+          return callback(null, true);
+        }
+      }
+      
+      callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range'],
   });
 
   // Global validation pipe
@@ -25,6 +67,20 @@ async function bootstrap(): Promise<void> {
       transform: true,
       transformOptions: {
         enableImplicitConversion: true,
+      },
+      exceptionFactory: (errors) => {
+        // Format validation errors for better error messages
+        const messages = errors.map((error) => {
+          if (error.constraints) {
+            return Object.values(error.constraints).join(', ');
+          }
+          return `${error.property} has invalid value`;
+        });
+        return new BadRequestException({
+          message: messages,
+          error: 'Validation failed',
+          statusCode: 400,
+        });
       },
     })
   );
@@ -40,9 +96,11 @@ async function bootstrap(): Promise<void> {
   SwaggerModule.setup('api/docs', app, document);
 
   const port = process.env.PORT || 4000;
-  await app.listen(port);
-  console.log(`🚀 Backend server running on http://localhost:${port}`);
-  console.log(`📚 API documentation available at http://localhost:${port}/api/docs`);
+  // Railway requires binding to 0.0.0.0, not localhost
+  await app.listen(port, '0.0.0.0');
+  console.log(`🚀 Backend server running on http://0.0.0.0:${port}`);
+  console.log(`📚 API documentation available at http://0.0.0.0:${port}/api/docs`);
+  console.log(`❤️  Health check available at http://0.0.0.0:${port}/api/v1/health`);
 }
 
 bootstrap();

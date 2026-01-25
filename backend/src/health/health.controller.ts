@@ -10,6 +10,7 @@ export class HealthController {
   @ApiOperation({ summary: 'Health check endpoint' })
   @ApiResponse({ status: 200, description: 'Service is healthy' })
   check() {
+    console.log('✅ Health check endpoint called');
     return {
       status: 'ok',
       timestamp: new Date().toISOString(),
