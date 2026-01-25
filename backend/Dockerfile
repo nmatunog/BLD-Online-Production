@@ -1,13 +1,16 @@
 # Backend (NestJS) - Railway optimized
-# Use node:20 (not slim) which includes OpenSSL, or install it properly
+# Use Debian-based image with OpenSSL 3.0
 
-FROM node:20
+FROM node:20-bullseye
 
-# Install OpenSSL and ensure it's available
+# Install OpenSSL 1.1 (Debian Bullseye uses OpenSSL 1.1.1)
+# This matches Prisma's debian-openssl-1.1.x binary target
 RUN apt-get update -y && \
-    apt-get install -y openssl libssl-dev ca-certificates && \
+    apt-get install -y openssl libssl1.1 libssl-dev ca-certificates && \
     rm -rf /var/lib/apt/lists/* && \
-    ldconfig
+    ldconfig && \
+    # Verify OpenSSL is available
+    openssl version
 
 WORKDIR /app
 
@@ -20,8 +23,10 @@ RUN npm ci
 # Copy Prisma schema
 COPY prisma ./prisma
 
-# Generate Prisma Client
-RUN npx prisma generate
+# Generate Prisma Client with explicit OpenSSL 3.0 binary target
+# Clean any existing generated client first
+RUN rm -rf node_modules/.prisma || true && \
+    npx prisma generate
 
 # Copy source code
 COPY . .
