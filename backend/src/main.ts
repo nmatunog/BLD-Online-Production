@@ -101,6 +101,8 @@ async function bootstrap(): Promise<void> {
   console.log(`🚀 Backend server running on http://0.0.0.0:${port}`);
   console.log(`📚 API documentation available at http://0.0.0.0:${port}/api/docs`);
   console.log(`❤️  Health check available at http://0.0.0.0:${port}/api/v1/health`);
+  console.log(`🔍 PORT environment variable: ${process.env.PORT || 'not set (using default 4000)'}`);
+  console.log(`🔍 Listening on: 0.0.0.0:${port}`);
 }
 
 bootstrap();
