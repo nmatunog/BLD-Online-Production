@@ -3,7 +3,8 @@
 
 generator client {
   provider = "prisma-client-js"
-  binaryTargets = ["native"]
+  // Let Prisma auto-detect the binary target
+  // Nixpacks will provide the right OpenSSL version
 }
 
 datasource db {

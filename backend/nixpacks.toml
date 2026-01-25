@@ -1,17 +1,17 @@
 # Railway Nixpacks configuration
-# This ensures OpenSSL is installed for Prisma
+# Simple configuration - let Railway handle OpenSSL automatically
 
 [phases.setup]
-nixPkgs = ["nodejs-20_x", "openssl_1_1"]
+nixPkgs = ["nodejs-20_x"]
 
 [phases.install]
 cmds = [
-  "apt-get update -y && apt-get install -y openssl libssl1.1 libssl-dev || true",
   "npm install"
 ]
 
 [phases.build]
 cmds = [
+  "npx prisma generate",
   "npm run build"
 ]
 
