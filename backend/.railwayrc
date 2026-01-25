@@ -1,0 +1,6 @@
+{
+  "build": {
+    "builder": "NIXPACKS",
+    "buildCommand": "apt-get update -y && apt-get install -y openssl libssl1.1 libssl-dev && npm install && npm run build"
+  }
+}

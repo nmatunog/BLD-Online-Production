@@ -2,12 +2,11 @@
 # This ensures OpenSSL is installed for Prisma
 
 [phases.setup]
-nixPkgs = ["nodejs-20_x", "openssl"]
+nixPkgs = ["nodejs-20_x", "openssl_1_1"]
 
 [phases.install]
 cmds = [
-  "apt-get update -y",
-  "apt-get install -y openssl libssl-dev",
+  "apt-get update -y && apt-get install -y openssl libssl1.1 libssl-dev || true",
   "npm install"
 ]
 
