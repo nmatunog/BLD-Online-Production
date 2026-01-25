@@ -1,16 +1,27 @@
 # Backend (NestJS) - Railway optimized
-# Use Debian-based image with OpenSSL 3.0
+# Use Debian Bullseye which has OpenSSL 1.1.1 built-in
 
 FROM node:20-bullseye
 
-# Install OpenSSL 1.1 (Debian Bullseye uses OpenSSL 1.1.1)
-# This matches Prisma's debian-openssl-1.1.x binary target
+# Install OpenSSL 1.1 libraries
+# Debian Bullseye has OpenSSL 1.1.1, but we need to ensure libssl1.1 is available
+# Try multiple package names as they vary by Debian version
 RUN apt-get update -y && \
-    apt-get install -y openssl libssl1.1 libssl-dev ca-certificates && \
-    rm -rf /var/lib/apt/lists/* && \
+    (apt-get install -y --no-install-recommends libssl1.1 || \
+     apt-get install -y --no-install-recommends libssl1.1.1 || \
+     apt-get install -y --no-install-recommends libssl-dev) && \
+    apt-get install -y --no-install-recommends \
+        openssl \
+        ca-certificates && \
+    # Verify OpenSSL is installed
+    openssl version && \
+    # Find and verify libssl library
+    find /usr/lib -name "libssl.so*" 2>/dev/null | head -5 && \
+    # Update library cache
     ldconfig && \
-    # Verify OpenSSL is available
-    openssl version
+    # Clean up apt cache
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -35,9 +46,9 @@ COPY . .
 RUN npm run build
 
 # Production: use only production dependencies
+# Note: Don't remove apt lists here - OpenSSL libraries are needed at runtime
 RUN npm ci --only=production && \
-    rm -rf /tmp/* && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /tmp/*
 
 # Expose port (Railway sets PORT automatically)
 EXPOSE 4000
