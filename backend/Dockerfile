@@ -1,31 +1,40 @@
-# Backend (NestJS) - Cloud Run
-# Build: docker build -t bld-portal-backend .
+# Backend (NestJS) - Railway optimized
+# Install OpenSSL for Prisma compatibility
 
-FROM node:20-slim AS deps
+FROM node:20-slim
+
+# Install OpenSSL 1.1 for Prisma (required)
+RUN apt-get update -y && \
+    apt-get install -y openssl libssl1.1 libssl-dev && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
+
+# Copy package files
 COPY package.json package-lock.json ./
+
+# Install all dependencies (needed for build)
 RUN npm ci
 
-FROM node:20-slim AS build
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-# Prisma client generation (requires schema.prisma)
+# Copy Prisma schema
+COPY prisma ./prisma
+
+# Generate Prisma Client
 RUN npx prisma generate
+
+# Copy source code
+COPY . .
+
+# Build application
 RUN npm run build
 
-FROM node:20-slim AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-# Cloud Run provides PORT; default kept for local
+# Production: use only production dependencies
+RUN npm ci --only=production && \
+    rm -rf /tmp/* && \
+    rm -rf /var/lib/apt/lists/*
 
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+# Expose port (Railway sets PORT automatically)
+EXPOSE 4000
 
-COPY prisma ./prisma
-RUN npx prisma generate
-
-COPY --from=build /app/dist ./dist
-
-EXPOSE 8080
+# Start application
 CMD ["node", "dist/main.js"]
