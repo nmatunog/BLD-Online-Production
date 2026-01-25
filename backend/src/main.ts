@@ -95,6 +95,17 @@ async function bootstrap(): Promise<void> {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
+  // Add health endpoint directly (before listening)
+  app.getHttpAdapter().get('/api/v1/health', (req, res) => {
+    console.log('✅ Health check endpoint called at', new Date().toISOString());
+    res.json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      service: 'BLD Cebu Online Portal API',
+      uptime: process.uptime(),
+    });
+  });
+
   const port = process.env.PORT || 4000;
   // Railway requires binding to 0.0.0.0, not localhost
   await app.listen(port, '0.0.0.0');
