@@ -96,7 +96,8 @@ async function bootstrap(): Promise<void> {
   SwaggerModule.setup('api/docs', app, document);
 
   // Add health endpoint directly (before listening)
-  app.getHttpAdapter().get('/api/v1/health', (req, res) => {
+  // Register without prefix since we're using the adapter directly
+  app.getHttpAdapter().get('/health', (req, res) => {
     console.log('✅ Health check endpoint called at', new Date().toISOString());
     res.json({
       status: 'ok',
@@ -111,7 +112,7 @@ async function bootstrap(): Promise<void> {
   await app.listen(port, '0.0.0.0');
   console.log(`🚀 Backend server running on http://0.0.0.0:${port}`);
   console.log(`📚 API documentation available at http://0.0.0.0:${port}/api/docs`);
-  console.log(`❤️  Health check available at http://0.0.0.0:${port}/api/v1/health`);
+  console.log(`❤️  Health check available at http://0.0.0.0:${port}/health`);
   console.log(`🔍 PORT environment variable: ${process.env.PORT || 'not set (using default 4000)'}`);
   console.log(`🔍 Listening on: 0.0.0.0:${port}`);
 }
