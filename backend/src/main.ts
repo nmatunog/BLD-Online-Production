@@ -97,7 +97,7 @@ async function bootstrap(): Promise<void> {
 
   // Add health endpoint directly (before listening)
   // Register without prefix since we're using the adapter directly
-  app.getHttpAdapter().get('/health', (req, res) => {
+  app.getHttpAdapter().get('/health', (_req, res) => {
     console.log('✅ Health check endpoint called at', new Date().toISOString());
     res.json({
       status: 'ok',
