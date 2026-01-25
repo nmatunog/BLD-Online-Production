@@ -1,24 +1,23 @@
 # Backend (NestJS) - Railway optimized
-# Use Debian Bullseye which has OpenSSL 1.1.1 built-in
+# Use full Node image which includes OpenSSL
 
-FROM node:20-bullseye
+FROM node:20
 
-# Install OpenSSL 1.1 libraries
-# Debian Bullseye has OpenSSL 1.1.1, but we need to ensure libssl1.1 is available
-# Try multiple package names as they vary by Debian version
+# Install OpenSSL and development libraries
+# Using full node:20 image which should have OpenSSL, but ensure it's available
 RUN apt-get update -y && \
-    (apt-get install -y --no-install-recommends libssl1.1 || \
-     apt-get install -y --no-install-recommends libssl1.1.1 || \
-     apt-get install -y --no-install-recommends libssl-dev) && \
     apt-get install -y --no-install-recommends \
         openssl \
+        libssl-dev \
         ca-certificates && \
     # Verify OpenSSL is installed
     openssl version && \
-    # Find and verify libssl library
-    find /usr/lib -name "libssl.so*" 2>/dev/null | head -5 && \
+    # Find and list all libssl libraries
+    find /usr/lib* -name "libssl.so*" 2>/dev/null && \
     # Update library cache
     ldconfig && \
+    # Show library search paths
+    ldconfig -p | grep ssl || true && \
     # Clean up apt cache
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
