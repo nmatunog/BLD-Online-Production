@@ -3,6 +3,7 @@
 
 generator client {
   provider = "prisma-client-js"
+  binaryTargets = ["native"]
 }
 
 datasource db {
@@ -223,20 +224,23 @@ model EventAccount {
   event       Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
   incomeEntries IncomeEntry[]
   expenseEntries ExpenseEntry[]
+  adjustmentEntries AdjustmentEntry[]
 
   @@index([eventId])
   @@index([isClosed])
 }
 
 model IncomeEntry {
-  id          String   @id @default(uuid())
-  accountId   String
-  description String
-  amount      Decimal
-  source      String?
-  receivedAt  DateTime @default(now())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(uuid())
+  accountId       String
+  description     String
+  amount          Decimal
+  source          String?
+  remarks         String?
+  orVoucherNumber String?
+  receivedAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   account     EventAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
@@ -244,15 +248,34 @@ model IncomeEntry {
   @@index([receivedAt])
 }
 
+model AdjustmentEntry {
+  id              String   @id @default(uuid())
+  accountId       String
+  description     String
+  amount          Decimal
+  remarks         String?
+  orVoucherNumber String?
+  adjustedAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  account     EventAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
+  @@index([adjustedAt])
+}
+
 model ExpenseEntry {
-  id          String   @id @default(uuid())
-  accountId   String
-  description String
-  amount      Decimal
-  category    String?
-  paidAt      DateTime @default(now())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(uuid())
+  accountId       String
+  description     String
+  amount          Decimal
+  category        String?
+  remarks         String?
+  orVoucherNumber String?
+  paidAt          DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   account     EventAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 

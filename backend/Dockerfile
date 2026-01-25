@@ -1,12 +1,13 @@
 # Backend (NestJS) - Railway optimized
-# Install OpenSSL for Prisma compatibility
+# Use node:20 (not slim) which includes OpenSSL, or install it properly
 
-FROM node:20-slim
+FROM node:20
 
-# Install OpenSSL 1.1 for Prisma (required)
+# Install OpenSSL and ensure it's available
 RUN apt-get update -y && \
-    apt-get install -y openssl libssl1.1 libssl-dev && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y openssl libssl-dev ca-certificates && \
+    rm -rf /var/lib/apt/lists/* && \
+    ldconfig
 
 WORKDIR /app
 
