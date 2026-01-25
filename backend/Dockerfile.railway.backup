@@ -1,0 +1,30 @@
+# Railway-optimized Dockerfile for NestJS + Prisma
+FROM node:20-slim
+
+# Install OpenSSL for Prisma (required)
+RUN apt-get update -y && \
+    apt-get install -y openssl libssl1.1 libssl-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json package-lock.json ./
+
+# Install dependencies
+RUN npm ci --only=production
+
+# Copy Prisma schema
+COPY prisma ./prisma
+
+# Generate Prisma Client
+RUN npx prisma generate
+
+# Copy application code
+COPY dist ./dist
+
+# Expose port (Railway sets PORT automatically)
+EXPOSE 4000
+
+# Start application
+CMD ["node", "dist/main.js"]
