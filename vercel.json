@@ -3,9 +3,4 @@
   "outputDirectory": "frontend/.next",
   "installCommand": "cd frontend && npm ci",
   "framework": null,
-  "git": {
-    "deploymentEnabled": {
-      "main": true
-    }
-  }
 }
