@@ -388,13 +388,16 @@ export class MembersService {
       updateData.nickname = updateMemberDto.nickname || null;
     }
     if (updateMemberDto.city !== undefined) {
-      updateData.city = updateMemberDto.city.toUpperCase();
+      const cityVal = updateMemberDto.city != null ? String(updateMemberDto.city).trim() : '';
+      updateData.city = cityVal ? cityVal.toUpperCase() : member.city;
     }
     if (updateMemberDto.encounterType !== undefined) {
-      updateData.encounterType = updateMemberDto.encounterType.toUpperCase();
+      const etVal = updateMemberDto.encounterType != null ? String(updateMemberDto.encounterType).trim() : '';
+      updateData.encounterType = etVal ? etVal.toUpperCase() : member.encounterType;
     }
-    if (updateMemberDto.classNumber !== undefined) {
-      const classNum = parseInt(updateMemberDto.classNumber, 10);
+    if (updateMemberDto.classNumber !== undefined && updateMemberDto.classNumber !== '') {
+      const raw = String(updateMemberDto.classNumber).trim();
+      const classNum = raw ? parseInt(raw, 10) : NaN;
       if (isNaN(classNum) || classNum < 1 || classNum > 999) {
         throw new BadRequestException(
           'Class number must be between 1 and 999',
@@ -458,8 +461,8 @@ export class MembersService {
         });
       });
     } catch (e: unknown) {
-      // Prisma unique constraint (e.g. email or phone already in use)
-      const prismaError = e as { code?: string; meta?: { target?: string[] } };
+      // Never leak 500: convert all errors to HTTP exceptions with a safe message
+      const prismaError = e as { code?: string; meta?: { target?: string[] }; message?: string };
       if (prismaError?.code === 'P2002' && prismaError?.meta?.target) {
         const target = prismaError.meta.target as string[];
         if (target?.includes('email')) {
@@ -469,7 +472,10 @@ export class MembersService {
           throw new ConflictException('This phone number is already in use by another account.');
         }
       }
-      throw e;
+      // Any other Prisma or runtime error → 400 with safe message (never 500)
+      throw new BadRequestException(
+        'Profile update failed. Please check your entries (apostolate, ministry, class number) and try again.',
+      );
     }
   }
 

@@ -12,6 +12,8 @@ import {
   HttpStatus,
   ForbiddenException,
   BadRequestException,
+  HttpException,
+  Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { MembersService } from './members.service';
@@ -137,22 +139,36 @@ export class MembersController {
     };
   }
 
+  private readonly logger = new Logger(MembersController.name);
+
   @Put('me')
   @ApiOperation({ summary: 'Update current user member profile' })
   @ApiResponse({ status: 200, description: 'Member profile updated successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid data or update failed' })
   @ApiResponse({ status: 404, description: 'Member profile not found' })
   async updateMe(
     @CurrentUser() user: { id: string },
     @Body() updateMemberDto: UpdateMemberDto,
   ): Promise<ApiResponseDto<unknown>> {
-    // Get the member ID for the current user
-    const member = await this.membersService.findMe(user.id);
-    const updatedMember = await this.membersService.update(member.id, updateMemberDto);
-    return {
-      success: true,
-      data: updatedMember,
-      message: 'Member profile updated successfully',
-    };
+    try {
+      const member = await this.membersService.findMe(user.id);
+      const updatedMember = await this.membersService.update(member.id, updateMemberDto);
+      return {
+        success: true,
+        data: updatedMember,
+        message: 'Member profile updated successfully',
+      };
+    } catch (err) {
+      // Re-throw known HTTP exceptions (400, 404, 409) so client gets correct status
+      if (err instanceof HttpException) {
+        throw err;
+      }
+      // Log unexpected errors; never return 500 to client for profile update
+      this.logger.warn('PUT /members/me unexpected error', err instanceof Error ? err.stack : String(err));
+      throw new BadRequestException(
+        'Profile update failed. Please check your entries (apostolate, ministry, class number) and try again.',
+      );
+    }
   }
 
   @Get(':id')
