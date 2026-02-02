@@ -1,10 +1,31 @@
 # Fix Same CSP Error on Vercel
 
-## Allow Vercel Live / feedback script
+## New approach (if previous fixes didn’t help)
+
+**1. PUT /members/me 500 (profile / apostolate–ministry update)**  
+The backend no longer returns 500 for profile updates:
+
+- **Controller** – `PUT /members/me` is wrapped in try/catch. Any unexpected error is logged and a **400** is returned with a safe message.
+- **Service** – All Prisma/transaction errors are caught and turned into **400** (or **409** for duplicate email/phone). Defensive handling for `city`, `encounterType`, and `classNumber` avoids runtime errors.
+
+Redeploy the **backend** (Railway) so production uses this. The frontend will then get 400 with a clear message instead of 500.
+
+**2. CSP (Framing / script from vercel.live)**  
+Recommended: **turn off the feature that injects the script**, instead of relaxing CSP further:
+
+- **Vercel Dashboard** → your project → **Settings** → **General** (or **Deployment**).
+- Disable **Vercel Toolbar** and/or **Vercel Live** (feedback widget).
+- Redeploy and hard-refresh. The framing/script errors for `vercel.live` will stop because the script is no longer injected.
+
+Our CSP already allows `vercel.live` in `script-src`, `connect-src`, and `frame-src`. If you still see violations, a **second CSP from Vercel** is likely; disabling the toolbar/live feature removes that source.
+
+---
+
+## Allow Vercel Live / feedback script (if you keep it enabled)
 
 If the console blocks **`https://vercel.live/_next-live/feedback/feedback.js`**:
 
-1. **Redeploy** – Our CSP already allows `https://vercel.live` and `https://*.vercel.live` in both `script-src` and `connect-src` (middleware, next.config, vercel.json). Push your latest code and redeploy the frontend so production uses this CSP.
+1. **Redeploy** – Our CSP allows `https://vercel.live` and `https://*.vercel.live` in `script-src`, `connect-src`, and **`frame-src`** (so the Vercel Live feedback widget can load in a frame). Push your latest code and redeploy the frontend so production uses this CSP.
 2. **Hard refresh** – After deploy, do a hard refresh (Ctrl+Shift+R / Cmd+Shift+R) or open the site in an incognito window.
 3. **If the error persists** – The policy in the console may be coming from **Vercel**, not our app. When Vercel sends a second CSP (e.g. from Toolbar, Speed Insights, or Security Headers), the browser merges both and the result can be stricter. Disable **Vercel Toolbar** / **Vercel Live** / **Speed Insights** (or the feature that injects the feedback script) in **Vercel Dashboard → Project → Settings** so only our CSP is sent (see below).
 
