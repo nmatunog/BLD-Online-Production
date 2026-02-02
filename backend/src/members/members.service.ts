@@ -406,10 +406,10 @@ export class MembersService {
       updateData.classNumber = classNum;
     }
     if (updateMemberDto.apostolate !== undefined) {
-      updateData.apostolate = apostolate ?? updateMemberDto.apostolate || null;
+      updateData.apostolate = apostolate ?? (updateMemberDto.apostolate || null);
     }
     if (updateMemberDto.ministry !== undefined) {
-      updateData.ministry = ministry ?? updateMemberDto.ministry || null;
+      updateData.ministry = ministry ?? (updateMemberDto.ministry || null);
     }
     if (updateMemberDto.serviceArea !== undefined) {
       updateData.serviceArea = updateMemberDto.serviceArea || null;
