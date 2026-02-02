@@ -73,11 +73,20 @@ The app sets a relaxed CSP in `frontend/next.config.ts` and `frontend/vercel.jso
 
 If you still see **"script-src 'self'"** blocking inline scripts or Stripe:
 
-- **Vercel is likely sending its own strict CSP**, which overrides ours. Go to **Vercel Dashboard** → your project → **Settings** → **Security**.
-- Look for **"Security Headers"**, **"Attack Challenge Mode"**, or any option that adds **Content-Security-Policy**. **Disable** that (or set a custom CSP that allows `'unsafe-inline'` and Stripe) so only our CSP is applied.
-- Then redeploy or do a hard refresh (Ctrl+Shift+R / Cmd+Shift+R) and clear site data for the Vercel URL.
+1. **Check which CSP the browser gets:** Open DevTools → **Network** tab → refresh → click the first request (the document, e.g. `bld-online-production.vercel.app`) → **Headers** → **Response Headers**. Look for `Content-Security-Policy`. If it says `script-src 'self'` with no `'unsafe-inline'`, that strict policy is coming from elsewhere (usually Vercel).
 
-### 5. Verify
+2. **Turn off Vercel’s strict CSP:** **Vercel Dashboard** → your project → **Settings** → **Security**. Look for **"Security Headers"**, **"Attack Challenge Mode"**, or anything that sets **Content-Security-Policy**. **Disable** it (or set a custom CSP that includes `'unsafe-inline'` and Stripe) so only our CSP from the app is used.
+
+3. **Redeploy and hard refresh:** Redeploy the frontend, then hard refresh (Ctrl+Shift+R / Cmd+Shift+R) or use an incognito window so the new headers aren’t cached.
+
+### 5. Vercel build: `npm ci` lock file out of sync
+
+If the Vercel build fails with **"lock file's next@… does not satisfy next@…"** or **"package.json and package-lock.json are in sync"**:
+
+- **Quick fix:** The app uses **`npm install`** in `frontend/vercel.json` (not `npm ci`) so the build doesn’t require an exact lock match. Push the latest code so Vercel gets that change.
+- **Proper fix:** In the repo Vercel builds from (e.g. **github.com/nmatunog/BLD-Online-Production**), run in the **frontend** folder: `npm install`, then commit and push `package-lock.json`. You can switch back to `"installCommand": "npm ci"` in `frontend/vercel.json` for reproducible installs.
+
+### 6. Verify
 
 - [ ] Backend: open `https://bld-online-production-production.up.railway.app/health` and `/api/docs`
 - [ ] Frontend: open your Vercel URL, log in with admin
