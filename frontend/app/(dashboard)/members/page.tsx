@@ -498,11 +498,30 @@ export default function MembersPage() {
     
     if (!editingMember) return;
 
-    // Convert encounter type from display format back to short format
-    const updateData = {
-      ...editForm,
+    // Only send fields that are allowed by the backend DTO
+    // Filter out fields that aren't in UpdateMemberDto (like communityId, gender, profession, etc.)
+    const updateData: Record<string, string | null> = {
+      firstName: editForm.firstName,
+      lastName: editForm.lastName,
+      middleName: editForm.middleName || null,
+      suffix: editForm.suffix || null,
+      nickname: editForm.nickname || null,
+      email: editForm.email || null,
+      phone: editForm.phone || null,
+      city: editForm.city,
       encounterType: getEncounterTypeShort(editForm.encounterType),
+      classNumber: editForm.classNumber,
+      apostolate: editForm.apostolate || null,
+      ministry: editForm.ministry || null,
+      serviceArea: editForm.serviceArea || null,
     };
+    
+    // Remove undefined values
+    Object.keys(updateData).forEach(key => {
+      if (updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
     
     try {
       await membersService.update(editingMember.id, updateData);

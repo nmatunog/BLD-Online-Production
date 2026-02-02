@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsEmail,
 } from 'class-validator';
+import { IsValidApostolate, IsValidMinistryForApostolate } from '../../common/validators/ministry-validator';
 
 export class CreateMemberDto {
   @IsString()
@@ -48,10 +49,16 @@ export class CreateMemberDto {
 
   @IsString()
   @IsOptional()
+  @IsValidApostolate({
+    message: 'Apostolate must be one of the valid BLD Cebu apostolates',
+  })
   apostolate?: string;
 
   @IsString()
   @IsOptional()
+  @IsValidMinistryForApostolate('apostolate', {
+    message: 'Ministry must belong to the selected apostolate',
+  })
   ministry?: string;
 
   @IsString()

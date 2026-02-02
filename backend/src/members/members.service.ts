@@ -12,6 +12,7 @@ import { Prisma } from '@prisma/client';
 import QRCode from 'qrcode';
 import { normalizePhoneNumber } from '../common/utils/phone.util';
 import { BunnyCDNService } from '../common/services/bunnycdn.service';
+import { isValidMinistryForApostolate, isValidApostolate } from '../common/constants/organization.constants';
 
 @Injectable()
 export class MembersService {
@@ -28,6 +29,21 @@ export class MembersService {
 
     if (existingMember) {
       throw new ConflictException('User already has a member profile');
+    }
+
+    // Validate apostolate and ministry relationship
+    if (createMemberDto.apostolate) {
+      if (!isValidApostolate(createMemberDto.apostolate)) {
+        throw new BadRequestException(
+          `Invalid apostolate: ${createMemberDto.apostolate}. Must be one of the valid BLD Cebu apostolates.`,
+        );
+      }
+
+      if (createMemberDto.ministry && !isValidMinistryForApostolate(createMemberDto.ministry, createMemberDto.apostolate)) {
+        throw new BadRequestException(
+          `Ministry "${createMemberDto.ministry}" does not belong to apostolate "${createMemberDto.apostolate}". Please select a valid ministry for this apostolate.`,
+        );
+      }
     }
 
     // Generate Community ID
@@ -326,6 +342,24 @@ export class MembersService {
 
   async update(id: string, updateMemberDto: UpdateMemberDto) {
     const member = await this.findOne(id); // Verify member exists
+
+    // Validate apostolate and ministry relationship
+    const apostolate = updateMemberDto.apostolate !== undefined ? updateMemberDto.apostolate : member.apostolate;
+    const ministry = updateMemberDto.ministry !== undefined ? updateMemberDto.ministry : member.ministry;
+
+    if (apostolate) {
+      if (!isValidApostolate(apostolate)) {
+        throw new BadRequestException(
+          `Invalid apostolate: ${apostolate}. Must be one of the valid BLD Cebu apostolates.`,
+        );
+      }
+
+      if (ministry && !isValidMinistryForApostolate(ministry, apostolate)) {
+        throw new BadRequestException(
+          `Ministry "${ministry}" does not belong to apostolate "${apostolate}". Please select a valid ministry for this apostolate.`,
+        );
+      }
+    }
 
     const updateData: Prisma.MemberUpdateInput = {};
     const userUpdateData: Prisma.UserUpdateInput = {};

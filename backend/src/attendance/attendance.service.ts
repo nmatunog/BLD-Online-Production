@@ -38,10 +38,51 @@ export class AttendanceService {
     const eventStartDate = new Date(event.startDate);
     const eventEndDate = new Date(event.endDate);
 
-    if (eventStartDate > now && event.status !== 'UPCOMING') {
-      throw new BadRequestException('Event has not started yet');
+    // Combine event start date with time if time is provided
+    let actualEventStartDateTime = new Date(eventStartDate);
+    if (event.startTime) {
+      // Parse time string (handles both "HH:MM" and "HH:MM:SS" formats)
+      const timeParts = event.startTime.split(':');
+      const hours = parseInt(timeParts[0], 10);
+      const minutes = parseInt(timeParts[1] || '0', 10);
+      actualEventStartDateTime = new Date(eventStartDate);
+      actualEventStartDateTime.setHours(hours, minutes, 0, 0);
     }
 
+    // Calculate 2 hours before event start
+    const twoHoursBeforeStart = new Date(actualEventStartDateTime);
+    twoHoursBeforeStart.setHours(twoHoursBeforeStart.getHours() - 2);
+
+    // Check if trying to check in too early (more than 2 hours before start)
+    if (now < twoHoursBeforeStart) {
+      // Format the acceptable check-in time for the error message
+      const acceptableTime = twoHoursBeforeStart.toLocaleString('en-US', {
+        weekday: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+      const eventStartTime = actualEventStartDateTime.toLocaleString('en-US', {
+        weekday: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+      throw new BadRequestException(
+        `Check-in is only available 2 hours before the event starts. Please check in at ${acceptableTime} (Event starts at ${eventStartTime})`,
+      );
+    }
+
+    // Allow check-in if:
+    // 1. Current time is 2 hours before event start or later (already checked above)
+    // 2. Event has started (current time >= event start time)
+    // 3. Event hasn't ended yet (current time < event end time)
     if (eventEndDate < now && event.status !== 'COMPLETED') {
       throw new BadRequestException('Event has already ended');
     }
@@ -61,11 +102,13 @@ export class AttendanceService {
     }
 
     // Check permissions: Members can only check themselves in
+    // For public check-in, the userId is the member's own userId, so this check will pass
     if (userRole === UserRole.MEMBER) {
       const currentUserMember = await this.prisma.member.findUnique({
         where: { userId },
       });
-      if (!currentUserMember || currentUserMember.id !== createAttendanceDto.memberId) {
+      // Allow if it's the member checking themselves in (userId matches member's userId)
+      if (currentUserMember && currentUserMember.id !== createAttendanceDto.memberId) {
         throw new ForbiddenException('You can only check yourself in');
       }
     }
@@ -135,6 +178,23 @@ export class AttendanceService {
     };
 
     return this.checkIn(createDto, userId, userRole);
+  }
+
+  async publicCheckIn(communityId: string, eventId: string) {
+    // Lookup member by Community ID
+    const member = await this.memberLookup.findByCommunityId(communityId);
+
+    // Create attendance DTO
+    const createDto: CreateAttendanceDto = {
+      memberId: member.id,
+      eventId,
+      method: CheckInMethod.QR_CODE,
+    };
+
+    // For public check-in, we use the member's userId and MEMBER role
+    // This allows the member to check themselves in without being logged in
+    // The checkIn method will validate that the userId matches the member's userId
+    return this.checkIn(createDto, member.userId, UserRole.MEMBER);
   }
 
   async findAll(query: AttendanceQueryDto) {

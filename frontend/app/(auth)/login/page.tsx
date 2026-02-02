@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -27,7 +27,6 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showChatbotPromo, setShowChatbotPromo] = useState(true);
@@ -49,15 +48,15 @@ export default function LoginPage() {
   const emailOrPhoneValue = watch('emailOrPhone');
   const passwordValue = watch('password');
 
-  // Auto-open chatbot in sign-in mode on page load
-  useEffect(() => {
-    // Prevent immediate re-open if the user intentionally closes it within the first render
-    const timer = setTimeout(() => {
-      setShowChatbotPromo(false);
-      chatbotRef.current?.open();
-    }, 200); // small delay to avoid layout shift
-    return () => clearTimeout(timer);
-  }, []);
+  // Auto-open chatbot in sign-in mode on page load - DISABLED for faster loading
+  // useEffect(() => {
+  //   // Prevent immediate re-open if the user intentionally closes it within the first render
+  //   const timer = setTimeout(() => {
+  //     setShowChatbotPromo(false);
+  //     chatbotRef.current?.open();
+  //   }, 200); // small delay to avoid layout shift
+  //   return () => clearTimeout(timer);
+  // }, []);
 
   // Helper function to detect if input is email or phone
   const detectInputType = (value: string): 'email' | 'phone' | null => {
@@ -130,13 +129,21 @@ export default function LoginPage() {
     } catch (error) {
       const parsedError = parseAuthError(error);
       
-      // Show error toast with title and message
+      // Show error toast with title and message - use longer duration
       toast.error(parsedError.title, {
         description: parsedError.message,
-        duration: 5000,
+        duration: 8000, // Increased to 8 seconds for better visibility
       });
       
       console.error('Login error:', error);
+      console.error('Parsed error:', parsedError);
+      
+      // Log full error details for debugging
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as any;
+        console.error('Error response:', axiosError.response?.data);
+        console.error('Error status:', axiosError.response?.status);
+      }
     } finally {
       setIsLoading(false);
     }

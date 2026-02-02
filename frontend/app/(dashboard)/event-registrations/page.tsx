@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+export const dynamic = 'force-dynamic';
+
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Loader2, Calendar, Users, UserPlus, UserCheck, Heart, Search, Filter, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -20,11 +22,11 @@ import CoupleRegistrationForm from '@/components/registrations/CoupleRegistratio
 import PaymentStatusDialog from '@/components/registrations/PaymentStatusDialog';
 import RoomAssignmentDialog from '@/components/registrations/RoomAssignmentDialog';
 
-export default function EventRegistrationsPage() {
+function EventRegistrationsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const eventId = searchParams.get('eventId');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start as false, will be set to true when actually loading
   const [authLoading, setAuthLoading] = useState(true);
   const [userRole, setUserRole] = useState<string>('');
   const [event, setEvent] = useState<Event | null>(null);
@@ -48,33 +50,44 @@ export default function EventRegistrationsPage() {
 
   useEffect(() => {
     const checkAuth = async () => {
-      if (!authService.isAuthenticated()) {
-        router.push('/login');
-        return;
-      }
-
-      if (typeof window !== 'undefined') {
-        const authDataStr = localStorage.getItem('authData');
-        if (!authDataStr) {
+      try {
+        if (!authService.isAuthenticated()) {
           router.push('/login');
+          setAuthLoading(false);
           return;
         }
-        
-        try {
-          const parsed = JSON.parse(authDataStr);
-          if (!parsed || !parsed.user) {
+
+        if (typeof window !== 'undefined') {
+          const authDataStr = localStorage.getItem('authData');
+          if (!authDataStr) {
             router.push('/login');
+            setAuthLoading(false);
             return;
           }
-          // Store user role for permission checks
-          setUserRole(parsed.user?.role || '');
-        } catch (error) {
-          router.push('/login');
-          return;
+          
+          try {
+            const parsed = JSON.parse(authDataStr);
+            if (!parsed || !parsed.user) {
+              router.push('/login');
+              setAuthLoading(false);
+              return;
+            }
+            // Store user role for permission checks
+            setUserRole(parsed.user?.role || '');
+          } catch (error) {
+            console.error('Error parsing auth data:', error);
+            router.push('/login');
+            setAuthLoading(false);
+            return;
+          }
         }
-      }
 
-      setAuthLoading(false);
+        setAuthLoading(false);
+      } catch (error) {
+        console.error('Error checking auth:', error);
+        setAuthLoading(false);
+        router.push('/login');
+      }
     };
 
     checkAuth();
@@ -83,15 +96,29 @@ export default function EventRegistrationsPage() {
   // Load event data - only depends on eventId and authLoading
   useEffect(() => {
     const loadEvent = async () => {
-      if (!eventId || authLoading) return;
+      // Check if eventId is missing
+      if (!eventId) {
+        console.warn('No eventId provided in URL');
+        toast.error('Event ID Missing', {
+          description: 'Please select an event from the events page.',
+        });
+        router.push('/events');
+        setLoading(false);
+        return;
+      }
+
+      // Wait for auth to complete
+      if (authLoading) {
+        return;
+      }
 
       try {
         setLoading(true);
         console.log('Loading event:', eventId);
         
         // Add timeout wrapper
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Request timeout: Event loading took too long')), 8000);
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Request timeout: Event loading took too long')), 10000);
         });
         
         const eventResult = await Promise.race([
@@ -117,6 +144,7 @@ export default function EventRegistrationsPage() {
                     description: 'Members can only view registrations for non-recurring events.',
                   });
                   router.push('/events');
+                  setLoading(false);
                   return;
                 }
               }
@@ -127,21 +155,27 @@ export default function EventRegistrationsPage() {
           
           setEvent(loadedEvent);
         } else {
+          console.error('Event not found or invalid response:', eventResult);
           toast.error('Event Not Found', {
-            description: 'The event you are looking for does not exist.',
+            description: eventResult.error || 'The event you are looking for does not exist.',
           });
           router.push('/events');
         }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Failed to load event';
         console.error('Error loading event:', error);
+        
+        // Check if it's a network error
+        const isNetworkError = errorMessage.includes('Network') || errorMessage.includes('timeout') || errorMessage.includes('ECONNREFUSED');
+        
         toast.error('Error Loading Event', {
-          description: errorMessage.includes('timeout') 
-            ? 'The request took too long. Please check your connection and try again.'
+          description: isNetworkError
+            ? 'Unable to connect to the server. Please check your connection and try again.'
             : errorMessage,
         });
-        // Don't redirect on timeout, let user try again
-        if (!errorMessage.includes('timeout')) {
+        
+        // Don't redirect on network errors, let user try again
+        if (!isNetworkError) {
           router.push('/events');
         }
       } finally {
@@ -150,7 +184,7 @@ export default function EventRegistrationsPage() {
     };
 
     loadEvent();
-  }, [eventId, authLoading, router]);
+  }, [eventId, authLoading]); // Removed router from dependencies as it's stable
 
   // Debounce search term to avoid excessive API calls
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
@@ -372,6 +406,9 @@ export default function EventRegistrationsPage() {
             <div className="text-2xl text-foreground mb-2">Loading Event...</div>
             <div className="text-sm text-gray-500">
               {eventId ? `Event ID: ${eventId.substring(0, 8)}...` : 'Please wait...'}
+            </div>
+            <div className="text-xs text-gray-400 mt-2">
+              If this takes too long, check your connection
             </div>
           </div>
         </div>
@@ -658,5 +695,17 @@ export default function EventRegistrationsPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function EventRegistrationsPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
+      </div>
+    }>
+      <EventRegistrationsContent />
+    </Suspense>
   );
 }

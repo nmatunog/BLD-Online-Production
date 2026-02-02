@@ -14,6 +14,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { AccountingService } from './accounting.service';
 import { CreateIncomeEntryDto } from './dto/create-income-entry.dto';
 import { CreateExpenseEntryDto } from './dto/create-expense-entry.dto';
+import { CreateAdjustmentEntryDto } from './dto/create-adjustment-entry.dto';
 import { UpdateIncomeEntryDto } from './dto/update-income-entry.dto';
 import { UpdateExpenseEntryDto } from './dto/update-expense-entry.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -199,6 +200,63 @@ export class AccountingController {
       success: true,
       data: account,
       message: 'Event account reopened successfully',
+    };
+  }
+
+  @Post('events/:eventId/adjustments')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @ApiOperation({ summary: 'Create adjustment entry' })
+  @ApiResponse({ status: 201, description: 'Adjustment entry created successfully' })
+  @ApiResponse({ status: 400, description: 'Account is closed' })
+  async createAdjustmentEntry(
+    @Param('eventId') eventId: string,
+    @Body() createAdjustmentEntryDto: CreateAdjustmentEntryDto,
+  ): Promise<ApiResponseDto<unknown>> {
+    const entry = await this.accountingService.createAdjustmentEntry(
+      eventId,
+      createAdjustmentEntryDto,
+    );
+    return {
+      success: true,
+      data: entry,
+      message: 'Adjustment entry created successfully',
+    };
+  }
+
+  @Delete('events/:eventId/adjustments/:entryId')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete adjustment entry' })
+  @ApiResponse({ status: 200, description: 'Adjustment entry deleted successfully' })
+  @ApiResponse({ status: 404, description: 'Adjustment entry not found' })
+  async deleteAdjustmentEntry(
+    @Param('eventId') eventId: string,
+    @Param('entryId') entryId: string,
+  ): Promise<ApiResponseDto<unknown>> {
+    const result = await this.accountingService.deleteAdjustmentEntry(eventId, entryId);
+    return {
+      success: true,
+      data: result,
+      message: 'Adjustment entry deleted successfully',
+    };
+  }
+
+  @Get('events/:eventId/report')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @ApiOperation({ summary: 'Generate financial report for event' })
+  @ApiResponse({ status: 200, description: 'Financial report generated successfully' })
+  @ApiResponse({ status: 404, description: 'Event not found' })
+  async generateFinancialReport(
+    @Param('eventId') eventId: string,
+  ): Promise<ApiResponseDto<unknown>> {
+    const report = await this.accountingService.generateFinancialReport(eventId);
+    return {
+      success: true,
+      data: report,
+      message: 'Financial report generated successfully',
     };
   }
 }

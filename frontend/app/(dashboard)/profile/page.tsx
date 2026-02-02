@@ -470,7 +470,18 @@ export default function ProfilePage() {
                     {isEditing ? (
                       <Select
                         value={editForm.apostolate}
-                        onValueChange={(value) => handleInputChange('apostolate', value)}
+                        onValueChange={(value) => {
+                          handleInputChange('apostolate', value);
+                          // Clear ministry when apostolate changes to ensure it matches the new apostolate
+                          if (value && editForm.ministry) {
+                            const validMinistries = getMinistriesForApostolate(value);
+                            if (!validMinistries.includes(editForm.ministry)) {
+                              handleInputChange('ministry', '');
+                            }
+                          } else {
+                            handleInputChange('ministry', '');
+                          }
+                        }}
                       >
                         <SelectTrigger className="mt-2 h-12 text-lg">
                           <SelectValue placeholder="Select Apostolate" />

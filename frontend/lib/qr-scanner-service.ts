@@ -346,7 +346,7 @@ export class QRScanner {
   // Check if camera is available
   static async isCameraAvailable(): Promise<boolean> {
     try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      if (navigator.mediaDevices) {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoDevices = devices.filter((device) => device.kind === 'videoinput');
         return videoDevices.length > 0;
@@ -388,6 +388,67 @@ export class QRScanner {
 
 // Utility functions for QR code parsing
 export const qrUtils = {
+  // Extract event data from QR scan
+  extractEventData(scannedData: any): { eventId: string; type?: string; timestamp?: string } | null {
+    // Try to parse as JSON first
+    let parsedData: any = null;
+    if (typeof scannedData === 'string') {
+      try {
+        parsedData = JSON.parse(scannedData);
+      } catch {
+        // Not JSON, continue with string handling
+      }
+    } else {
+      parsedData = scannedData;
+    }
+
+    // Standard event QR code (JSON format from backend)
+    if (parsedData && parsedData.type === 'event' && parsedData.eventId) {
+      return {
+        eventId: parsedData.eventId,
+        type: parsedData.type,
+        timestamp: parsedData.timestamp,
+      };
+    }
+
+    // URL format event QR code - supports both /checkin/[eventId] and /checkin?eventId=...
+    if (typeof scannedData === 'string') {
+      // Check for URL format: /checkin/[eventId] (new public format)
+      const checkinMatch = scannedData.match(/\/checkin\/([a-zA-Z0-9-]+)/);
+      if (checkinMatch && checkinMatch[1]) {
+        return {
+          eventId: checkinMatch[1],
+          type: 'event',
+        };
+      }
+
+      // Check for URL format: /checkin?eventId=... (legacy format)
+      if (scannedData.includes('/checkin?eventId=') || scannedData.includes('eventId=')) {
+        try {
+          const url = new URL(scannedData.startsWith('http') ? scannedData : `http://dummy.com${scannedData}`);
+          const eventId = url.searchParams.get('eventId');
+          if (eventId) {
+            return {
+              eventId,
+              type: 'event',
+            };
+          }
+        } catch {
+          // Try simple string extraction
+          const match = scannedData.match(/eventId=([^&]+)/);
+          if (match && match[1]) {
+            return {
+              eventId: match[1],
+              type: 'event',
+            };
+          }
+        }
+      }
+    }
+
+    return null;
+  },
+
   // Extract member data from QR scan
   extractMemberData(scannedData: any): { communityId: string; name?: string; email?: string } | null {
     // Try to parse as JSON first

@@ -1,4 +1,5 @@
 import { apiClient } from './api-client';
+import { ApiResponse } from '@/types/api.types';
 
 export enum ReportType {
   ATTENDANCE = 'ATTENDANCE',
@@ -258,42 +259,43 @@ export type ReportResult = AttendanceReport | RegistrationReport | MemberReport 
 
 class ReportsService {
   async generateReport(params: ReportQueryParams): Promise<{ success: boolean; data: ReportResult }> {
-    const response = await apiClient.get('/reports', { params });
+    const response = await apiClient.get<ApiResponse<ReportResult>>('/reports', { params });
+    const apiResponse = response.data as ApiResponse<ReportResult>;
     return {
       success: true,
-      data: response.data,
+      data: apiResponse.data!,
     };
   }
 
   async generateAttendanceReport(params: Omit<ReportQueryParams, 'reportType'>): Promise<{ success: boolean; data: AttendanceReport }> {
-    const response = await apiClient.get('/reports/attendance', { params });
+    const response = await apiClient.get<ApiResponse<AttendanceReport>>('/reports/attendance', { params });
     return {
       success: true,
-      data: response.data,
+      data: response.data.data!,
     };
   }
 
   async generateRegistrationReport(params: Omit<ReportQueryParams, 'reportType'>): Promise<{ success: boolean; data: RegistrationReport }> {
-    const response = await apiClient.get('/reports/registration', { params });
+    const response = await apiClient.get<ApiResponse<RegistrationReport>>('/reports/registration', { params });
     return {
       success: true,
-      data: response.data,
+      data: response.data.data!,
     };
   }
 
   async generateMemberReport(params: Omit<ReportQueryParams, 'reportType'>): Promise<{ success: boolean; data: MemberReport }> {
-    const response = await apiClient.get('/reports/member', { params });
+    const response = await apiClient.get<ApiResponse<MemberReport>>('/reports/member', { params });
     return {
       success: true,
-      data: response.data,
+      data: response.data.data!,
     };
   }
 
   async generateEventReport(params: Omit<ReportQueryParams, 'reportType'>): Promise<{ success: boolean; data: EventReport }> {
-    const response = await apiClient.get('/reports/event', { params });
+    const response = await apiClient.get<ApiResponse<EventReport>>('/reports/event', { params });
     return {
       success: true,
-      data: response.data,
+      data: response.data.data!,
     };
   }
 

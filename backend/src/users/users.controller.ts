@@ -7,6 +7,8 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { UsersService } from './users.service';
@@ -55,7 +57,7 @@ export class UsersController {
   ): Promise<ApiResponseDto<unknown>> {
     // Prevent self-role modification to prevent lockout
     if (userId === currentUser.id && assignRoleDto.role !== currentUser.role) {
-      throw new Error('You cannot change your own role');
+      throw new ForbiddenException('You cannot change your own role');
     }
 
     const result = await this.usersService.assignRole(userId, assignRoleDto);
@@ -81,7 +83,7 @@ export class UsersController {
   ): Promise<ApiResponseDto<unknown>> {
     // Prevent self-role removal to prevent lockout
     if (userId === currentUser.id) {
-      throw new Error('You cannot remove your own role');
+      throw new ForbiddenException('You cannot remove your own role');
     }
 
     // Only allow removing CLASS_SHEPHERD or MINISTRY_COORDINATOR
@@ -89,7 +91,7 @@ export class UsersController {
       body.role !== UserRole.CLASS_SHEPHERD &&
       body.role !== UserRole.MINISTRY_COORDINATOR
     ) {
-      throw new Error('Can only remove CLASS_SHEPHERD or MINISTRY_COORDINATOR roles');
+      throw new BadRequestException('Can only remove CLASS_SHEPHERD or MINISTRY_COORDINATOR roles');
     }
 
     const result = await this.usersService.removeRole(userId, body.role);

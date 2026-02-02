@@ -153,8 +153,8 @@ export default function RegistrationTable({
                   <TableCell className="text-lg">
                     <div>
                       <div className="font-medium text-gray-900">{displayName}</div>
-                      {registration.nickname && (
-                        <div className="text-sm text-gray-500">({registration.nickname})</div>
+                      {registration.member?.nickname && (
+                        <div className="text-sm text-gray-500">({registration.member.nickname})</div>
                       )}
                       {registration.coupleRole && (
                         <div className="text-xs text-purple-600 mt-1">

@@ -24,6 +24,12 @@ export class ReportsService {
       where.memberId = query.memberId;
     }
 
+    if (query.ministry) {
+      where.member = {
+        ministry: query.ministry,
+      };
+    }
+
     if (query.startDate || query.endDate) {
       where.checkInTime = {};
       if (query.startDate) {
@@ -84,6 +90,7 @@ export class ReportsService {
         filters: {
           eventId: query.eventId,
           memberId: query.memberId,
+          ministry: query.ministry,
           startDate: query.startDate,
           endDate: query.endDate,
         },
@@ -99,6 +106,12 @@ export class ReportsService {
 
     if (query.eventId) {
       where.eventId = query.eventId;
+    }
+
+    if (query.ministry) {
+      where.member = {
+        ministry: query.ministry,
+      };
     }
 
     if (query.startDate || query.endDate) {
@@ -163,6 +176,7 @@ export class ReportsService {
         generatedAt: new Date(),
         filters: {
           eventId: query.eventId,
+          ministry: query.ministry,
           startDate: query.startDate,
           endDate: query.endDate,
         },

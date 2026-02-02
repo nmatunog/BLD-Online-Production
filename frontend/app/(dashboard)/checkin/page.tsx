@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { 
@@ -33,7 +33,7 @@ import { toast } from 'sonner';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { QRScanner, qrUtils } from '@/lib/qr-scanner-service';
 
-export default function CheckInPage() {
+function CheckInContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isScanning, setIsScanning] = useState(false);
@@ -262,23 +262,32 @@ export default function CheckInPage() {
 
   const handleQRScanSuccess = async (decodedText: string) => {
     try {
-      // Check if it's an event QR code (URL format)
-      if (typeof decodedText === 'string' && decodedText.includes('/checkin?eventId=')) {
-        try {
-          const url = new URL(decodedText);
-          const eventId = url.searchParams.get('eventId');
-          if (eventId) {
-            setSelectedEvent(eventId);
-            toast.success('Event selected from QR code. You can now scan member QR codes.');
-            await stopQRScanner();
-            return;
-          }
-        } catch {
-          // Not a valid URL, continue with member QR processing
+      // First, check if it's an event QR code (JSON or URL format)
+      const eventData = qrUtils.extractEventData(decodedText);
+      if (eventData && eventData.eventId) {
+        // Verify event exists
+        const event = events.find(e => e.id === eventData.eventId);
+        if (!event) {
+          toast.error('Event Not Found', {
+            description: 'The scanned event QR code is not valid or the event no longer exists.',
+          });
+          return;
         }
+
+        setSelectedEvent(eventData.eventId);
+        toast.success('Event Selected', {
+          description: `${event.title} - You can now scan member QR codes to check them in.`,
+          duration: 4000,
+        });
+        
+        // Only stop scanning if not in continuous mode
+        if (!continuousMode) {
+          await stopQRScanner();
+        }
+        return;
       }
 
-      // Extract member data from QR code
+      // If not an event QR code, try to extract member data
       const memberData = qrUtils.extractMemberData(decodedText);
 
       if (!memberData || !memberData.communityId) {
@@ -317,6 +326,7 @@ export default function CheckInPage() {
   };
 
   const performCheckIn = async (communityId: string) => {
+    // Validate inputs before sending request
     if (!selectedEvent) {
       toast.error('Please Select an Event', {
         description: 'Select an event before checking in',
@@ -324,10 +334,20 @@ export default function CheckInPage() {
       return;
     }
 
+    if (!communityId || !communityId.trim()) {
+      toast.error('Invalid Community ID', {
+        description: 'Please scan a valid member QR code or enter a Community ID',
+      });
+      return;
+    }
+
+    // Normalize community ID (uppercase, trim)
+    const normalizedCommunityId = communityId.trim().toUpperCase();
+
     setLoading(true);
     try {
       const result = await attendanceService.checkIn({
-        communityId,
+        communityId: normalizedCommunityId,
         eventId: selectedEvent,
         method: 'QR_CODE',
       });
@@ -352,12 +372,30 @@ export default function CheckInPage() {
         loadRecentCheckIns();
         loadStats();
       }
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to check in';
+    } catch (error: any) {
+      // Extract validation errors from backend response
+      let errorMessage = 'Failed to check in';
+      
+      if (error?.response?.data) {
+        const errorData = error.response.data;
+        if (Array.isArray(errorData.message)) {
+          // Multiple validation errors
+          errorMessage = errorData.message.join(', ');
+        } else if (errorData.message) {
+          errorMessage = errorData.message;
+        } else if (errorData.error) {
+          errorMessage = errorData.error;
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
       toast.error('Check-in Failed', {
         description: errorMessage,
         duration: 5000,
       });
+      
+      console.error('Check-in error:', error);
     } finally {
       setLoading(false);
     }
@@ -521,6 +559,21 @@ export default function CheckInPage() {
             <p className="text-base text-gray-600">
               Scan QR code or manually check in members for events
             </p>
+            {userRole === 'MEMBER' && (
+              <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800 mb-2">
+                  <strong>Are you a member looking to check yourself in?</strong>
+                </p>
+                <Button
+                  onClick={() => router.push('/checkin/self-checkin')}
+                  variant="outline"
+                  className="bg-white border-blue-300 text-blue-700 hover:bg-blue-50"
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Go to Self Check-In
+                </Button>
+              </div>
+            )}
           </div>
 
         {/* Event Selection - Highlighted */}
@@ -971,3 +1024,14 @@ export default function CheckInPage() {
   );
 }
 
+export default function CheckInPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
+      </div>
+    }>
+      <CheckInContent />
+    </Suspense>
+  );
+}

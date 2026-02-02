@@ -1,0 +1,289 @@
+import { PrismaClient, PaymentStatus } from '@prisma/client';
+const prisma = new PrismaClient();
+
+async function createDummyEntriesByEventId(eventId?: string) {
+  try {
+    let event;
+    
+    if (eventId) {
+      // Use provided event ID
+      event = await prisma.event.findUnique({
+        where: { id: eventId },
+      });
+      
+      if (!event) {
+        console.log(`❌ Event with ID "${eventId}" not found`);
+        return;
+      }
+    } else {
+      // Find any event with "BBS" in title
+      event = await prisma.event.findFirst({
+        where: {
+          title: {
+            contains: 'BBS',
+            mode: 'insensitive',
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      
+      if (!event) {
+        console.log('❌ No event with "BBS" in title found');
+        console.log('\n📋 Recent events:');
+        const allEvents = await prisma.event.findMany({
+          select: { id: true, title: true, startDate: true },
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+        });
+        allEvents.forEach((e) => {
+          console.log(`   - "${e.title}" (ID: ${e.id})`);
+        });
+        console.log('\n💡 Usage: npx ts-node scripts/create-dummy-entries-by-id.ts <event-id>');
+        return;
+      }
+    }
+
+    console.log(`✅ Found event: "${event.title}" (ID: ${event.id})\n`);
+
+    // Get or create event account
+    let account = await prisma.eventAccount.findUnique({
+      where: { eventId: event.id },
+    });
+
+    if (!account) {
+      console.log('📝 Creating event account...');
+      account = await prisma.eventAccount.create({
+        data: { eventId: event.id },
+      });
+      console.log('✅ Event account created\n');
+    } else {
+      console.log('✅ Event account exists');
+      console.log(`   Status: ${account.isClosed ? 'CLOSED' : 'OPEN'}\n`);
+      
+      // Reopen if closed
+      if (account.isClosed) {
+        console.log('⚠️  Account is closed. Reopening it...');
+        await prisma.eventAccount.update({
+          where: { id: account.id },
+          data: { isClosed: false, closedAt: null },
+        });
+        console.log('✅ Account reopened\n');
+      }
+    }
+
+    // Delete existing dummy entries
+    console.log('🗑️  Cleaning up existing dummy entries...');
+    const deletedIncome = await prisma.incomeEntry.deleteMany({
+      where: {
+        accountId: account.id,
+        description: { startsWith: '[DUMMY]' },
+      },
+    });
+    const deletedExpense = await prisma.expenseEntry.deleteMany({
+      where: {
+        accountId: account.id,
+        description: { startsWith: '[DUMMY]' },
+      },
+    });
+    const deletedAdjustment = await prisma.adjustmentEntry.deleteMany({
+      where: {
+        accountId: account.id,
+        description: { startsWith: '[DUMMY]' },
+      },
+    });
+    console.log(`   Deleted: ${deletedIncome.count} income, ${deletedExpense.count} expense, ${deletedAdjustment.count} adjustment entries\n`);
+
+    // Get total paid registrations to match the income amount
+    const paidRegistrations = await prisma.eventRegistration.findMany({
+      where: {
+        eventId: event.id,
+        paymentStatus: PaymentStatus.PAID,
+      },
+      select: {
+        paymentAmount: true,
+      },
+    });
+    
+    const totalRegistrationFees = paidRegistrations.reduce((sum, r) => sum + (Number(r.paymentAmount) || 0), 0);
+    const registrationFeeAmount = totalRegistrationFees > 0 ? totalRegistrationFees : 15000.00;
+
+    // Create dummy income entries
+    console.log('💰 Creating dummy income entries...');
+    const incomeEntries = [
+      {
+        description: '[DUMMY] Registration fees from participants',
+        amount: registrationFeeAmount,
+        source: 'Registration Fees',
+        remarks: 'Payment received early',
+        receivedAt: new Date(event.startDate),
+      },
+      {
+        description: '[DUMMY] Sponsorship from local business',
+        amount: 5000.00,
+        source: 'Sponsorship',
+        remarks: 'Corporate sponsor',
+        receivedAt: new Date(new Date(event.startDate).getTime() - 2 * 24 * 60 * 60 * 1000),
+      },
+      {
+        description: '[DUMMY] Donation from community member',
+        amount: 2000.00,
+        source: 'Donations',
+        remarks: 'Anonymous donation',
+        receivedAt: new Date(new Date(event.startDate).getTime() - 1 * 24 * 60 * 60 * 1000),
+      },
+      {
+        description: '[DUMMY] Merchandise sales',
+        amount: 3500.00,
+        source: 'Merchandise',
+        remarks: 'T-shirt sales',
+        receivedAt: new Date(event.startDate),
+      },
+    ];
+
+    for (const entry of incomeEntries) {
+      const created = await prisma.incomeEntry.create({
+        data: {
+          accountId: account.id,
+          ...entry,
+        },
+      });
+      console.log(`   ✓ ${entry.description} - ₱${entry.amount.toFixed(2)} (ID: ${created.id})`);
+    }
+
+    // Create dummy expense entries
+    console.log('\n💸 Creating dummy expense entries...');
+    const expenseEntries = [
+      {
+        description: '[DUMMY] Venue rental fee',
+        amount: 8000.00,
+        category: 'Venue',
+        remarks: 'Full day rental',
+        paidAt: new Date(new Date(event.startDate).getTime() - 5 * 24 * 60 * 60 * 1000),
+      },
+      {
+        description: '[DUMMY] Catering services',
+        amount: 12000.00,
+        category: 'Food & Beverage',
+        remarks: 'Lunch and snacks',
+        paidAt: new Date(new Date(event.startDate).getTime() - 3 * 24 * 60 * 60 * 1000),
+      },
+      {
+        description: '[DUMMY] Sound system rental',
+        amount: 3000.00,
+        category: 'Equipment',
+        remarks: 'Audio equipment',
+        paidAt: new Date(new Date(event.startDate).getTime() - 2 * 24 * 60 * 60 * 1000),
+      },
+      {
+        description: '[DUMMY] Transportation costs',
+        amount: 2500.00,
+        category: 'Transportation',
+        remarks: 'Bus rental',
+        paidAt: new Date(new Date(event.startDate).getTime() - 1 * 24 * 60 * 60 * 1000),
+      },
+      {
+        description: '[DUMMY] Printing and materials',
+        amount: 1500.00,
+        category: 'Materials',
+        remarks: 'Programs and handouts',
+        paidAt: new Date(event.startDate),
+      },
+    ];
+
+    for (const entry of expenseEntries) {
+      const created = await prisma.expenseEntry.create({
+        data: {
+          accountId: account.id,
+          ...entry,
+        },
+      });
+      console.log(`   ✓ ${entry.description} - ₱${entry.amount.toFixed(2)} (ID: ${created.id})`);
+    }
+
+    // Create dummy adjustment entries
+    console.log('\n⚖️  Creating dummy adjustment entries...');
+    const adjustmentEntries = [
+      {
+        description: '[DUMMY] Balance correction',
+        amount: -500.00,
+        remarks: 'Refund adjustment',
+        adjustedAt: new Date(event.startDate),
+      },
+      {
+        description: '[DUMMY] Late fee adjustment',
+        amount: 200.00,
+        remarks: 'Late registration fee',
+        adjustedAt: new Date(event.startDate),
+      },
+    ];
+
+    for (const entry of adjustmentEntries) {
+      const created = await prisma.adjustmentEntry.create({
+        data: {
+          accountId: account.id,
+          ...entry,
+        },
+      });
+      console.log(`   ✓ ${entry.description} - ₱${entry.amount.toFixed(2)} (ID: ${created.id})`);
+    }
+
+    // Calculate totals
+    const totalIncome = incomeEntries.reduce((sum, e) => sum + e.amount, 0);
+    const totalExpenses = expenseEntries.reduce((sum, e) => sum + e.amount, 0);
+    const totalAdjustments = adjustmentEntries.reduce((sum, e) => sum + e.amount, 0);
+    const netBalance = totalIncome - totalExpenses + totalAdjustments;
+
+    console.log('\n📊 Summary:');
+    console.log(`   Total Income: ₱${totalIncome.toFixed(2)}`);
+    console.log(`   Total Expenses: ₱${totalExpenses.toFixed(2)}`);
+    console.log(`   Total Adjustments: ₱${totalAdjustments.toFixed(2)}`);
+    console.log(`   Net Balance: ₱${netBalance.toFixed(2)}`);
+    console.log(`   Status: ${netBalance >= 0 ? 'SURPLUS' : 'DEFICIT'}`);
+
+    // Verify entries were created
+    console.log('\n🔍 Verifying entries...');
+    const verifyAccount = await prisma.eventAccount.findUnique({
+      where: { id: account.id },
+      include: {
+        incomeEntries: {
+          where: { description: { startsWith: '[DUMMY]' } },
+          select: { id: true, description: true, amount: true },
+        },
+        expenseEntries: {
+          where: { description: { startsWith: '[DUMMY]' } },
+          select: { id: true, description: true, amount: true },
+        },
+        adjustmentEntries: {
+          where: { description: { startsWith: '[DUMMY]' } },
+          select: { id: true, description: true, amount: true },
+        },
+      },
+    });
+
+    console.log(`   ✅ Income entries in DB: ${verifyAccount?.incomeEntries.length || 0}`);
+    console.log(`   ✅ Expense entries in DB: ${verifyAccount?.expenseEntries.length || 0}`);
+    console.log(`   ✅ Adjustment entries in DB: ${verifyAccount?.adjustmentEntries.length || 0}`);
+
+    if (verifyAccount && verifyAccount.incomeEntries.length === incomeEntries.length && 
+        verifyAccount.expenseEntries.length === expenseEntries.length) {
+      console.log('\n✅ SUCCESS! All dummy entries created and verified.');
+      console.log('💡 Refresh the Event Accounting page in your browser to see them.');
+      console.log(`\n🔗 Event Accounting URL: http://localhost:3000/accounting/${event.id}`);
+    } else {
+      console.log('\n⚠️  Warning: Some entries may not have been created correctly.');
+    }
+  } catch (error) {
+    console.error('\n❌ Error:', error);
+    if (error instanceof Error) {
+      console.error('   Message:', error.message);
+      console.error('   Stack:', error.stack);
+    }
+    throw error;
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+// Get event ID from command line argument
+const eventId = process.argv[2];
+createDummyEntriesByEventId(eventId);

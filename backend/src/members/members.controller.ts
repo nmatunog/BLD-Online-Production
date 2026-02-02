@@ -10,6 +10,8 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { MembersService } from './members.service';
@@ -19,6 +21,7 @@ import { MemberQueryDto } from './dto/member-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { ApiResponse as ApiResponseDto } from '../common/interfaces/api-response.interface';
 import { UserRole } from '@prisma/client';
@@ -60,10 +63,10 @@ export class MembersController {
           createEncounterType !== user.shepherdEncounterType.toUpperCase() ||
           createClassNumber !== user.shepherdClassNumber
         ) {
-          throw new Error('You can only create members for your assigned encounter class');
+          throw new ForbiddenException('You can only create members for your assigned encounter class');
         }
       } else {
-        throw new Error('Class Shepherd assignment not configured');
+        throw new BadRequestException('Class Shepherd assignment not configured');
       }
     }
     
@@ -182,10 +185,10 @@ export class MembersController {
           member.encounterType.toUpperCase() !== user.shepherdEncounterType.toUpperCase() ||
           member.classNumber !== user.shepherdClassNumber
         ) {
-          throw new Error('You can only access members from your assigned encounter class');
+          throw new ForbiddenException('You can only access members from your assigned encounter class');
         }
       } else {
-        throw new Error('Class Shepherd assignment not configured');
+        throw new BadRequestException('Class Shepherd assignment not configured');
       }
     }
     
@@ -226,13 +229,29 @@ export class MembersController {
           member.encounterType.toUpperCase() !== user.shepherdEncounterType.toUpperCase() ||
           member.classNumber !== user.shepherdClassNumber
         ) {
-          throw new Error('You can only access members from your assigned encounter class');
+          throw new ForbiddenException('You can only access members from your assigned encounter class');
         }
       } else {
-        throw new Error('Class Shepherd assignment not configured');
+        throw new BadRequestException('Class Shepherd assignment not configured');
       }
     }
     
+    return {
+      success: true,
+      data: member,
+      message: 'Member retrieved successfully',
+    };
+  }
+
+  @Public()
+  @Get('public/community/:communityId')
+  @ApiOperation({ summary: 'Public member lookup by Community ID (no authentication required)' })
+  @ApiResponse({ status: 200, description: 'Member retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Member not found' })
+  async publicFindByCommunityId(
+    @Param('communityId') communityId: string,
+  ): Promise<ApiResponseDto<unknown>> {
+    const member = await this.membersService.findByCommunityId(communityId);
     return {
       success: true,
       data: member,
@@ -268,7 +287,7 @@ export class MembersController {
     // Check permissions for MINISTRY_COORDINATOR
     if (user.role === UserRole.MINISTRY_COORDINATOR) {
       if (member.ministry !== user.ministry) {
-        throw new Error('You can only edit members from your own ministry');
+        throw new ForbiddenException('You can only edit members from your own ministry');
       }
     }
     
@@ -279,10 +298,10 @@ export class MembersController {
           member.encounterType.toUpperCase() !== user.shepherdEncounterType.toUpperCase() ||
           member.classNumber !== user.shepherdClassNumber
         ) {
-          throw new Error('You can only edit members from your assigned encounter class');
+          throw new ForbiddenException('You can only edit members from your assigned encounter class');
         }
       } else {
-        throw new Error('Class Shepherd assignment not configured');
+        throw new BadRequestException('Class Shepherd assignment not configured');
       }
     }
 
@@ -338,10 +357,10 @@ export class MembersController {
           member.encounterType.toUpperCase() !== user.shepherdEncounterType.toUpperCase() ||
           member.classNumber !== user.shepherdClassNumber
         ) {
-          throw new Error('You can only regenerate QR codes for members from your assigned encounter class');
+          throw new ForbiddenException('You can only regenerate QR codes for members from your assigned encounter class');
         }
       } else {
-        throw new Error('Class Shepherd assignment not configured');
+        throw new BadRequestException('Class Shepherd assignment not configured');
       }
     }
     

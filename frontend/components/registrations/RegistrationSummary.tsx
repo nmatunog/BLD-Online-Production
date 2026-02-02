@@ -28,6 +28,7 @@ export default function RegistrationSummary({ summary, loading }: RegistrationSu
   }
 
   const { event, summary: stats } = summary;
+  const capacityUsed = stats.capacityUsed ?? null;
 
   return (
     <div className="space-y-4">
@@ -155,14 +156,14 @@ export default function RegistrationSummary({ summary, loading }: RegistrationSu
       </Card>
 
       {/* Capacity Used */}
-      {stats.capacityUsed !== null && (
+      {capacityUsed !== null && (
         <Card className="bg-white border border-gray-200 shadow-sm">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600 mb-1">Capacity Used</p>
                 <p className="text-3xl font-bold text-gray-900">
-                  {stats.capacityUsed.toFixed(1)}%
+                  {capacityUsed.toFixed(1)}%
                 </p>
               </div>
               <div className="w-16 h-16 relative">
@@ -183,13 +184,13 @@ export default function RegistrationSummary({ summary, loading }: RegistrationSu
                     stroke="currentColor"
                     strokeWidth="4"
                     fill="none"
-                    strokeDasharray={`${(stats.capacityUsed / 100) * 175.9} 175.9`}
+                    strokeDasharray={`${(capacityUsed / 100) * 175.9} 175.9`}
                     className="text-purple-600"
                   />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center">
                   <span className="text-xs font-semibold text-gray-700">
-                    {Math.round(stats.capacityUsed)}%
+                    {Math.round(capacityUsed)}%
                   </span>
                 </div>
               </div>

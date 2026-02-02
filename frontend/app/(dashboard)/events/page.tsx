@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Search, Calendar, Filter, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Clock, MapPin, Users, Loader2, MessageSquare, Sparkles, RefreshCw, CheckCircle, Globe, FolderOpen } from 'lucide-react';
+import { Search, Calendar, Filter, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Clock, MapPin, Users, Loader2, MessageSquare, Sparkles, RefreshCw, CheckCircle, Globe, FolderOpen, UserPlus, UserCheck } from 'lucide-react';
 import { eventsService, type Event, type EventQueryParams } from '@/services/events.service';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
@@ -645,10 +645,45 @@ export default function EventsPage() {
   };
 
   const handleCreateEvent = async () => {
+    // Basic field validation
     if (!createForm.title || !createForm.eventType || !createForm.category || !createForm.startDate || !createForm.endDate || !createForm.location) {
       toast.error('Missing Required Fields', {
         description: 'Please fill in all required fields (Title, Event Type, Category, Start Date, End Date, Location)',
       });
+      return;
+    }
+
+    // Validate date and time combination
+    const startDate = new Date(createForm.startDate);
+    const endDate = new Date(createForm.endDate);
+    
+    // Combine date with time if time is provided
+    let actualStartDateTime = new Date(startDate);
+    let actualEndDateTime = new Date(endDate);
+
+    if (createForm.startTime) {
+      const [hours, minutes] = createForm.startTime.split(':').map(Number);
+      actualStartDateTime = new Date(startDate);
+      actualStartDateTime.setHours(hours, minutes, 0, 0);
+    }
+
+    if (createForm.endTime) {
+      const [hours, minutes] = createForm.endTime.split(':').map(Number);
+      actualEndDateTime = new Date(endDate);
+      actualEndDateTime.setHours(hours, minutes, 0, 0);
+    }
+
+    // Validate that end date/time is after start date/time
+    if (actualStartDateTime >= actualEndDateTime) {
+      if (createForm.startDate === createForm.endDate && createForm.startTime && createForm.endTime) {
+        toast.error('Invalid Times', {
+          description: 'End time must be after start time when dates are the same.',
+        });
+      } else {
+        toast.error('Invalid Date/Time', {
+          description: 'End date/time must be after start date/time.',
+        });
+      }
       return;
     }
 
@@ -784,11 +819,30 @@ export default function EventsPage() {
           loadEvents();
         }
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to save event';
-      toast.error('Error', {
+    } catch (error: any) {
+      // Extract validation errors from backend response
+      let errorMessage = 'Failed to save event';
+      
+      if (error?.response?.data) {
+        const errorData = error.response.data;
+        if (Array.isArray(errorData.message)) {
+          // Multiple validation errors
+          errorMessage = errorData.message.join(', ');
+        } else if (errorData.message) {
+          errorMessage = errorData.message;
+        } else if (errorData.error) {
+          errorMessage = errorData.error;
+        }
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      
+      toast.error('Validation Error', {
         description: errorMessage,
+        duration: 5000,
       });
+      
+      console.error('Event creation error:', error);
     }
   };
 
@@ -2004,22 +2058,89 @@ export default function EventsPage() {
                   <p className="text-xs text-gray-600 mt-4 bg-gray-50 px-3 py-2 rounded-lg">
                     This QR code can be scanned for event check-in
                   </p>
+                  {/* Display the encoded URL for debugging and manual testing */}
+                  <div className="mt-3 p-3 bg-gray-100 rounded-lg border border-gray-200">
+                    <p className="text-xs text-gray-600 font-medium mb-2">📋 Check-In URL (for testing):</p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 text-xs bg-white px-2 py-1.5 rounded border border-gray-300 text-gray-800 break-all">
+                        {(() => {
+                          // Try to extract URL from QR code data URL or display placeholder
+                          // The actual URL is: http://[IP or localhost]:3000/checkin/[eventId]
+                          const baseUrl = typeof window !== 'undefined' 
+                            ? window.location.origin 
+                            : (process.env.NEXT_PUBLIC_API_BASE_URL?.replace('/api/v1', '') || 'http://localhost:3000');
+                          return `${baseUrl}/checkin/${selectedEventForQR.id}`;
+                        })()}
+                      </code>
+                      <Button
+                        onClick={() => {
+                          const baseUrl = typeof window !== 'undefined' 
+                            ? window.location.origin 
+                            : (process.env.NEXT_PUBLIC_API_BASE_URL?.replace('/api/v1', '') || 'http://localhost:3000');
+                          const url = `${baseUrl}/checkin/${selectedEventForQR.id}`;
+                          navigator.clipboard.writeText(url);
+                          toast.success('URL Copied!', {
+                            description: 'Paste this URL in your phone browser to test',
+                          });
+                        }}
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                      >
+                        Copy
+                      </Button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                      💡 <strong>Tip:</strong> Copy this URL and paste it in your phone's browser to test without scanning
+                    </p>
+                  </div>
                 </div>
-                <div className="flex gap-3 pt-4 bg-white">
+                <div className="space-y-3 bg-white">
+                  <div className="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                    <p className="text-sm text-blue-800 font-medium mb-2">
+                      💡 Members can scan this QR code to:
+                    </p>
+                    <ul className="text-xs text-blue-700 space-y-1 list-disc list-inside">
+                      <li>Check themselves in to this event</li>
+                      <li>Register for this event (if registration is enabled)</li>
+                    </ul>
+                    <div className="mt-3 pt-3 border-t border-blue-200">
+                      <p className="text-xs text-blue-600 font-medium mb-1">📱 For Phone Scanning:</p>
+                      <p className="text-xs text-blue-600 mb-2">
+                        If scanning from a phone, ensure your phone and computer are on the same Wi‑Fi network. 
+                        The QR code URL may need your computer's IP address instead of localhost.
+                      </p>
+                      <p className="text-xs text-blue-600">
+                        <strong>Tip:</strong> If the QR code opens Google search instead of the check-in page, 
+                        regenerate the QR code after setting <code className="bg-blue-100 px-1 rounded">LOCAL_IP</code> 
+                        in your backend <code className="bg-blue-100 px-1 rounded">.env</code> file.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-3">
+                    <Button
+                      onClick={handleDownloadQR}
+                      className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold"
+                    >
+                      <QrCode className="w-4 h-4 mr-2" />
+                      Download QR Code
+                    </Button>
+                    <Button
+                      onClick={() => handleRegenerateQR(selectedEventForQR.id)}
+                      variant="outline"
+                      className="flex-1 border-gray-300 text-gray-700 hover:bg-gray-50 font-semibold"
+                    >
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Regenerate
+                    </Button>
+                  </div>
                   <Button
-                    onClick={handleDownloadQR}
-                    className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold"
-                  >
-                    <QrCode className="w-4 h-4 mr-2" />
-                    Download QR Code
-                  </Button>
-                  <Button
-                    onClick={() => handleRegenerateQR(selectedEventForQR.id)}
+                    onClick={() => router.push(`/checkin/self-checkin?eventId=${selectedEventForQR.id}`)}
                     variant="outline"
-                    className="flex-1 border-gray-300 text-gray-700 hover:bg-gray-50 font-semibold"
+                    className="w-full border-purple-300 text-purple-700 hover:bg-purple-50 font-semibold"
                   >
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    Regenerate
+                    <UserCheck className="w-4 h-4 mr-2" />
+                    Test Self Check-In (Member View)
                   </Button>
                 </div>
               </div>

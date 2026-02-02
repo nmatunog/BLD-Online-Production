@@ -187,6 +187,12 @@ export class AuthService {
     });
 
     if (!user) {
+      // Log for debugging - check if database is empty
+      const userCount = await this.prisma.user.count();
+      console.log(`[AUTH] Login failed: User not found. Total users in DB: ${userCount}`);
+      if (userCount === 0) {
+        console.log(`[AUTH] WARNING: Database appears to be empty!`);
+      }
       throw new UnauthorizedException('Invalid credentials');
     }
 

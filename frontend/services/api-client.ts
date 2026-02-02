@@ -1,16 +1,24 @@
 import axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from 'axios';
+import { getApiUrl } from '@/lib/runtime-config';
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  'http://localhost:4000/api/v1';
+// Get API URL lazily to avoid SSR issues
+// This will be evaluated when the ApiClient is instantiated (client-side)
+function getApiBaseUrl(): string {
+  const apiUrl = getApiUrl();
+  // Force correct port if somehow wrong port is detected (fixes port 3001 -> 4000)
+  return apiUrl.replace(/localhost:3001/g, 'localhost:4000');
+}
+
+// Log API URL for debugging (only in development)
+// This will be logged when ApiClient is instantiated
 
 class ApiClient {
   private client: AxiosInstance;
 
   constructor() {
+    const apiBaseUrl = getApiBaseUrl();
     this.client = axios.create({
-      baseURL: API_BASE_URL,
+      baseURL: apiBaseUrl,
       headers: {
         'Content-Type': 'application/json',
       },
@@ -24,6 +32,10 @@ class ApiClient {
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
+        // Log request in development
+        if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+          console.log('📤 API Request:', config.method?.toUpperCase(), config.url);
+        }
         return config;
       },
       (error) => Promise.reject(error),
@@ -31,13 +43,62 @@ class ApiClient {
 
     // Response interceptor for error handling
     this.client.interceptors.response.use(
-      (response) => response,
+      (response) => {
+        // Log successful response in development
+        if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
+          console.log('✅ API Response:', response.config.method?.toUpperCase(), response.config.url, response.status);
+        }
+        return response;
+      },
       async (error: AxiosError) => {
+        // Enhanced error logging
+        if (typeof window !== 'undefined') {
+          if (error.code === 'ECONNREFUSED' || error.message === 'Network Error') {
+            const currentApiUrl = getApiBaseUrl();
+            console.error('❌ Network Error: Cannot connect to backend at', currentApiUrl);
+            console.error('💡 Make sure the backend server is running');
+          } else {
+            console.error('❌ API Error:', error.config?.method?.toUpperCase(), error.config?.url, error.response?.status || error.message);
+            
+            // Log validation errors if available
+            if (error.response?.status === 400 && error.response?.data) {
+              const errorData = error.response.data as any;
+              if (errorData.message) {
+                const messages = Array.isArray(errorData.message) ? errorData.message : [errorData.message];
+                console.error('📋 Validation Errors:', messages);
+                // Log each validation error detail if available
+                if (Array.isArray(errorData.message)) {
+                  errorData.message.forEach((msg: any, idx: number) => {
+                    if (typeof msg === 'object' && msg.constraints) {
+                      console.error(`   ${idx + 1}. ${Object.values(msg.constraints).join(', ')}`);
+                    } else {
+                      console.error(`   ${idx + 1}. ${msg}`);
+                    }
+                  });
+                }
+              }
+              if (errorData.error) {
+                console.error('📋 Error Details:', errorData.error);
+              }
+              // Log the full error response for debugging
+              console.error('📋 Full Error Response:', JSON.stringify(errorData, null, 2));
+            }
+          }
+        }
+        
         if (error.response?.status === 401) {
           // Handle token refresh or redirect to login
-          this.clearToken();
+          // Don't redirect if we're already on the login page (to avoid clearing error messages)
           if (typeof window !== 'undefined') {
-            window.location.href = '/login';
+            const currentPath = window.location.pathname;
+            // Only redirect if not already on login/register pages
+            if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
+              this.clearToken();
+              window.location.href = '/login';
+            } else {
+              // Just clear the token, don't redirect
+              this.clearToken();
+            }
           }
         }
         return Promise.reject(error);

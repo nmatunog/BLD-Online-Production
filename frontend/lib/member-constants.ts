@@ -1,4 +1,6 @@
-// Member-related constants and arrays from old system
+// BLD Cebu Organization Structure
+// Organization: Apostolates > Ministries > Homesteads
+// This structure is used throughout the system for consistency
 
 export const APOSTOLATES = [
   'Pastoral Apostolate',
@@ -6,12 +8,11 @@ export const APOSTOLATES = [
   'Formation Apostolate',
   'Management Apostolate',
   'Mission Apostolate',
-  'Others',
 ] as const;
 
 export const MINISTRIES_BY_APOSTOLATE: Record<string, string[]> = {
   'Pastoral Apostolate': [
-    'Pastoral Services Ministry',
+    'Pastoral Services',
     'Youth Ministry',
     'Singles Ministry',
     'Solo Parent Ministry',
@@ -44,15 +45,19 @@ export const MINISTRIES_BY_APOSTOLATE: Record<string, string[]> = {
   'Mission Apostolate': [
     'Parish Services Ministry',
     'Institutional Services Ministry',
-    'Scholarship of Hope',
-    'Nazareth Housing Project',
+    'Scholarship of Hope Ministry',
+    'Nazareth Housing Program',
     'Mission Homesteads',
     'Shepherds of Districts-in-Process',
   ],
-  'Others': [
-    'District Council of Stewards',
-  ],
 };
+
+// Homesteads are under Mission Homesteads (Mission Apostolate)
+// This can be expanded as needed
+export const HOMESTEADS: string[] = [
+  // Add specific homesteads here as they are identified
+  // Example: 'Homestead 1', 'Homestead 2', etc.
+];
 
 export const ENCOUNTER_TYPES = [
   { value: 'ME', label: 'Marriage Encounter (ME)' },

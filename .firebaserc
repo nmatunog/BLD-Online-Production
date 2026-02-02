@@ -3,5 +3,14 @@
     "default": "bld-cebu-portal-dev",
     "dev": "bld-cebu-portal-dev",
     "prod": "bldcebu-portal"
+  },
+  "targets": {
+    "bldcebu-portal": {
+      "hosting": {
+        "bldcebu-portal": [
+          "bldcebu-portal"
+        ]
+      }
+    }
   }
 }

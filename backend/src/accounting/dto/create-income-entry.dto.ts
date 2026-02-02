@@ -37,5 +37,23 @@ export class CreateIncomeEntryDto {
   @IsOptional()
   @IsDateString()
   receivedAt?: string;
+
+  @ApiProperty({
+    description: 'Remarks (max 5 words)',
+    example: 'Payment received early',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  remarks?: string;
+
+  @ApiProperty({
+    description: 'OR/ Voucher Number',
+    example: 'OR-20240119-12345',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  orVoucherNumber?: string;
 }
 

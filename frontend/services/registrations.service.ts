@@ -150,6 +150,8 @@ export interface RegistrationSummary {
     title: string;
     maxParticipants?: number | null;
     registrationFee?: number | null;
+    encounterType?: string | null;
+    classNumber?: number | null;
   };
   summary: {
     totalRegistrations: number;

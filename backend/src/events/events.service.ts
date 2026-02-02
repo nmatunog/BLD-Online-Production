@@ -21,12 +21,35 @@ export class EventsService {
   ) {}
 
   async create(createEventDto: CreateEventDto) {
-    // Validate dates
+    // Validate dates and times
     const startDate = new Date(createEventDto.startDate);
     const endDate = new Date(createEventDto.endDate);
 
-    if (startDate >= endDate) {
-      throw new BadRequestException('End date must be after start date');
+    // Combine date with time if time is provided
+    let actualStartDateTime = new Date(startDate);
+    let actualEndDateTime = new Date(endDate);
+
+    if (createEventDto.startTime) {
+      // Parse time string (handles both "HH:MM" and "HH:MM:SS" formats)
+      const timeParts = createEventDto.startTime.split(':');
+      const hours = parseInt(timeParts[0], 10);
+      const minutes = parseInt(timeParts[1] || '0', 10);
+      actualStartDateTime = new Date(startDate);
+      actualStartDateTime.setHours(hours, minutes, 0, 0);
+    }
+
+    if (createEventDto.endTime) {
+      // Parse time string (handles both "HH:MM" and "HH:MM:SS" formats)
+      const timeParts = createEventDto.endTime.split(':');
+      const hours = parseInt(timeParts[0], 10);
+      const minutes = parseInt(timeParts[1] || '0', 10);
+      actualEndDateTime = new Date(endDate);
+      actualEndDateTime.setHours(hours, minutes, 0, 0);
+    }
+
+    // Validate that end datetime is after start datetime
+    if (actualStartDateTime >= actualEndDateTime) {
+      throw new BadRequestException('End date/time must be after start date/time');
     }
 
     // Validate recurring event configuration
@@ -91,6 +114,9 @@ export class EventsService {
   }
 
   async findAll(query: EventQueryDto) {
+    // Automatically update event statuses based on current date/time
+    await this.updateEventStatuses();
+
     const {
       search,
       status,
@@ -185,6 +211,9 @@ export class EventsService {
   }
 
   async findOne(id: string) {
+    // Automatically update event statuses based on current date/time
+    await this.updateEventStatuses();
+
     const event = await this.prisma.event.findUnique({
       where: { id },
       include: {
@@ -224,27 +253,68 @@ export class EventsService {
   async update(id: string, updateEventDto: UpdateEventDto) {
     const existingEvent = await this.findOne(id);
 
-    // Validate dates if both are provided
+    // Helper function to combine date and time
+    const combineDateTime = (date: Date, time?: string | null): Date => {
+      const result = new Date(date);
+      if (time) {
+        // Parse time string (handles both "HH:MM" and "HH:MM:SS" formats)
+        const timeParts = time.split(':');
+        const hours = parseInt(timeParts[0], 10);
+        const minutes = parseInt(timeParts[1] || '0', 10);
+        result.setHours(hours, minutes, 0, 0);
+      }
+      return result;
+    };
+
+    // Validate dates and times if provided
     if (updateEventDto.startDate && updateEventDto.endDate) {
       const startDate = new Date(updateEventDto.startDate);
       const endDate = new Date(updateEventDto.endDate);
+      const startTime = updateEventDto.startTime ?? existingEvent.startTime;
+      const endTime = updateEventDto.endTime ?? existingEvent.endTime;
 
-      if (startDate >= endDate) {
-        throw new BadRequestException('End date must be after start date');
+      const actualStartDateTime = combineDateTime(startDate, startTime);
+      const actualEndDateTime = combineDateTime(endDate, endTime);
+
+      if (actualStartDateTime >= actualEndDateTime) {
+        throw new BadRequestException('End date/time must be after start date/time');
       }
     } else if (updateEventDto.startDate) {
       const startDate = new Date(updateEventDto.startDate);
       const endDate = new Date(existingEvent.endDate);
+      const startTime = updateEventDto.startTime ?? existingEvent.startTime;
+      const endTime = updateEventDto.endTime ?? existingEvent.endTime;
 
-      if (startDate >= endDate) {
-        throw new BadRequestException('End date must be after start date');
+      const actualStartDateTime = combineDateTime(startDate, startTime);
+      const actualEndDateTime = combineDateTime(endDate, endTime);
+
+      if (actualStartDateTime >= actualEndDateTime) {
+        throw new BadRequestException('End date/time must be after start date/time');
       }
     } else if (updateEventDto.endDate) {
       const startDate = new Date(existingEvent.startDate);
       const endDate = new Date(updateEventDto.endDate);
+      const startTime = updateEventDto.startTime ?? existingEvent.startTime;
+      const endTime = updateEventDto.endTime ?? existingEvent.endTime;
 
-      if (startDate >= endDate) {
-        throw new BadRequestException('End date must be after start date');
+      const actualStartDateTime = combineDateTime(startDate, startTime);
+      const actualEndDateTime = combineDateTime(endDate, endTime);
+
+      if (actualStartDateTime >= actualEndDateTime) {
+        throw new BadRequestException('End date/time must be after start date/time');
+      }
+    } else if (updateEventDto.startTime || updateEventDto.endTime) {
+      // If only times are being updated, validate against existing dates
+      const startDate = new Date(existingEvent.startDate);
+      const endDate = new Date(existingEvent.endDate);
+      const startTime = updateEventDto.startTime ?? existingEvent.startTime;
+      const endTime = updateEventDto.endTime ?? existingEvent.endTime;
+
+      const actualStartDateTime = combineDateTime(startDate, startTime);
+      const actualEndDateTime = combineDateTime(endDate, endTime);
+
+      if (actualStartDateTime >= actualEndDateTime) {
+        throw new BadRequestException('End date/time must be after start date/time');
       }
     }
 
@@ -347,19 +417,42 @@ export class EventsService {
 
   private async generateQRCode(eventId: string): Promise<string> {
     try {
-      // Generate QR code data (event ID for check-in)
-      const qrData = JSON.stringify({
-        type: 'event',
-        eventId,
-        timestamp: new Date().toISOString(),
-      });
-
+      // Generate QR code data - include both JSON format and URL format
+      // URL format allows direct access to public check-in page
+      // In development, try to use local network IP if available, otherwise use localhost
+      let baseUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      
+      // In development mode, try to detect local network IP for phone scanning
+      if (process.env.NODE_ENV !== 'production' && baseUrl.includes('localhost')) {
+        // Check if LOCAL_IP is set in environment
+        const localIp = process.env.LOCAL_IP;
+        if (localIp) {
+          baseUrl = `http://${localIp}:3000`;
+        }
+        // Otherwise, keep localhost (user can set LOCAL_IP env var if needed)
+      }
+      
+      // Ensure baseUrl has protocol
+      if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+        baseUrl = `http://${baseUrl}`;
+      }
+      
+      const publicCheckInUrl = `${baseUrl}/checkin/${eventId}`;
+      
+      // Log the URL being encoded (for debugging)
+      console.log('📱 Generating QR code with URL:', publicCheckInUrl);
+      
       // Generate QR code as data URL
-      const qrCodeDataUrl = await QRCode.toDataURL(qrData, {
-        errorCorrectionLevel: 'M',
+      // The qrcode library automatically detects URLs and encodes them properly
+      const qrCodeDataUrl = await QRCode.toDataURL(publicCheckInUrl, {
+        errorCorrectionLevel: 'H', // Higher error correction for better scanning
         type: 'image/png',
         width: 300,
-        margin: 1,
+        margin: 2, // Increased margin for better scanning
+        color: {
+          dark: '#000000', // Pure black
+          light: '#FFFFFF', // Pure white
+        },
       });
 
       // Upload to BunnyCDN if configured, otherwise use data URL
@@ -397,30 +490,76 @@ export class EventsService {
   async updateEventStatuses() {
     const now = new Date();
 
-    // Update ongoing events
-    await this.prisma.event.updateMany({
-      where: {
-        status: EventStatus.UPCOMING,
-        startDate: { lte: now },
-        endDate: { gte: now },
-      },
-      data: {
-        status: EventStatus.ONGOING,
-      },
-    });
-
-    // Update completed events
-    await this.prisma.event.updateMany({
+    // Get all events that need status updates
+    const eventsToCheck = await this.prisma.event.findMany({
       where: {
         status: { in: [EventStatus.UPCOMING, EventStatus.ONGOING] },
-        endDate: { lt: now },
       },
-      data: {
-        status: EventStatus.COMPLETED,
+      select: {
+        id: true,
+        startDate: true,
+        endDate: true,
+        startTime: true,
+        endTime: true,
+        status: true,
       },
     });
 
-    return { message: 'Event statuses updated successfully' };
+    // Calculate actual start and end datetimes for each event
+    const updates: Array<{ id: string; newStatus: EventStatus }> = [];
+
+    for (const event of eventsToCheck) {
+      // Combine date with time if time exists
+      let actualStartDate = new Date(event.startDate);
+      let actualEndDate = new Date(event.endDate);
+
+      // If startTime exists, combine it with startDate
+      if (event.startTime) {
+        // Parse time string (handles both "HH:MM" and "HH:MM:SS" formats)
+        const timeParts = event.startTime.split(':');
+        const hours = parseInt(timeParts[0], 10);
+        const minutes = parseInt(timeParts[1] || '0', 10);
+        actualStartDate = new Date(event.startDate);
+        actualStartDate.setHours(hours, minutes, 0, 0);
+      }
+
+      // If endTime exists, combine it with endDate
+      if (event.endTime) {
+        // Parse time string (handles both "HH:MM" and "HH:MM:SS" formats)
+        const timeParts = event.endTime.split(':');
+        const hours = parseInt(timeParts[0], 10);
+        const minutes = parseInt(timeParts[1] || '0', 10);
+        actualEndDate = new Date(event.endDate);
+        actualEndDate.setHours(hours, minutes, 0, 0);
+      }
+
+      // Determine new status
+      if (actualEndDate < now) {
+        // Event has ended
+        if (event.status !== EventStatus.COMPLETED) {
+          updates.push({ id: event.id, newStatus: EventStatus.COMPLETED });
+        }
+      } else if (actualStartDate <= now && actualEndDate >= now) {
+        // Event is currently ongoing
+        if (event.status !== EventStatus.ONGOING) {
+          updates.push({ id: event.id, newStatus: EventStatus.ONGOING });
+        }
+      }
+      // If event hasn't started yet, keep it as UPCOMING (no update needed)
+    }
+
+    // Batch update events
+    for (const update of updates) {
+      await this.prisma.event.update({
+        where: { id: update.id },
+        data: { status: update.newStatus },
+      });
+    }
+
+    return { 
+      message: 'Event statuses updated successfully',
+      updated: updates.length,
+    };
   }
 
   /**

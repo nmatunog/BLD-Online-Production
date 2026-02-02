@@ -48,6 +48,13 @@ Same as DEV, but with:
 - Separate secrets (`JWT_SECRET`, `JWT_REFRESH_SECRET`)
 - `NODE_ENV=production`
 - `FRONTEND_URL` set to your production frontend URL
+- **No dummy data** - dummy data scripts are only for development
+
+### Important: Dummy Data
+- Dummy data scripts in `backend/scripts/` are **NOT automatically run**
+- They are **only for development/testing**
+- Production deployments will **NOT include dummy data**
+- See `PRODUCTION_DEPLOYMENT.md` for detailed production deployment guide
 
 ## Port troubleshooting
 Check listeners:

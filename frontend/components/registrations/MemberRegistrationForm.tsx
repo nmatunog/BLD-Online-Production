@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -41,6 +41,15 @@ export default function MemberRegistrationForm({
     specialRequirements: '',
     emergencyContact: '',
   });
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Validate community ID format: CITY-ENCOUNTERTYPECLASSNUMBER+SEQUENCE
+  // Example: CEB-ME1801 (Cebu, ME, Class 18, Sequence 01)
+  // Pattern: 3-letter city code, hyphen, 2-4 letter encounter type, 2-digit class, 2-digit sequence
+  const isValidCommunityIdFormat = (communityId: string): boolean => {
+    const pattern = /^[A-Z]{3}-[A-Z]{2,4}\d{2}\d{2}$/;
+    return pattern.test(communityId);
+  };
 
   useEffect(() => {
     if (!isOpen) {
@@ -59,38 +68,83 @@ export default function MemberRegistrationForm({
 
   const handleCommunityIdChange = async (communityId: string) => {
     const upperId = communityId.toUpperCase().trim();
-    setFormData({ ...formData, memberCommunityId: upperId });
+    setFormData((prev) => ({ ...prev, memberCommunityId: upperId }));
 
-    // Only lookup if Community ID looks valid (has at least 3 characters)
-    if (upperId.length < 3) {
+    // Clear any existing debounce timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+
+    // Only lookup if Community ID is in valid format
+    // Format: CITY-ENCOUNTERTYPECLASSNUMBER+SEQUENCE (e.g., CEB-ME1801)
+    if (!isValidCommunityIdFormat(upperId)) {
+      // If format is invalid, clear the form fields (user is still typing)
+      if (upperId.length > 0) {
+        setFormData((prev) => ({
+          ...prev,
+          memberCommunityId: upperId,
+          lastName: '',
+          firstName: '',
+          middleName: '',
+          nickname: '',
+          emergencyContact: '',
+        }));
+      }
       return;
     }
 
-    try {
-      setSearching(true);
-      const result = await membersService.getByCommunityId(upperId);
-      if (result) {
-        const member = result;
-        setFormData({
-          ...formData,
-          memberCommunityId: upperId,
-          lastName: member.lastName,
-          firstName: member.firstName,
-          middleName: member.middleName || '',
-          nickname: member.nickname || '',
-          emergencyContact: member.user?.phone || '',
-        });
-        toast.success('Member Found', {
-          description: `Found: ${member.firstName} ${member.lastName}`,
-        });
+    // Debounce the API call to avoid making requests on every keystroke
+    // Wait 500ms after user stops typing before making the API call
+    debounceTimerRef.current = setTimeout(async () => {
+      try {
+        setSearching(true);
+        const result = await membersService.getByCommunityId(upperId);
+        if (result) {
+          const member = result;
+          setFormData((prev) => ({
+            ...prev,
+            memberCommunityId: upperId,
+            lastName: member.lastName,
+            firstName: member.firstName,
+            middleName: member.middleName || '',
+            nickname: member.nickname || '',
+            emergencyContact: member.user?.phone || '',
+          }));
+          toast.success('Member Found', {
+            description: `Found: ${member.firstName} ${member.lastName}`,
+          });
+        }
+      } catch (error) {
+        // Don't show error for lookup failures (404 is expected for invalid IDs)
+        // Only log if it's not a 404 (which means the ID format was valid but member not found)
+        const axiosError = error as any;
+        if (axiosError?.response?.status !== 404) {
+          console.error('Error looking up member:', error);
+        }
+        // Clear form fields if member not found
+        setFormData((prev) => ({
+          ...prev,
+          lastName: '',
+          firstName: '',
+          middleName: '',
+          nickname: '',
+          emergencyContact: '',
+        }));
+      } finally {
+        setSearching(false);
       }
-    } catch (error) {
-      // Don't show error for lookup failures, just silently fail
-      console.error('Error looking up member:', error);
-    } finally {
-      setSearching(false);
-    }
+    }, 500); // 500ms debounce delay
   };
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

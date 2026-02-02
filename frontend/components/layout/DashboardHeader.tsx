@@ -109,7 +109,7 @@ const getUserDisplayName = () => {
 
   const navItems = [
     { href: '/dashboard', label: 'Dashboard', icon: Home, shortLabel: 'Home', show: true },
-    { href: '/checkin', label: 'Check-in', icon: CheckCircle, shortLabel: 'Check-in', show: true },
+    { href: isMember ? '/checkin/self-checkin' : '/checkin', label: isMember ? 'Self Check-In' : 'Check-in', icon: CheckCircle, shortLabel: isMember ? 'Self Check-In' : 'Check-in', show: true },
     { href: '/members', label: 'Members', icon: Users, shortLabel: 'Members', show: isAdmin },
     { href: '/events', label: 'Events', icon: Calendar, shortLabel: 'Events', show: true }, // Show to all users
     { href: '/event-registrations', label: 'Event Registrations', icon: FileText, shortLabel: 'Registrations', show: true }, // Show to all users (members see non-recurring only)

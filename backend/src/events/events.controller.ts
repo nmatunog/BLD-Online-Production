@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   BadRequestException,
+  NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { EventsService } from './events.service';
@@ -19,9 +20,10 @@ import { UpdateEventDto } from './dto/update-event.dto';
 import { EventQueryDto } from './dto/event-query.dto';
 import { AssignClassShepherdDto } from './dto/assign-class-shepherd.dto';
 import { CancelEventDto } from './dto/cancel-event.dto';
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { ApiResponse as ApiResponseDto } from '../common/interfaces/api-response.interface';
 import { UserRole } from '@prisma/client';
@@ -79,6 +81,35 @@ export class EventsController {
       data: result.data,
       message: 'Upcoming events retrieved successfully',
     };
+  }
+
+  // Public route must be defined BEFORE the generic :id route
+  // Otherwise NestJS will match /events/public/:id to /events/:id with id="public"
+  @Public()
+  @Get('public/:id')
+  @ApiOperation({ summary: 'Public event lookup by ID (no authentication required)' })
+  @ApiResponse({ status: 200, description: 'Event retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Event not found' })
+  async publicFindOne(@Param('id') id: string): Promise<ApiResponseDto<unknown>> {
+    console.log('🔓 [PUBLIC ROUTE] Public event lookup requested for ID:', id);
+    console.log('🔓 [PUBLIC ROUTE] Full path: /events/public/' + id);
+    
+    try {
+      const event = await this.eventsService.findOne(id);
+      if (!event) {
+        console.error('❌ [PUBLIC ROUTE] Event not found in database:', id);
+        throw new NotFoundException(`Event with ID ${id} not found`);
+      }
+      console.log('✅ [PUBLIC ROUTE] Event found:', event?.title);
+      return {
+        success: true,
+        data: event,
+        message: 'Event retrieved successfully',
+      };
+    } catch (error) {
+      console.error('❌ [PUBLIC ROUTE] Error in publicFindOne:', error);
+      throw error;
+    }
   }
 
   @Get(':id')
