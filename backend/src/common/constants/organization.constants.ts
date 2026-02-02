@@ -64,13 +64,36 @@ export function getMinistriesForApostolate(apostolate: string): string[] {
   return MINISTRIES_BY_APOSTOLATE[apostolate] || [];
 }
 
-// Helper function to validate apostolate
+// Helper function to validate apostolate (case-insensitive for production)
 export function isValidApostolate(apostolate: string): boolean {
-  return APOSTOLATES.includes(apostolate as any);
+  if (!apostolate || !apostolate.trim()) return false;
+  return normalizeApostolate(apostolate) !== null;
 }
 
-// Helper function to validate ministry for an apostolate
-export function isValidMinistryForApostolate(ministry: string, apostolate: string): boolean {
+// Normalize apostolate to canonical form (case-insensitive, trim) for production compatibility
+export function normalizeApostolate(apostolate: string | null | undefined): string | null {
+  if (!apostolate || !apostolate.trim()) return null;
+  const key = apostolate.trim();
+  const found = APOSTOLATES.find((a) => a.toLowerCase() === key.toLowerCase());
+  return found ?? null;
+}
+
+// Normalize ministry to canonical form for a given apostolate (case-insensitive, trim)
+export function normalizeMinistry(
+  ministry: string | null | undefined,
+  apostolate: string,
+): string | null {
+  if (!ministry || !ministry.trim()) return null;
   const ministries = getMinistriesForApostolate(apostolate);
-  return ministries.includes(ministry);
+  const key = ministry.trim();
+  const found = ministries.find((m) => m.toLowerCase() === key.toLowerCase());
+  return found ?? null;
+}
+
+// Helper function to validate ministry for an apostolate (case-insensitive for production)
+export function isValidMinistryForApostolate(ministry: string, apostolate: string): boolean {
+  if (!ministry || !ministry.trim()) return false;
+  const canonicalApostolate = normalizeApostolate(apostolate);
+  if (!canonicalApostolate) return false;
+  return normalizeMinistry(ministry, canonicalApostolate) !== null;
 }

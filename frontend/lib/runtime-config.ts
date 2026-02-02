@@ -14,9 +14,9 @@ export function getApiBaseUrl(): string {
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
     
-    // If we're on localhost, use localhost backend
+    // If we're on localhost, use localhost backend (default 3001; override with NEXT_PUBLIC_API_BASE_URL)
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return 'http://localhost:4000';
+      return 'http://localhost:3001';
     }
 
     // If we're on a Cloud Run domain (e.g., *.run.app), construct backend URL
@@ -48,13 +48,13 @@ export function getApiBaseUrl(): string {
       // Try to get from a meta tag or fallback
       const metaTag = document.querySelector('meta[name="api-base-url"]');
       if (metaTag) {
-        return metaTag.getAttribute('content') || 'http://localhost:4000';
+        return metaTag.getAttribute('content') || 'http://localhost:3001';
       }
     }
   }
 
   // 3. Fallback to localhost (development)
-  return 'http://localhost:4000';
+  return 'http://localhost:3001';
 }
 
 export function getApiUrl(): string {

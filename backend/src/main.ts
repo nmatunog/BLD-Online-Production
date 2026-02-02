@@ -95,8 +95,16 @@ async function bootstrap(): Promise<void> {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/docs', app, document);
 
-  // Add health endpoint directly (before listening)
-  // Register without prefix since we're using the adapter directly
+  // Root and health endpoints (no api/v1 prefix)
+  const basePath = process.env.API_PREFIX || 'api/v1';
+  app.getHttpAdapter().get('/', (_req, res) => {
+    res.json({
+      service: 'BLD Cebu Online Portal API',
+      docs: `/api/docs`,
+      health: `/health`,
+      api: `/${basePath}`,
+    });
+  });
   app.getHttpAdapter().get('/health', (_req, res) => {
     console.log('✅ Health check endpoint called at', new Date().toISOString());
     res.json({

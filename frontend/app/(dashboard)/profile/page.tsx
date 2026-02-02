@@ -76,8 +76,8 @@ export default function ProfilePage() {
           middleName: profile.middleName || '',
           suffix: profile.suffix || '',
           nickname: profile.nickname || '',
-          email: profile.user.email || '',
-          phone: profile.user.phone || '',
+          email: profile.user?.email || '',
+          phone: profile.user?.phone || '',
           apostolate: profile.apostolate || '',
           ministry: profile.ministry || '',
           city: profile.city || '',
@@ -143,8 +143,8 @@ export default function ProfilePage() {
         city: editForm.city,
         encounterType: getEncounterTypeShort(editForm.encounterType),
         classNumber: editForm.classNumber,
-        apostolate: editForm.apostolate || null,
-        ministry: editForm.ministry || null,
+        apostolate: editForm.apostolate?.trim() || null,
+        ministry: editForm.ministry?.trim() || null,
         serviceArea: editForm.serviceArea || null,
       };
       
@@ -164,10 +164,19 @@ export default function ProfilePage() {
       // Reload profile
       const updatedProfile = await membersService.getMe();
       setMember(updatedProfile);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update profile';
-      toast.error('Error', {
+    } catch (error: unknown) {
+      // Surface backend message in production (e.g. validation, duplicate email/phone)
+      let errorMessage = 'Failed to update profile';
+      const err = error as { response?: { data?: { message?: string | string[] }; status?: number } };
+      if (err?.response?.data?.message) {
+        const msg = err.response.data.message;
+        errorMessage = Array.isArray(msg) ? msg.join(', ') : msg;
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+      toast.error('Profile update failed', {
         description: errorMessage,
+        duration: 6000,
       });
     } finally {
       setSaving(false);

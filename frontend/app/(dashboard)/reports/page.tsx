@@ -771,10 +771,14 @@ export default function ReportsPage() {
   const chartData = useMemo(() => {
     if (!recurringReportData) return null;
 
-    const data = recurringReportData.data;
+    const data = Array.isArray(recurringReportData.data) ? recurringReportData.data : [];
     const labels = data.slice(0, 20).map(m => `${m.lastName}, ${m.firstName}`);
     const cwData = data.slice(0, 20).map(m => m.corporateWorshipAttended || 0);
     const wscData = data.slice(0, 20).map(m => m.wordSharingCirclesAttended || 0);
+
+    const stats = recurringReportData.statistics ?? {};
+    const totalCW = stats.totalCorporateWorshipAttended ?? 0;
+    const totalWSC = stats.totalWordSharingCirclesAttended ?? 0;
 
     return {
       bar: {
@@ -800,10 +804,7 @@ export default function ReportsPage() {
         labels: ['Corporate Worship', 'Word Sharing Circles'],
         datasets: [
           {
-            data: [
-              recurringReportData.statistics.totalCorporateWorshipAttended,
-              recurringReportData.statistics.totalWordSharingCirclesAttended,
-            ],
+            data: [totalCW, totalWSC],
             backgroundColor: ['rgba(59, 130, 246, 0.5)', 'rgba(16, 185, 129, 0.5)'],
             borderColor: ['rgb(59, 130, 246)', 'rgb(16, 185, 129)'],
             borderWidth: 1,
@@ -2500,7 +2501,9 @@ export default function ReportsPage() {
                     )}
                   </div>
                   <Badge variant="outline">
-                    Generated: {formatDateTime((reportData as any).summary.generatedAt)}
+                    Generated: {(reportData as any).summary?.generatedAt
+                      ? formatDateTime((reportData as any).summary.generatedAt)
+                      : 'N/A'}
                   </Badge>
                 </div>
               </CardHeader>
@@ -2674,7 +2677,7 @@ export default function ReportsPage() {
             </DialogTitle>
           </DialogHeader>
 
-          {individualReportData && individualReportData.data.length > 0 && (() => {
+          {individualReportData && Array.isArray(individualReportData.data) && individualReportData.data.length > 0 && (() => {
             const memberData = individualReportData.data[0];
             const member = members.find(m => m.communityId === memberData.communityId);
             const startDate = individualReportConfig.startDate || filters.startDate || recurringReportConfig.startDate;
@@ -2741,7 +2744,7 @@ export default function ReportsPage() {
                             </div>
                             <p className="text-2xl font-bold text-purple-600">{memberData.corporateWorshipPercentage || 0}%</p>
                             <p className="text-sm text-gray-600">
-                              {memberData.corporateWorshipAttended || 0}/{individualReportData.statistics.totalInstances.corporateWorship || 0} attended
+                              {memberData.corporateWorshipAttended || 0}/{individualReportData.statistics?.totalInstances?.corporateWorship ?? 0} attended
                             </p>
                           </CardContent>
                         </Card>
@@ -2753,7 +2756,7 @@ export default function ReportsPage() {
                             </div>
                             <p className="text-2xl font-bold text-blue-600">{memberData.wordSharingCirclesPercentage || 0}%</p>
                             <p className="text-sm text-gray-600">
-                              {memberData.wordSharingCirclesAttended || 0}/{individualReportData.statistics.totalInstances.wordSharingCircles || 0} attended
+                              {memberData.wordSharingCirclesAttended || 0}/{individualReportData.statistics?.totalInstances?.wordSharingCircles ?? 0} attended
                             </p>
                           </CardContent>
                         </Card>
@@ -2876,19 +2879,19 @@ export default function ReportsPage() {
               {/* Summary Statistics */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="bg-gray-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-gray-800">{recurringReportData.statistics.totalMembers}</div>
+                  <div className="text-2xl font-bold text-gray-800">{recurringReportData.statistics?.totalMembers ?? 0}</div>
                   <div className="text-sm text-gray-600">Total Members</div>
                 </div>
                 <div className="bg-green-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-green-800">{recurringReportData.statistics.averageAttendance}%</div>
+                  <div className="text-2xl font-bold text-green-800">{recurringReportData.statistics?.averageAttendance ?? 0}%</div>
                   <div className="text-sm text-green-600">Average Attendance</div>
                 </div>
                 <div className="bg-purple-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-purple-800">{recurringReportData.statistics.totalInstances.corporateWorship}</div>
+                  <div className="text-2xl font-bold text-purple-800">{recurringReportData.statistics?.totalInstances?.corporateWorship ?? 0}</div>
                   <div className="text-sm text-purple-600">Corporate Worship Instances</div>
                 </div>
                 <div className="bg-blue-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-blue-800">{recurringReportData.statistics.totalInstances.wordSharingCircles}</div>
+                  <div className="text-2xl font-bold text-blue-800">{recurringReportData.statistics?.totalInstances?.wordSharingCircles ?? 0}</div>
                   <div className="text-sm text-blue-600">Word Sharing Circles Instances</div>
                 </div>
               </div>
@@ -2916,7 +2919,7 @@ export default function ReportsPage() {
               )}
 
               {/* Member Attendance Table */}
-              {recurringReportData.data.length > 0 && (
+              {Array.isArray(recurringReportData.data) && recurringReportData.data.length > 0 && (
                 <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>

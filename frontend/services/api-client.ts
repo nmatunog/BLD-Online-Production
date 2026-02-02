@@ -1,14 +1,6 @@
 import axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from 'axios';
 import { getApiUrl } from '@/lib/runtime-config';
 
-// Get API URL lazily to avoid SSR issues
-// This will be evaluated when the ApiClient is instantiated (client-side)
-function getApiBaseUrl(): string {
-  const apiUrl = getApiUrl();
-  // Force correct port if somehow wrong port is detected (fixes port 3001 -> 4000)
-  return apiUrl.replace(/localhost:3001/g, 'localhost:4000');
-}
-
 // Log API URL for debugging (only in development)
 // This will be logged when ApiClient is instantiated
 
@@ -16,7 +8,7 @@ class ApiClient {
   private client: AxiosInstance;
 
   constructor() {
-    const apiBaseUrl = getApiBaseUrl();
+    const apiBaseUrl = getApiUrl();
     this.client = axios.create({
       baseURL: apiBaseUrl,
       headers: {
@@ -54,7 +46,7 @@ class ApiClient {
         // Enhanced error logging
         if (typeof window !== 'undefined') {
           if (error.code === 'ECONNREFUSED' || error.message === 'Network Error') {
-            const currentApiUrl = getApiBaseUrl();
+            const currentApiUrl = getApiUrl();
             console.error('❌ Network Error: Cannot connect to backend at', currentApiUrl);
             console.error('💡 Make sure the backend server is running');
           } else {

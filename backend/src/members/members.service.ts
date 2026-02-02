@@ -12,7 +12,12 @@ import { Prisma } from '@prisma/client';
 import QRCode from 'qrcode';
 import { normalizePhoneNumber } from '../common/utils/phone.util';
 import { BunnyCDNService } from '../common/services/bunnycdn.service';
-import { isValidMinistryForApostolate, isValidApostolate } from '../common/constants/organization.constants';
+import {
+  isValidMinistryForApostolate,
+  isValidApostolate,
+  normalizeApostolate,
+  normalizeMinistry,
+} from '../common/constants/organization.constants';
 
 @Injectable()
 export class MembersService {
@@ -343,20 +348,22 @@ export class MembersService {
   async update(id: string, updateMemberDto: UpdateMemberDto) {
     const member = await this.findOne(id); // Verify member exists
 
-    // Validate apostolate and ministry relationship
-    const apostolate = updateMemberDto.apostolate !== undefined ? updateMemberDto.apostolate : member.apostolate;
-    const ministry = updateMemberDto.ministry !== undefined ? updateMemberDto.ministry : member.ministry;
+    // Normalize apostolate/ministry to canonical form (case-insensitive, trim) so production always matches
+    const rawApostolate = updateMemberDto.apostolate !== undefined ? updateMemberDto.apostolate : member.apostolate;
+    const rawMinistry = updateMemberDto.ministry !== undefined ? updateMemberDto.ministry : member.ministry;
+    const apostolate = rawApostolate ? normalizeApostolate(rawApostolate) ?? rawApostolate : null;
+    const ministry = rawMinistry && apostolate ? normalizeMinistry(rawMinistry, apostolate) ?? rawMinistry : rawMinistry ?? null;
 
     if (apostolate) {
       if (!isValidApostolate(apostolate)) {
         throw new BadRequestException(
-          `Invalid apostolate: ${apostolate}. Must be one of the valid BLD Cebu apostolates.`,
+          `Invalid apostolate: ${rawApostolate}. Must be one of the valid BLD Cebu apostolates.`,
         );
       }
 
       if (ministry && !isValidMinistryForApostolate(ministry, apostolate)) {
         throw new BadRequestException(
-          `Ministry "${ministry}" does not belong to apostolate "${apostolate}". Please select a valid ministry for this apostolate.`,
+          `Ministry "${rawMinistry}" does not belong to apostolate "${apostolate}". Please select a valid ministry for this apostolate.`,
         );
       }
     }
@@ -396,10 +403,10 @@ export class MembersService {
       updateData.classNumber = classNum;
     }
     if (updateMemberDto.apostolate !== undefined) {
-      updateData.apostolate = updateMemberDto.apostolate || null;
+      updateData.apostolate = apostolate ?? updateMemberDto.apostolate || null;
     }
     if (updateMemberDto.ministry !== undefined) {
-      updateData.ministry = updateMemberDto.ministry || null;
+      updateData.ministry = ministry ?? updateMemberDto.ministry || null;
     }
     if (updateMemberDto.serviceArea !== undefined) {
       updateData.serviceArea = updateMemberDto.serviceArea || null;
@@ -420,35 +427,50 @@ export class MembersService {
     }
 
     // Update both member and user in a transaction
-    return this.prisma.$transaction(async (tx) => {
-      // Update user if there are user fields to update
-      if (Object.keys(userUpdateData).length > 0) {
-        await tx.user.update({
-          where: { id: member.userId },
-          data: userUpdateData,
-        });
-      }
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        // Update user if there are user fields to update
+        if (Object.keys(userUpdateData).length > 0) {
+          await tx.user.update({
+            where: { id: member.userId },
+            data: userUpdateData,
+          });
+        }
 
-      // Update member
-      return tx.member.update({
-        where: { id },
-        data: updateData,
-        include: {
-          user: {
-            select: {
-              id: true,
-              email: true,
-              phone: true,
-              role: true,
-              isActive: true,
-              shepherdEncounterType: true,
-              shepherdClassNumber: true,
-              ministry: true,
+        // Update member
+        return tx.member.update({
+          where: { id },
+          data: updateData,
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                phone: true,
+                role: true,
+                isActive: true,
+                shepherdEncounterType: true,
+                shepherdClassNumber: true,
+                ministry: true,
+              },
             },
           },
-        },
+        });
       });
-    });
+    } catch (e: unknown) {
+      // Prisma unique constraint (e.g. email or phone already in use)
+      const prismaError = e as { code?: string; meta?: { target?: string[] } };
+      if (prismaError?.code === 'P2002' && prismaError?.meta?.target) {
+        const target = prismaError.meta.target as string[];
+        if (target?.includes('email')) {
+          throw new ConflictException('This email is already in use by another account.');
+        }
+        if (target?.includes('phone')) {
+          throw new ConflictException('This phone number is already in use by another account.');
+        }
+      }
+      throw e;
+    }
   }
 
   async remove(id: string) {

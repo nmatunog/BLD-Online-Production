@@ -45,6 +45,44 @@ Railway provides a database proxy feature that allows local connections:
 3. Follow instructions to set up local proxy
 4. Use the proxy connection string to run the script locally
 
+## Become Super User by Re-registering as First User
+
+The backend assigns **SUPER_USER** to the *first* user (when no users exist). To get Super User automatically:
+
+1. **Delete your current user** (run against production DB with public `DATABASE_URL` or Railway CLI):
+   ```bash
+   cd backend
+   DATABASE_URL="your-railway-public-db-url" npx ts-node scripts/delete-user-for-first.ts your@email.com
+   ```
+2. **Register again** (same or new email) via the app — you’ll be the first user and get Super User.
+
+Use this if you prefer not to run `set-super-user.ts` and want the role assigned at signup.
+
+## Promote Admin to Superuser (without deleting)
+
+If your user was created as **ADMINISTRATOR** and you need **SUPER_USER** (Superuser):
+
+**Via Railway CLI (recommended):**
+```bash
+cd backend
+npx @railway/cli link
+npx @railway/cli run --service bld-online-production npx ts-node scripts/set-super-user.ts
+```
+This updates the user with email `nmatunog@gmail.com` to SUPER_USER.
+
+**With a different email:**
+```bash
+npx @railway/cli run --service bld-online-production npx ts-node scripts/set-super-user.ts your@email.com
+```
+
+**With public DATABASE_URL (if you enabled public networking):**
+```bash
+cd backend
+DATABASE_URL="your-railway-public-db-url" npx ts-node scripts/set-super-user.ts
+```
+
+Then log out and log in again; your role will show as **Superuser** (SUPER_USER).
+
 ## After Creating Admin User
 
 Once you have an admin user:

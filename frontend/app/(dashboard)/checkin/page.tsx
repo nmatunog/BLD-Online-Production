@@ -108,24 +108,47 @@ function CheckInContent() {
   const loadEvents = async () => {
     setLoading(true);
     try {
-      const result = await eventsService.getAll({
-        status: 'UPCOMING',
-        sortBy: 'startDate',
-        sortOrder: 'asc',
-        limit: 50,
-      });
+      // Fetch both UPCOMING and ONGOING so check-in shows events that are open for check-in
+      const [upcomingResult, ongoingResult] = await Promise.all([
+        eventsService.getAll({
+          status: 'UPCOMING',
+          sortBy: 'startDate',
+          sortOrder: 'asc',
+          limit: 50,
+        }),
+        eventsService.getAll({
+          status: 'ONGOING',
+          sortBy: 'startDate',
+          sortOrder: 'asc',
+          limit: 50,
+        }),
+      ]);
 
-      if (result.success && result.data) {
-        const eventList = Array.isArray(result.data.data) ? result.data.data : [];
-        setEvents(eventList);
-        
-        // Auto-select first event or URL event
-        const eventId = searchParams.get('eventId');
-        if (eventId && eventList.some(e => e.id === eventId)) {
-          setSelectedEvent(eventId);
-        } else if (eventList.length > 0) {
-          setSelectedEvent(eventList[0].id);
-        }
+      const upcomingList = upcomingResult.success && upcomingResult.data?.data
+        ? (Array.isArray(upcomingResult.data.data) ? upcomingResult.data.data : [])
+        : [];
+      const ongoingList = ongoingResult.success && ongoingResult.data?.data
+        ? (Array.isArray(ongoingResult.data.data) ? ongoingResult.data.data : [])
+        : [];
+
+      // Merge, dedupe by id, sort by startDate (ongoing first by putting them earlier in list if desired, or just by date)
+      const seen = new Set<string>();
+      const eventList = [...ongoingList, ...upcomingList]
+        .filter((e) => {
+          if (seen.has(e.id)) return false;
+          seen.add(e.id);
+          return true;
+        })
+        .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
+      setEvents(eventList);
+
+      // Auto-select first event or URL event
+      const eventId = searchParams.get('eventId');
+      if (eventId && eventList.some(e => e.id === eventId)) {
+        setSelectedEvent(eventId);
+      } else if (eventList.length > 0) {
+        setSelectedEvent(eventList[0].id);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load events';
@@ -373,13 +396,12 @@ function CheckInContent() {
         loadStats();
       }
     } catch (error: any) {
-      // Extract validation errors from backend response
+      // Extract validation errors from backend response (e.g. "check-in only 2 hours before event")
       let errorMessage = 'Failed to check in';
       
       if (error?.response?.data) {
         const errorData = error.response.data;
         if (Array.isArray(errorData.message)) {
-          // Multiple validation errors
           errorMessage = errorData.message.join(', ');
         } else if (errorData.message) {
           errorMessage = errorData.message;
@@ -390,9 +412,11 @@ function CheckInContent() {
         errorMessage = error.message;
       }
       
-      toast.error('Check-in Failed', {
+      // Show backend message clearly; use longer duration for business-rule messages (e.g. check-in window)
+      const isBusinessRule = error?.response?.status === 400 && errorMessage !== 'Failed to check in';
+      toast.error(isBusinessRule ? 'Check-in not available yet' : 'Check-in Failed', {
         description: errorMessage,
-        duration: 5000,
+        duration: isBusinessRule ? 8000 : 5000,
       });
       
       console.error('Check-in error:', error);
@@ -594,7 +618,7 @@ function CheckInContent() {
               <AlertCircle className="w-10 h-10 mx-auto mb-3 text-red-400" />
               <div className="text-base font-semibold text-gray-900 mb-1">No Events Available</div>
               <div className="text-sm text-gray-600">
-                No upcoming events found for check-in
+                No upcoming or ongoing events found for check-in
               </div>
             </div>
           ) : (

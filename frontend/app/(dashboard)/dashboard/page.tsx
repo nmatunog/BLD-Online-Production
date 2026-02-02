@@ -128,7 +128,7 @@ export default function DashboardPage() {
   // Get role display name
   const getRoleDisplayName = (role: string): string => {
     const roleMap: Record<string, string> = {
-      SUPER_USER: 'Super User',
+      SUPER_USER: 'Superuser',
       ADMINISTRATOR: 'Administrator',
       DCS: 'DCS',
       MINISTRY_COORDINATOR: 'Ministry Coordinator',
