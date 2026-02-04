@@ -432,6 +432,30 @@ export class MembersService {
     // Update both member and user in a transaction
     try {
       return await this.prisma.$transaction(async (tx) => {
+        // If taking over email/phone from an inactive account, clear it from the inactive user first
+        const newEmail = userUpdateData.email != null ? String(userUpdateData.email).trim() : '';
+        if (newEmail) {
+          await tx.user.updateMany({
+            where: {
+              email: newEmail,
+              id: { not: member.userId },
+              isActive: false,
+            },
+            data: { email: null },
+          });
+        }
+        const newPhone = userUpdateData.phone != null ? String(userUpdateData.phone).trim() : '';
+        if (newPhone) {
+          await tx.user.updateMany({
+            where: {
+              phone: newPhone,
+              id: { not: member.userId },
+              isActive: false,
+            },
+            data: { phone: null },
+          });
+        }
+
         // Update user if there are user fields to update
         if (Object.keys(userUpdateData).length > 0) {
           await tx.user.update({

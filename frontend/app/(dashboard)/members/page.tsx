@@ -70,7 +70,7 @@ export default function MembersPage() {
   const [membersLoading, setMembersLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRole, setFilterRole] = useState<string>('ALL');
-  const [filterStatus, setFilterStatus] = useState<string>('ALL');
+  const [filterStatus, setFilterStatus] = useState<string>('Active');
   const [filterMinistry, setFilterMinistry] = useState<string>('ALL');
   const [sortAlphabetically, setSortAlphabetically] = useState(false);
   const [userRole, setUserRole] = useState<string>('');
@@ -212,11 +212,14 @@ export default function MembersPage() {
       const matchesSearch = fullName.includes(searchTerm.toLowerCase()) ||
                            communityId.toLowerCase().includes(searchTerm.toLowerCase());
       
-      // Note: Role and status filtering would need to be added to the backend
-      // For now, we'll filter by what's available
       const matchesMinistry = filterMinistry === 'ALL' || member.ministry === filterMinistry;
-      
-      return matchesSearch && matchesMinistry;
+      const matchesRole = filterRole === 'ALL' || member.user?.role === filterRole;
+      const matchesStatus =
+        filterStatus === 'ALL' ||
+        (filterStatus === 'Active' && member.user?.isActive) ||
+        (filterStatus === 'Inactive' && !member.user?.isActive);
+
+      return matchesSearch && matchesMinistry && matchesRole && matchesStatus;
     });
 
     // Sort alphabetically if enabled
