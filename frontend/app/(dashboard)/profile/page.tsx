@@ -165,7 +165,7 @@ export default function ProfilePage() {
       const updatedProfile = await membersService.getMe();
       setMember(updatedProfile);
     } catch (error: unknown) {
-      // Surface backend message in production (e.g. validation, duplicate email/phone)
+      // Surface backend message (e.g. validation, duplicate email/phone 409)
       let errorMessage = 'Failed to update profile';
       const err = error as { response?: { data?: { message?: string | string[] }; status?: number } };
       if (err?.response?.data?.message) {
@@ -174,9 +174,10 @@ export default function ProfilePage() {
       } else if (error instanceof Error) {
         errorMessage = error.message;
       }
-      toast.error('Profile update failed', {
+      const is409 = err?.response?.status === 409;
+      toast.error(is409 ? 'Duplicate email or phone' : 'Profile update failed', {
         description: errorMessage,
-        duration: 6000,
+        duration: 8000,
       });
     } finally {
       setSaving(false);
@@ -438,11 +439,11 @@ export default function ProfilePage() {
                     <Label className="text-base font-semibold text-gray-700">Encounter Type</Label>
                     {isEditing ? (
                       <Select
-                        value={editForm.encounterType}
+                        value={editForm.encounterType || undefined}
                         onValueChange={(value) => setEditForm({...editForm, encounterType: value})}
                       >
                         <SelectTrigger className="mt-2 h-12 text-lg">
-                          <SelectValue />
+                          <SelectValue placeholder="Select encounter type" />
                         </SelectTrigger>
                         <SelectContent>
                           {ENCOUNTER_TYPES.map(type => (
@@ -478,7 +479,7 @@ export default function ProfilePage() {
                     <Label className="text-base font-semibold text-gray-700">Apostolate</Label>
                     {isEditing ? (
                       <Select
-                        value={editForm.apostolate}
+                        value={editForm.apostolate || undefined}
                         onValueChange={(value) => {
                           handleInputChange('apostolate', value);
                           // Clear ministry when apostolate changes to ensure it matches the new apostolate
@@ -509,12 +510,12 @@ export default function ProfilePage() {
                     <Label className="text-base font-semibold text-gray-700">Ministry</Label>
                     {isEditing ? (
                       <Select
-                        value={editForm.ministry}
+                        value={editForm.ministry || undefined}
                         onValueChange={(value) => handleInputChange('ministry', value)}
                         disabled={!editForm.apostolate}
                       >
                         <SelectTrigger className="mt-2 h-12 text-lg">
-                          <SelectValue placeholder="Select Ministry" />
+                          <SelectValue placeholder={editForm.apostolate ? 'Select Ministry' : 'Select Apostolate first'} />
                         </SelectTrigger>
                         <SelectContent>
                           {getMinistriesForApostolate(editForm.apostolate).map(ministry => (
