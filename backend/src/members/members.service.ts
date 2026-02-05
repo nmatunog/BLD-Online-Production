@@ -418,9 +418,10 @@ export class MembersService {
       updateData.photoUrl = updateMemberDto.photoUrl || null;
     }
 
-    // Update user fields (email and phone)
+    // Update user fields (email and phone); normalize email to lowercase for consistent uniqueness
     if (updateMemberDto.email !== undefined) {
-      userUpdateData.email = updateMemberDto.email || null;
+      const raw = updateMemberDto.email ? String(updateMemberDto.email).trim() : '';
+      userUpdateData.email = raw ? raw.toLowerCase() : null;
     }
     if (updateMemberDto.phone !== undefined) {
       // Normalize phone number if provided
@@ -435,14 +436,21 @@ export class MembersService {
         // If taking over email/phone from an inactive account, clear it from the inactive user first
         const newEmail = userUpdateData.email != null ? String(userUpdateData.email).trim() : '';
         if (newEmail) {
-          await tx.user.updateMany({
+          // Match inactive users by email (case-insensitive) so we clear regardless of casing
+          const inactiveWithEmail = await tx.user.findMany({
             where: {
-              email: newEmail,
               id: { not: member.userId },
               isActive: false,
+              email: { not: null },
             },
-            data: { email: null },
+            select: { id: true, email: true },
           });
+          const toClear = inactiveWithEmail.filter(
+            (u) => u.email && u.email.toLowerCase() === newEmail.toLowerCase(),
+          );
+          for (const u of toClear) {
+            await tx.user.update({ where: { id: u.id }, data: { email: null } });
+          }
         }
         const newPhone = userUpdateData.phone != null ? String(userUpdateData.phone).trim() : '';
         if (newPhone) {
