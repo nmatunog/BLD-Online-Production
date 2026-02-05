@@ -473,35 +473,48 @@ export default function ProfilePage() {
 
               {/* Ministry Information */}
               <div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Ministry Information</h3>
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                  Ministry Information <span className="text-sm font-normal text-gray-500">(optional)</span>
+                </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label className="text-base font-semibold text-gray-700">Apostolate</Label>
                     {isEditing ? (
-                      <Select
-                        value={editForm.apostolate || undefined}
-                        onValueChange={(value) => {
-                          handleInputChange('apostolate', value);
-                          // Clear ministry when apostolate changes to ensure it matches the new apostolate
-                          if (value && editForm.ministry) {
-                            const validMinistries = getMinistriesForApostolate(value);
-                            if (!validMinistries.includes(editForm.ministry)) {
-                              handleInputChange('ministry', '');
-                            }
-                          } else {
-                            handleInputChange('ministry', '');
-                          }
-                        }}
-                      >
-                        <SelectTrigger className="mt-2 h-12 text-lg">
-                          <SelectValue placeholder="Select Apostolate" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {APOSTOLATES.map(apostolate => (
-                            <SelectItem key={apostolate} value={apostolate}>{apostolate}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="mt-2 flex flex-wrap gap-2" role="listbox" aria-label="Apostolate">
+                        {APOSTOLATES.map((ap) => (
+                          <button
+                            key={ap}
+                            type="button"
+                            onClick={() => {
+                              const apostolateValue = capitalizeLocation(ap);
+                              setEditForm((prev) => {
+                                const next = { ...prev, apostolate: apostolateValue };
+                                if (prev.ministry) {
+                                  const valid = getMinistriesForApostolate(apostolateValue);
+                                  if (!valid.includes(prev.ministry)) next.ministry = '';
+                                }
+                                return next;
+                              });
+                            }}
+                            className={`rounded-md border px-4 py-2.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
+                              editForm.apostolate === ap
+                                ? 'border-purple-600 bg-purple-600 text-white'
+                                : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                            }`}
+                          >
+                            {ap}
+                          </button>
+                        ))}
+                        {editForm.apostolate && (
+                          <button
+                            type="button"
+                            onClick={() => setEditForm((prev) => ({ ...prev, apostolate: '', ministry: '' }))}
+                            className="rounded-md border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+                          >
+                            Clear
+                          </button>
+                        )}
+                      </div>
                     ) : (
                       <p className="mt-2 text-lg text-gray-800">{member.apostolate || '-'}</p>
                     )}
@@ -509,20 +522,37 @@ export default function ProfilePage() {
                   <div>
                     <Label className="text-base font-semibold text-gray-700">Ministry</Label>
                     {isEditing ? (
-                      <Select
-                        value={editForm.ministry || undefined}
-                        onValueChange={(value) => handleInputChange('ministry', value)}
-                        disabled={!editForm.apostolate}
-                      >
-                        <SelectTrigger className="mt-2 h-12 text-lg">
-                          <SelectValue placeholder={editForm.apostolate ? 'Select Ministry' : 'Select Apostolate first'} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {getMinistriesForApostolate(editForm.apostolate).map(ministry => (
-                            <SelectItem key={ministry} value={ministry}>{ministry}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="mt-2">
+                        {editForm.apostolate ? (
+                          <div className="flex flex-wrap gap-2" role="listbox" aria-label="Ministry">
+                            {getMinistriesForApostolate(editForm.apostolate).map((min) => (
+                              <button
+                                key={min}
+                                type="button"
+                                onClick={() => setEditForm((prev) => ({ ...prev, ministry: capitalizeLocation(min) }))}
+                                className={`rounded-md border px-4 py-2.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
+                                  editForm.ministry === min
+                                    ? 'border-purple-600 bg-purple-600 text-white'
+                                    : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                                }`}
+                              >
+                                {min}
+                              </button>
+                            ))}
+                            {editForm.ministry && (
+                              <button
+                                type="button"
+                                onClick={() => setEditForm((prev) => ({ ...prev, ministry: '' }))}
+                                className="rounded-md border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-gray-500 text-sm">Select an apostolate above first</p>
+                        )}
+                      </div>
                     ) : (
                       <p className="mt-2 text-lg text-gray-800">{member.ministry || '-'}</p>
                     )}
