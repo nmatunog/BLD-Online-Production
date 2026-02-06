@@ -1,7 +1,7 @@
 // Event Chatbot Service for Event Creation
 // Handles conversation flow for creating events via chatbot
 
-// Event categories from old system
+// Event categories (Community Worship, etc.)
 const EVENT_CATEGORIES = [
   'Community Worship',
   'Word Sharing Circle',
