@@ -6,7 +6,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import Link from 'next/link';
-import { Mail, Lock, Eye, EyeOff, Phone, LogIn, MessageSquare, Sparkles, ArrowRight } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, Phone, LogIn, MessageSquare, Sparkles } from 'lucide-react';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,7 +29,6 @@ export default function LoginPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [showChatbotPromo, setShowChatbotPromo] = useState(true);
   const chatbotRef = useRef<ChatbotSignUpHandle>(null);
 
   const {
@@ -164,83 +163,40 @@ export default function LoginPage() {
       ></div>
       
       <div className="w-full max-w-4xl mx-auto space-y-6 relative z-10">
-        {/* Prominent Chatbot Assistant Banner - Signup and Signin */}
-        {showChatbotPromo && (
-          <Card className="border-4 border-blue-500 shadow-2xl bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 animate-pulse">
-            <CardContent className="p-5 md:p-6">
-              <div className="flex flex-col md:flex-row items-center justify-between gap-5 md:gap-4">
-                <div className="flex items-center gap-4 flex-1 w-full md:w-auto">
-                  <div className="relative flex-shrink-0">
-                    <div className="absolute inset-0 bg-blue-400 rounded-full animate-ping opacity-75"></div>
-                    <div className="relative bg-blue-600 p-4 md:p-4 rounded-full">
-                      <MessageSquare className="w-10 h-10 md:w-8 md:h-8 text-white" />
-                    </div>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2 flex-wrap">
-                      <Sparkles className="w-6 h-6 md:w-5 md:h-5 text-blue-600 animate-bounce flex-shrink-0" />
-                      <h2 className="text-xl md:text-2xl font-bold text-gray-900 leading-tight">
-                        Let the assistant guide you (Sign in or Sign up)
-                      </h2>
-                    </div>
-                    <p className="text-base md:text-base text-gray-700 leading-relaxed">
-                      Start with the assistant to sign in if you have an account, or create one if you’re new. It collects what’s needed and guides you step-by-step.
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  onClick={() => {
-                    setShowChatbotPromo(false);
-                    chatbotRef.current?.open();
-                  }}
-                  size="lg"
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-5 md:px-8 md:py-6 text-lg md:text-lg font-bold shadow-lg hover:shadow-xl transition-all transform hover:scale-105 w-full md:w-auto touch-manipulation min-h-[56px] md:min-h-[auto]"
-                >
-                  <MessageSquare className="w-6 h-6 md:w-5 md:h-5 mr-2" />
-                  Start with Assistant
-                  <ArrowRight className="w-6 h-6 md:w-5 md:h-5 ml-2" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Alternative: Floating Prominent Button - Mobile Optimized */}
-        {!showChatbotPromo && (
-          <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 animate-bounce px-4 w-full max-w-sm md:max-w-none">
-            <Button
-              onClick={() => chatbotRef.current?.open()}
-              size="lg"
-              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white px-5 py-4 md:px-6 md:py-4 text-base md:text-lg font-bold shadow-2xl rounded-full w-full md:w-auto touch-manipulation min-h-[56px]"
-            >
-              <MessageSquare className="w-6 h-6 md:w-5 md:h-5 mr-2" />
-              <span className="text-base md:text-lg">Sign in or Sign up with Assistant</span>
-              <Sparkles className="w-6 h-6 md:w-5 md:h-5 ml-2" />
-            </Button>
-          </div>
-        )}
-      
       <Card className="p-8 rounded-2xl shadow-xl max-w-md w-full mx-auto bg-white border-2 border-gray-400 shadow-gray-200">
         {/* Header */}
-        <div className="text-center mb-8">
-          {/* Icon */}
+        <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 bg-gray-100 text-gray-600">
             <LogIn className="w-8 h-8" />
           </div>
-          
           <h1 className="text-3xl font-bold mb-2 text-red-700">
             BLD Cebu Community Online Portal
           </h1>
-          
           <div className="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium bg-gray-50 text-red-800 border border-gray-300">
             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14" />
             </svg>
             Welcome Back
           </div>
-          
           <p className="text-sm mt-3 text-red-600">
             Sign in to access your dashboard and manage events
+          </p>
+        </div>
+
+        {/* Assistant button - inside box, near top, visible and animated */}
+        <div className="mb-6">
+          <Button
+            type="button"
+            onClick={() => chatbotRef.current?.open()}
+            className="w-full relative overflow-hidden bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white py-4 px-5 text-base font-bold rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] border-0"
+          >
+            <span className="absolute inset-0 rounded-xl bg-white/20 animate-pulse" aria-hidden />
+            <MessageSquare className="w-5 h-5 mr-2 relative z-10 inline-block animate-bounce" style={{ animationDuration: '1.5s' }} />
+            <span className="relative z-10">Sign in or Sign up with Assistant</span>
+            <Sparkles className="w-5 h-5 ml-2 relative z-10 inline-block animate-pulse" style={{ animationDuration: '2s' }} />
+          </Button>
+          <p className="text-xs text-center text-gray-500 mt-2">
+            Let the assistant guide you step-by-step
           </p>
         </div>
 
