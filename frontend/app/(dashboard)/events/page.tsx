@@ -2031,8 +2031,8 @@ export default function EventsPage() {
 
         {/* QR Code Display Dialog */}
         <Dialog open={showQRDialog} onOpenChange={setShowQRDialog}>
-          <DialogContent className="max-w-md bg-white border border-gray-200 shadow-2xl">
-            <DialogHeader className="bg-white">
+          <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto bg-white border border-gray-200 shadow-2xl pt-10 sm:pt-10">
+            <DialogHeader className="bg-white pt-2">
               <DialogTitle className="text-2xl font-bold text-gray-900">
                 Event QR Code
               </DialogTitle>
@@ -2041,13 +2041,13 @@ export default function EventsPage() {
               </DialogDescription>
             </DialogHeader>
             {selectedEventForQR && (
-              <div className="space-y-4 bg-white">
+              <div className="space-y-4 bg-white pt-2">
                 <div className="text-center">
                   <div className="bg-white p-4 rounded-lg inline-block border border-gray-200 shadow-sm">
                     <img
                       src={selectedEventForQR.qrCodeUrl || ''}
                       alt={`QR Code for ${selectedEventForQR.title}`}
-                      className="w-64 h-64 mx-auto"
+                      className="w-64 h-64 mx-auto object-contain"
                     />
                   </div>
                 </div>
