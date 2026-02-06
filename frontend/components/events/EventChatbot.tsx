@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { MessageSquare, X, Sparkles, Loader2, ArrowLeft } from 'lucide-react';
+import { useState, useEffect, useRef, Fragment } from 'react';
+import { MessageSquare, X, Sparkles, Loader2, ArrowLeft, Pencil } from 'lucide-react';
 import ChatMessage from '../chatbot/ChatMessage';
 import ChatInput from '../chatbot/ChatInput';
-import { eventChatbotService } from '@/services/event-chatbot-service';
+import { eventChatbotService, type EventChatMessage } from '@/services/event-chatbot-service';
 import { eventsService } from '@/services/events.service';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -15,10 +15,11 @@ interface EventChatbotProps {
 }
 
 export default function EventChatbot({ onClose, onSuccess }: EventChatbotProps) {
-  const [messages, setMessages] = useState<Array<{ role: 'user' | 'bot'; content: string; timestamp: Date }>>([]);
+  const [messages, setMessages] = useState<EventChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [eventComplete, setEventComplete] = useState(false);
+  const [editPrefill, setEditPrefill] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -38,16 +39,27 @@ export default function EventChatbot({ onClose, onSuccess }: EventChatbotProps) 
     }
   };
 
+  const handleEdit = (botMessageIndex: number, editStep: string, editUserValue: string) => {
+    if (eventComplete || isProcessing) return;
+    const userMessageIndex = botMessageIndex - 1;
+    if (userMessageIndex < 0) return;
+    eventChatbotService.goBackToStep(editStep);
+    setMessages((prev) => prev.slice(0, userMessageIndex));
+    setEditPrefill(editUserValue);
+  };
+
   const handleSendMessage = async (userInput: string) => {
     if (isProcessing || eventComplete) {
       console.log('Input blocked - isProcessing:', isProcessing, 'eventComplete:', eventComplete);
       return;
     }
 
+    setEditPrefill(null);
+
     setIsProcessing(true);
 
-    const userMessage = {
-      role: 'user' as const,
+    const userMessage: EventChatMessage = {
+      role: 'user',
       content: userInput,
       timestamp: new Date(),
     };
@@ -268,7 +280,23 @@ export default function EventChatbot({ onClose, onSuccess }: EventChatbotProps) 
         {/* Messages - Larger padding, better spacing, safe area for mobile */}
         <div className="flex-1 overflow-y-auto px-4 md:px-4 py-4 md:py-4 space-y-4 md:space-y-2 bg-white min-h-0">
           {messages.map((msg, idx) => (
-            <ChatMessage key={idx} message={msg} />
+            <Fragment key={idx}>
+              <ChatMessage message={msg} />
+              {msg.role === 'bot' && msg.editStep != null && (
+                <div className="flex justify-start -mt-2 mb-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="text-gray-600 border-gray-300 hover:bg-gray-50"
+                    onClick={() => handleEdit(idx, msg.editStep!, msg.editUserValue ?? '')}
+                  >
+                    <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                    Edit
+                  </Button>
+                </div>
+              )}
+            </Fragment>
           ))}
 
           {isTyping && (
@@ -303,6 +331,7 @@ export default function EventChatbot({ onClose, onSuccess }: EventChatbotProps) 
               onSend={handleSendMessage}
               disabled={isProcessing}
               placeholder={isProcessing ? "Processing..." : "Type your answer here..."}
+              defaultValue={editPrefill ?? undefined}
             />
           )}
         </div>

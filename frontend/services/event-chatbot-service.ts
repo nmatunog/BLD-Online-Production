@@ -59,12 +59,16 @@ interface EventChatbotState {
   inReviewMode: boolean;
 }
 
-interface EventChatMessage {
+export interface EventChatMessage {
   role: 'user' | 'bot';
   content: string;
   timestamp: Date;
   eventComplete?: boolean;
   eventData?: EventCreationData;
+  /** Step we were in when user sent this message (for Edit) */
+  editStep?: string;
+  /** User input that led to this response (for Edit prefill) */
+  editUserValue?: string;
 }
 
 interface EventCreationData {
@@ -136,6 +140,7 @@ class EventChatbotService {
 
   async processMessage(userInput: string): Promise<EventChatMessage> {
     const normalizedInput = this.normalizeInput(userInput);
+    const stepWeWereIn = this.state.step;
     this.conversationHistory.push({
       role: 'user',
       content: normalizedInput,
@@ -191,7 +196,179 @@ class EventChatbotService {
     }
 
     this.conversationHistory.push(response);
+    response.editStep = stepWeWereIn;
+    response.editUserValue = normalizedInput;
     return response;
+  }
+
+  /**
+   * Go back to a previous step so the user can edit that input.
+   * Clears state for that step and all later steps.
+   */
+  goBackToStep(step: string): void {
+    this.state.step = step;
+    const d = this.state.data;
+    const clearFrom: Record<string, () => void> = {
+      greeting: () => {
+        d.title = null;
+        d.category = null;
+        d.eventType = null;
+        d.description = null;
+        d.startDate = null;
+        d.endDate = null;
+        d.startTime = null;
+        d.endTime = null;
+        d.location = null;
+        d.venue = null;
+        d.status = 'UPCOMING';
+        d.hasRegistration = false;
+        d.registrationFee = null;
+        d.maxParticipants = null;
+        d.isRecurring = false;
+        d.recurrencePattern = null;
+        d.recurrenceDays = [];
+        d.recurrenceInterval = 1;
+        d.recurrenceEndDate = null;
+      },
+      collectingTitle: () => {
+        d.title = null;
+        d.category = null;
+        d.eventType = null;
+        d.description = null;
+        d.startDate = null;
+        d.endDate = null;
+        d.startTime = null;
+        d.endTime = null;
+        d.location = null;
+        d.venue = null;
+        d.status = 'UPCOMING';
+        d.hasRegistration = false;
+        d.registrationFee = null;
+        d.maxParticipants = null;
+        d.isRecurring = false;
+        d.recurrencePattern = null;
+        d.recurrenceDays = [];
+        d.recurrenceInterval = 1;
+        d.recurrenceEndDate = null;
+      },
+      collectingCategory: () => {
+        d.category = null;
+        d.eventType = null;
+        d.isRecurring = false;
+        d.recurrencePattern = null;
+        d.recurrenceDays = [];
+        d.recurrenceInterval = 1;
+        d.recurrenceEndDate = null;
+        d.startDate = null;
+        d.endDate = null;
+        d.startTime = null;
+        d.endTime = null;
+        d.location = null;
+        d.venue = null;
+        d.description = null;
+        d.hasRegistration = false;
+        d.registrationFee = null;
+        d.maxParticipants = null;
+      },
+      collectingRecurrenceDays: () => {
+        d.recurrenceDays = [];
+        d.recurrenceEndDate = null;
+        d.startDate = null;
+        d.endDate = null;
+        d.startTime = null;
+        d.endTime = null;
+        d.location = null;
+        d.venue = null;
+        d.description = null;
+        d.hasRegistration = false;
+        d.registrationFee = null;
+        d.maxParticipants = null;
+      },
+      collectingRecurrenceEndDate: () => {
+        d.recurrenceEndDate = null;
+        d.startDate = null;
+        d.endDate = null;
+        d.startTime = null;
+        d.endTime = null;
+        d.location = null;
+        d.venue = null;
+        d.description = null;
+        d.hasRegistration = false;
+        d.registrationFee = null;
+        d.maxParticipants = null;
+      },
+      collectingStartDate: () => {
+        d.startDate = null;
+        d.endDate = null;
+        d.startTime = null;
+        d.endTime = null;
+        d.location = null;
+        d.venue = null;
+        d.description = null;
+        d.hasRegistration = false;
+        d.registrationFee = null;
+        d.maxParticipants = null;
+      },
+      collectingEndDate: () => {
+        d.endDate = null;
+        d.startTime = null;
+        d.endTime = null;
+        d.location = null;
+        d.venue = null;
+        d.description = null;
+        d.hasRegistration = false;
+        d.registrationFee = null;
+        d.maxParticipants = null;
+      },
+      collectingStartTime: () => {
+        d.startTime = null;
+        d.endTime = null;
+        d.location = null;
+        d.venue = null;
+        d.description = null;
+        d.hasRegistration = false;
+        d.registrationFee = null;
+        d.maxParticipants = null;
+      },
+      collectingEndTime: () => {
+        d.endTime = null;
+        d.location = null;
+        d.venue = null;
+        d.description = null;
+        d.hasRegistration = false;
+        d.registrationFee = null;
+        d.maxParticipants = null;
+      },
+      collectingLocation: () => {
+        d.location = null;
+        d.venue = null;
+        d.description = null;
+        d.hasRegistration = false;
+        d.registrationFee = null;
+        d.maxParticipants = null;
+      },
+      collectingVenue: () => {
+        d.venue = null;
+        d.description = null;
+        d.hasRegistration = false;
+        d.registrationFee = null;
+        d.maxParticipants = null;
+      },
+      collectingDescription: () => {
+        d.description = null;
+        d.hasRegistration = false;
+        d.registrationFee = null;
+        d.maxParticipants = null;
+      },
+      collectingRegistration: () => {
+        d.hasRegistration = false;
+        d.registrationFee = null;
+        d.maxParticipants = null;
+      },
+      reviewingEvent: () => {},
+    };
+    const clear = clearFrom[step];
+    if (clear) clear();
   }
 
   private handleTitle(input: string): EventChatMessage {

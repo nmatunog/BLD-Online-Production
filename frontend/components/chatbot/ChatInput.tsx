@@ -9,11 +9,19 @@ interface ChatInputProps {
   onSend: (message: string) => void;
   disabled?: boolean;
   placeholder?: string;
+  /** Pre-fill input (e.g. when editing a previous answer) */
+  defaultValue?: string;
 }
 
-export default function ChatInput({ onSend, disabled = false, placeholder = 'Type your message...' }: ChatInputProps) {
-  const [input, setInput] = useState('');
+export default function ChatInput({ onSend, disabled = false, placeholder = 'Type your message...', defaultValue }: ChatInputProps) {
+  const [input, setInput] = useState(defaultValue ?? '');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (defaultValue !== undefined && defaultValue !== null) {
+      setInput(defaultValue);
+    }
+  }, [defaultValue]);
 
   useEffect(() => {
     if (!disabled && inputRef.current) {
