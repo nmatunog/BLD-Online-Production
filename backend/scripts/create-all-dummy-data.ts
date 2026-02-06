@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 /**
  * Master script to create all dummy data for Reports module testing:
- * 1. Historical Corporate Worship events (Tuesdays 7pm)
+ * 1. Historical Community Worship events (Tuesdays 7pm)
  * 2. WSC events per ministry (Management Services Wed 8pm, Service Ministry Fri 7pm)
  * 3. Dummy members with ministries and apostolates
  * 4. Historical attendance data (60-80% and 100% attendance rates)
@@ -106,8 +106,8 @@ async function createAllDummyData() {
     const sixMonthsAgo = new Date(today);
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-    // Corporate Worship - Tuesdays at 7pm
-    console.log('🎵 Creating Corporate Worship events (Tuesdays 7pm)...');
+    // Community Worship - Tuesdays at 7pm
+    console.log('🎵 Creating Community Worship events (Tuesdays 7pm)...');
     const corporateWorshipEvents = [];
     const current = new Date(sixMonthsAgo);
     
@@ -120,9 +120,9 @@ async function createAllDummyData() {
 
         const event = await prisma.event.create({
           data: {
-            title: `Corporate Worship - ${eventDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
-            description: 'Weekly Corporate Worship gathering',
-            category: 'Corporate Worship',
+            title: `Community Worship - ${eventDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+            description: 'Weekly Community Worship gathering',
+            category: 'Community Worship',
             eventType: 'CORPORATE_WORSHIP',
             startDate: eventDate,
             endDate: endDate,
@@ -139,7 +139,7 @@ async function createAllDummyData() {
       }
       current.setDate(current.getDate() + 1);
     }
-    console.log(`   ✓ Created ${corporateWorshipEvents.length} Corporate Worship events`);
+    console.log(`   ✓ Created ${corporateWorshipEvents.length} Community Worship events`);
 
     // Management Services WSC - Wednesdays at 8pm
     console.log('📚 Creating Management Services WSC events (Wednesdays 8pm)...');
@@ -222,8 +222,8 @@ async function createAllDummyData() {
     const serviceMinistryMembers = createdMembers.filter(m => m.ministry === 'Service Ministry');
     let totalAttendances = 0;
 
-    // Corporate Worship attendance (70-90% of all members)
-    console.log('🎵 Creating Corporate Worship attendance...');
+    // Community Worship attendance (70-90% of all members)
+    console.log('🎵 Creating Community Worship attendance...');
     for (const event of corporateWorshipEvents) {
       const attendanceRate = 0.7 + Math.random() * 0.2;
       const numAttendees = Math.floor(createdMembers.length * attendanceRate);
@@ -251,7 +251,7 @@ async function createAllDummyData() {
         }
       }
     }
-    console.log(`   ✓ Created attendance for Corporate Worship events`);
+    console.log(`   ✓ Created attendance for Community Worship events`);
 
     // Management Services WSC attendance (60-80% of ministry members)
     console.log('📚 Creating Management Services WSC attendance...');
@@ -359,7 +359,7 @@ async function createAllDummyData() {
     console.log('📊 FINAL SUMMARY');
     console.log('='.repeat(60));
     console.log(`   Members created: ${createdMembers.length}`);
-    console.log(`   Corporate Worship events: ${corporateWorshipEvents.length}`);
+    console.log(`   Community Worship events: ${corporateWorshipEvents.length}`);
     console.log(`   Management Services WSC events: ${mgmtServicesEvents.length}`);
     console.log(`   Service Ministry WSC events: ${serviceMinistryEvents.length}`);
     console.log(`   Total events: ${allEvents.length}`);

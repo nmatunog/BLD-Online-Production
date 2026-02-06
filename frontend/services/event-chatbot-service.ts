@@ -3,7 +3,7 @@
 
 // Event categories from old system
 const EVENT_CATEGORIES = [
-  'Corporate Worship',
+  'Community Worship',
   'Word Sharing Circle',
   'Holy Mass',
   'Life in the Spirit Seminar Weekend',
@@ -20,7 +20,7 @@ const EVENT_CATEGORIES = [
 ];
 
 // Categories that are always recurring (weekly)
-const RECURRING_CATEGORIES = ['Corporate Worship', 'Word Sharing Circle'];
+const RECURRING_CATEGORIES = ['Community Worship', 'Word Sharing Circle'];
 
 const WEEK_DAYS = [
   { value: 'monday', label: 'Monday' },

@@ -48,7 +48,7 @@ export default function EventsPage() {
   const [cancellationReason, setCancellationReason] = useState('');
   // Event categories from old system
   const eventCategories = [
-    'Corporate Worship',
+    'Community Worship',
     'Word Sharing Circle',
     'Holy Mass',
     'Life in the Spirit Seminar Weekend',
@@ -65,8 +65,16 @@ export default function EventsPage() {
   ];
 
   // Categories that are always recurring (weekly)
-  const recurringCategories = ['Corporate Worship', 'Word Sharing Circle'];
-  
+  const recurringCategories = ['Community Worship', 'Word Sharing Circle'];
+
+  // Normalize legacy "Corporate Worship" to "Community Worship" for display and filtering
+  const categoryForDisplay = (category: string) =>
+    category === 'Corporate Worship' || category === 'Corporate Worship (Weekly Recurring)'
+      ? 'Community Worship'
+      : category;
+  const categoryMatchesFilter = (eventCategory: string, filter: string) =>
+    filter === 'ALL' || eventCategory === filter || (filter === 'Community Worship' && (eventCategory === 'Corporate Worship' || eventCategory === 'Corporate Worship (Weekly Recurring)'));
+
   // Filter categories based on event type
   const getFilteredCategories = () => {
     if (createForm.eventType === 'RECURRING') {
@@ -196,9 +204,9 @@ export default function EventsPage() {
     return () => clearTimeout(timeoutId);
   }, [searchTerm, filterStatus, filterType]);
 
-  // Get unique values for filters
+  // Get unique values for filters (normalize legacy Corporate Worship → Community Worship)
   const uniqueTypes = useMemo(() => {
-    const types = new Set(events.map(e => e.category).filter(Boolean));
+    const types = new Set(events.map(e => categoryForDisplay(e.category)).filter(Boolean));
     return Array.from(types).sort();
   }, [events]);
 
@@ -223,9 +231,9 @@ export default function EventsPage() {
       filtered = filtered.filter(event => event.status === filterStatus);
     }
 
-    // Apply category filter
+    // Apply category filter (treat legacy Corporate Worship as Community Worship)
     if (filterType !== 'ALL') {
-      filtered = filtered.filter(event => event.category === filterType);
+      filtered = filtered.filter(event => categoryMatchesFilter(event.category, filterType));
     }
 
     // Sort
@@ -1240,7 +1248,7 @@ export default function EventsPage() {
                       setCreateForm({
                         ...createForm,
                         category: v,
-                        // Auto-set to recurring if Corporate Worship or Word Sharing Circle
+                        // Auto-set to recurring if Community Worship or Word Sharing Circle
                         eventType: isRecurringCategory ? 'RECURRING' : createForm.eventType,
                         isRecurring: isRecurringCategory ? true : createForm.isRecurring,
                         recurrencePattern: isRecurringCategory ? 'weekly' : createForm.recurrencePattern,

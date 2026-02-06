@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
  * Create historical attendance data for members
  * - Some members with 60-80% attendance
  * - A few members with 100% attendance
- * - Distribute across Corporate Worship and WSC events
+ * - Distribute across Community Worship and WSC events
  */
 async function createDummyAttendanceData() {
   try {
@@ -23,7 +23,7 @@ async function createDummyAttendanceData() {
       return;
     }
 
-    // Get all recurring events (Corporate Worship and WSC)
+    // Get all recurring events (Community Worship and WSC)
     const sixMonthsAgo = new Date();
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
@@ -56,7 +56,7 @@ async function createDummyAttendanceData() {
       e.title?.toLowerCase().includes('word sharing')
     );
 
-    console.log(`   Corporate Worship events: ${corporateWorshipEvents.length}`);
+    console.log(`   Community Worship events: ${corporateWorshipEvents.length}`);
     console.log(`   WSC events: ${wscEvents.length}\n`);
 
     // Group WSC events by ministry
@@ -83,10 +83,10 @@ async function createDummyAttendanceData() {
 
     let totalAttendances = 0;
 
-    // Create attendance for Corporate Worship (all members can attend)
-    console.log('🎵 Creating Corporate Worship attendance...');
+    // Create attendance for Community Worship (all members can attend)
+    console.log('🎵 Creating Community Worship attendance...');
     for (const event of corporateWorshipEvents) {
-      // 70-90% of members attend Corporate Worship
+      // 70-90% of members attend Community Worship
       const attendanceRate = 0.7 + Math.random() * 0.2; // 70-90%
       const numAttendees = Math.floor(members.length * attendanceRate);
       
@@ -120,7 +120,7 @@ async function createDummyAttendanceData() {
         }
       }
     }
-    console.log(`   ✓ Created attendance for Corporate Worship events\n`);
+    console.log(`   ✓ Created attendance for Community Worship events\n`);
 
     // Create attendance for Management Services WSC
     console.log('📚 Creating Management Services WSC attendance...');
@@ -203,7 +203,7 @@ async function createDummyAttendanceData() {
       // Get all events this member should attend
       let relevantEvents: typeof events = [];
       
-      // All Corporate Worship events
+      // All Community Worship events
       relevantEvents.push(...corporateWorshipEvents);
       
       // WSC events based on ministry

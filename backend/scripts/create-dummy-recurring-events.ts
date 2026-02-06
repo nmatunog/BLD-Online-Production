@@ -3,7 +3,7 @@ const prisma = new PrismaClient();
 
 /**
  * Create historical recurring events:
- * - Corporate Worship: Every Tuesday at 7pm (going back 6 months)
+ * - Community Worship: Every Tuesday at 7pm (going back 6 months)
  * - Management Services WSC: Every Wednesday at 8pm (going back 6 months)
  * - Service Ministry WSC: Every Friday at 7pm (going back 6 months)
  */
@@ -15,8 +15,8 @@ async function createDummyRecurringEvents() {
     const sixMonthsAgo = new Date(today);
     sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-    // Corporate Worship - Tuesdays at 7pm
-    console.log('🎵 Creating Corporate Worship events (Tuesdays 7pm)...');
+    // Community Worship - Tuesdays at 7pm
+    console.log('🎵 Creating Community Worship events (Tuesdays 7pm)...');
     const corporateWorshipEvents = [];
     const current = new Date(sixMonthsAgo);
     
@@ -30,9 +30,9 @@ async function createDummyRecurringEvents() {
 
         const event = await prisma.event.create({
           data: {
-            title: `Corporate Worship - ${eventDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
-            description: 'Weekly Corporate Worship gathering',
-            category: 'Corporate Worship',
+            title: `Community Worship - ${eventDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`,
+            description: 'Weekly Community Worship gathering',
+            category: 'Community Worship',
             eventType: 'CORPORATE_WORSHIP',
             startDate: eventDate,
             endDate: endDate,
@@ -50,7 +50,7 @@ async function createDummyRecurringEvents() {
       }
       current.setDate(current.getDate() + 1);
     }
-    console.log(`✅ Created ${corporateWorshipEvents.length} Corporate Worship events\n`);
+    console.log(`✅ Created ${corporateWorshipEvents.length} Community Worship events\n`);
 
     // Management Services WSC - Wednesdays at 8pm
     console.log('📚 Creating Management Services WSC events (Wednesdays 8pm)...');
@@ -128,7 +128,7 @@ async function createDummyRecurringEvents() {
 
     console.log('✅ All recurring events created successfully!');
     console.log(`\n📊 Summary:`);
-    console.log(`   Corporate Worship: ${corporateWorshipEvents.length} events`);
+    console.log(`   Community Worship: ${corporateWorshipEvents.length} events`);
     console.log(`   Management Services WSC: ${mgmtServicesEvents.length} events`);
     console.log(`   Service Ministry WSC: ${serviceMinistryEvents.length} events`);
     console.log(`   Total: ${corporateWorshipEvents.length + mgmtServicesEvents.length + serviceMinistryEvents.length} events`);

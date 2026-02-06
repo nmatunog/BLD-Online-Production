@@ -368,7 +368,7 @@ export class ReportsService {
   }
 
   /**
-   * Generate recurring attendance report (for Corporate Worship and Word Sharing Circles)
+   * Generate recurring attendance report (for Community Worship and Word Sharing Circles)
    */
   async generateRecurringAttendanceReport(query: ReportQueryDto) {
     if (!query.startDate || !query.endDate) {
@@ -381,9 +381,9 @@ export class ReportsService {
     const endDate = new Date(query.endDate);
     endDate.setHours(23, 59, 59, 999);
 
-    // Count event instances for Corporate Worship (Tuesdays) and Word Sharing Circles (Thursdays)
+    // Count event instances for Community Worship (Tuesdays) and Word Sharing Circles (Thursdays)
     const totalInstances = {
-      corporateWorship: this.countEventInstances('Corporate Worship', startDate, endDate),
+      corporateWorship: this.countEventInstances('Community Worship', startDate, endDate),
       wordSharingCircles: this.countEventInstances('Word Sharing Circles', startDate, endDate),
     };
 
@@ -462,8 +462,8 @@ export class ReportsService {
    * Count event instances for recurring events
    */
   private countEventInstances(eventType: string, startDate: Date, endDate: Date): number {
-    if (eventType === 'Corporate Worship') {
-      // Corporate Worship happens on Tuesdays (day 2)
+    if (eventType === 'Community Worship') {
+      // Community Worship happens on Tuesdays (day 2)
       let count = 0;
       const current = new Date(startDate);
       while (current <= endDate) {
@@ -551,7 +551,7 @@ export class ReportsService {
 
       const deduplicatedAttendance = Array.from(uniqueAttendances.values());
 
-      // Count Corporate Worship and Word Sharing Circles attendance
+      // Count Community Worship and Word Sharing Circles attendance
       const corporateWorshipAttended = deduplicatedAttendance.filter((record) => {
         const title = (record.event?.title || '').toLowerCase();
         const category = (record.event?.category || '').toLowerCase();

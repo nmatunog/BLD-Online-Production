@@ -9,12 +9,12 @@ This guide explains how to create dummy data for testing the Reports module, inc
 ### 1. `create-all-dummy-data.ts` (Master Script - Recommended)
 Creates all dummy data in one go:
 - Members with ministries and apostolates
-- Historical Corporate Worship events (Tuesdays 7pm)
+- Historical Community Worship events (Tuesdays 7pm)
 - WSC events per ministry
 - Historical attendance data
 
 ### 2. `create-dummy-recurring-events.ts`
-Creates only recurring events (Corporate Worship and WSC)
+Creates only recurring events (Community Worship and WSC)
 
 ### 3. `create-dummy-members-with-ministries.ts`
 Creates only members with ministries and apostolates
@@ -34,7 +34,7 @@ npx ts-node scripts/create-all-dummy-data.ts
 This will create:
 - **20 members** across 4 ministries (Management Services, Service Ministry, PLSG, Intercessory)
 - **6 apostolates** (Teaching, Music, Youth, Couples, Singles, Family)
-- **~26 Corporate Worship events** (Tuesdays 7pm, last 6 months)
+- **~26 Community Worship events** (Tuesdays 7pm, last 6 months)
 - **~26 Management Services WSC events** (Wednesdays 8pm, last 6 months)
 - **~26 Service Ministry WSC events** (Fridays 7pm, last 6 months)
 - **Historical attendance data** with:
@@ -90,7 +90,7 @@ npx ts-node scripts/create-dummy-attendance-data.ts
 
 ### Events
 
-**Corporate Worship:**
+**Community Worship:**
 - Every Tuesday at 7pm
 - Last 6 months of historical data
 - Status: COMPLETED (past) or UPCOMING (future)
@@ -107,7 +107,7 @@ npx ts-node scripts/create-dummy-attendance-data.ts
 
 ### Attendance Data
 
-- **Corporate Worship:** 70-90% of all members attend
+- **Community Worship:** 70-90% of all members attend
 - **WSC Events:** 60-80% of ministry members attend their respective WSC
 - **Perfect Attendance:** 5 members have 100% attendance for all their relevant events
 
@@ -169,7 +169,7 @@ After running the scripts, you can test:
 To remove all dummy data:
 
 ```bash
-# Delete dummy events (those with "Corporate Worship" or "WSC" in title)
+# Delete dummy events (those with "Community Worship" or "WSC" in title)
 # Delete dummy members (those created by the script)
 # Delete attendance records for those events/members
 ```

@@ -239,7 +239,7 @@ export default function ReportsPage() {
     };
 
     return {
-      corporateWorship: calculateCategoryMetrics(corporateWorshipEvents, 'Corporate Worship'),
+      corporateWorship: calculateCategoryMetrics(corporateWorshipEvents, 'Community Worship'),
       wordSharingCircles: calculateCategoryMetrics(wordSharingEvents, 'Word Sharing Circles'),
       nonRecurring: calculateCategoryMetrics(nonRecurringEvents, 'Non-Recurring'),
     };
@@ -303,14 +303,14 @@ export default function ReportsPage() {
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
     
-    // Corporate Worship
+    // Community Worship
     const recentCW = events.filter(e => {
       const eventDate = new Date(e.startDate);
-      return eventDate >= thirtyDaysAgo && eventDate < now && e.category === 'Corporate Worship';
+      return eventDate >= thirtyDaysAgo && eventDate < now && e.category === 'Community Worship';
     }).length;
     const previousCW = events.filter(e => {
       const eventDate = new Date(e.startDate);
-      return eventDate >= sixtyDaysAgo && eventDate < thirtyDaysAgo && e.category === 'Corporate Worship';
+      return eventDate >= sixtyDaysAgo && eventDate < thirtyDaysAgo && e.category === 'Community Worship';
     }).length;
     const cwChange = previousCW > 0 ? ((recentCW - previousCW) / previousCW) * 100 : 0;
     
@@ -337,7 +337,7 @@ export default function ReportsPage() {
     const seChange = previousSE > 0 ? ((recentSE - previousSE) / previousSE) * 100 : 0;
     
     return [
-      { category: 'Corporate Worship', change: Math.round(cwChange), color: 'green' },
+      { category: 'Community Worship', change: Math.round(cwChange), color: 'green' },
       { category: 'Word Sharing Circles', change: Math.round(wscChange), color: 'purple' },
       { category: 'Special Events', change: Math.round(seChange), color: 'orange' },
     ];
@@ -693,7 +693,7 @@ export default function ReportsPage() {
     const summaryData = [
       ['Total Members', summary.totalMembers.toString()],
       ['Average Attendance', `${summary.averageAttendance}%`],
-      ['Corporate Worship Instances', summary.totalInstances.corporateWorship.toString()],
+      ['Community Worship Instances', summary.totalInstances.corporateWorship.toString()],
       ['Word Sharing Circles Instances', summary.totalInstances.wordSharingCircles.toString()],
     ];
 
@@ -785,7 +785,7 @@ export default function ReportsPage() {
         labels,
         datasets: [
           {
-            label: 'Corporate Worship',
+            label: 'Community Worship',
             data: cwData,
             backgroundColor: 'rgba(59, 130, 246, 0.5)',
             borderColor: 'rgb(59, 130, 246)',
@@ -801,7 +801,7 @@ export default function ReportsPage() {
         ],
       },
       pie: {
-        labels: ['Corporate Worship', 'Word Sharing Circles'],
+        labels: ['Community Worship', 'Word Sharing Circles'],
         datasets: [
           {
             data: [totalCW, totalWSC],
@@ -1182,14 +1182,14 @@ export default function ReportsPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {/* Corporate Worship */}
+                      {/* Community Worship */}
                       <Card className="bg-white border-purple-200 shadow-sm hover:shadow-md transition-shadow">
                         <CardContent className="p-6">
                           <div className="flex items-center gap-3 mb-4">
                             <div className="p-3 bg-purple-100 rounded-lg">
                               <Church className="w-6 h-6 text-purple-600" />
                             </div>
-                            <h4 className="font-semibold text-purple-800 text-lg">Corporate Worship</h4>
+                            <h4 className="font-semibold text-purple-800 text-lg">Community Worship</h4>
                           </div>
                           <div className="space-y-3">
                             <div className="flex justify-between items-center">
@@ -1298,7 +1298,7 @@ export default function ReportsPage() {
                     Recurring Attendance Reports
                   </CardTitle>
                   <p className="text-sm text-purple-600 mt-2">
-                    Generate comprehensive attendance reports for Corporate Worship and Word Sharing Circles with multiple report types and periods.
+                    Generate comprehensive attendance reports for Community Worship and Word Sharing Circles with multiple report types and periods.
                   </p>
                 </div>
               </div>
@@ -1603,7 +1603,7 @@ export default function ReportsPage() {
                         <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
                         <div>
                           <h5 className="font-semibold text-green-800 mb-1">Comprehensive Analytics</h5>
-                          <p className="text-sm text-green-600">Track attendance for Corporate Worship and Word Sharing Circles with percentage calculations.</p>
+                          <p className="text-sm text-green-600">Track attendance for Community Worship and Word Sharing Circles with percentage calculations.</p>
                         </div>
                       </div>
                     </div>
@@ -2409,7 +2409,7 @@ export default function ReportsPage() {
                       <div>
                         <Label>Filter by Event Type</Label>
                         <div className="space-y-2 border rounded-lg p-2">
-                          {['Corporate Worship', 'Word Sharing Circles', 'Special Event', 'Ministry Event', 'Training', 'Meeting'].map((type) => (
+                          {['Community Worship', 'Word Sharing Circles', 'Special Event', 'Ministry Event', 'Training', 'Meeting'].map((type) => (
                             <div key={type} className="flex items-center space-x-2">
                               <input
                                 type="checkbox"
@@ -2740,7 +2740,7 @@ export default function ReportsPage() {
                           <CardContent className="p-4">
                             <div className="flex items-center gap-2 mb-2">
                               <Church className="w-5 h-5 text-purple-600" />
-                              <h5 className="font-semibold text-purple-800">Corporate Worship</h5>
+                              <h5 className="font-semibold text-purple-800">Community Worship</h5>
                             </div>
                             <p className="text-2xl font-bold text-purple-600">{memberData.corporateWorshipPercentage || 0}%</p>
                             <p className="text-sm text-gray-600">
@@ -2888,7 +2888,7 @@ export default function ReportsPage() {
                 </div>
                 <div className="bg-purple-50 p-4 rounded-lg text-center">
                   <div className="text-2xl font-bold text-purple-800">{recurringReportData.statistics?.totalInstances?.corporateWorship ?? 0}</div>
-                  <div className="text-sm text-purple-600">Corporate Worship Instances</div>
+                  <div className="text-sm text-purple-600">Community Worship Instances</div>
                 </div>
                 <div className="bg-blue-50 p-4 rounded-lg text-center">
                   <div className="text-2xl font-bold text-blue-800">{recurringReportData.statistics?.totalInstances?.wordSharingCircles ?? 0}</div>
