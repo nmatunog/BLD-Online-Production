@@ -108,8 +108,8 @@ function CheckInContent() {
   const loadEvents = async () => {
     setLoading(true);
     try {
-      // Fetch both UPCOMING and ONGOING so check-in shows events that are open for check-in
-      const [upcomingResult, ongoingResult] = await Promise.all([
+      // Fetch UPCOMING, ONGOING, and COMPLETED (recurring only) so check-in shows events open for check-in
+      const [upcomingResult, ongoingResult, completedResult] = await Promise.all([
         eventsService.getAll({
           status: 'UPCOMING',
           sortBy: 'startDate',
@@ -122,6 +122,12 @@ function CheckInContent() {
           sortOrder: 'asc',
           limit: 50,
         }),
+        eventsService.getAll({
+          status: 'COMPLETED',
+          sortBy: 'startDate',
+          sortOrder: 'desc',
+          limit: 50,
+        }),
       ]);
 
       const upcomingList = upcomingResult.success && upcomingResult.data?.data
@@ -130,10 +136,13 @@ function CheckInContent() {
       const ongoingList = ongoingResult.success && ongoingResult.data?.data
         ? (Array.isArray(ongoingResult.data.data) ? ongoingResult.data.data : [])
         : [];
+      const completedList = completedResult.success && completedResult.data?.data
+        ? (Array.isArray(completedResult.data.data) ? completedResult.data.data : []).filter((e: { isRecurring?: boolean }) => e.isRecurring === true)
+        : [];
 
-      // Merge, dedupe by id, sort by startDate (ongoing first by putting them earlier in list if desired, or just by date)
+      // Merge, dedupe by id, sort: ongoing first, then upcoming, then completed recurring (by startDate desc)
       const seen = new Set<string>();
-      const eventList = [...ongoingList, ...upcomingList]
+      const eventList = [...ongoingList, ...upcomingList, ...completedList]
         .filter((e) => {
           if (seen.has(e.id)) return false;
           seen.add(e.id);

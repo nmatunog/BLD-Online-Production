@@ -630,12 +630,14 @@ function SelfCheckInContent() {
                         <p className="text-sm text-gray-600">
                           {event.status === 'UPCOMING' 
                             ? 'Check-in will be available 2 hours before the event starts'
-                            : 'Click the button below to check in'}
+                            : event.status === 'COMPLETED' && event.isRecurring
+                              ? 'Completed recurring event — check-in available anytime'
+                              : 'Click the button below to check in'}
                         </p>
                       </div>
                       <Button
                         onClick={handleSelfCheckIn}
-                        disabled={loading || event.status === 'COMPLETED' || event.status === 'CANCELLED'}
+                        disabled={loading || (event.status === 'COMPLETED' && !event.isRecurring) || event.status === 'CANCELLED'}
                         className="bg-green-600 hover:bg-green-700 text-white"
                       >
                         {loading ? (

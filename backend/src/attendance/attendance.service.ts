@@ -53,8 +53,11 @@ export class AttendanceService {
     const twoHoursBeforeStart = new Date(actualEventStartDateTime);
     twoHoursBeforeStart.setHours(twoHoursBeforeStart.getHours() - 2);
 
-    // Check if trying to check in too early (more than 2 hours before start)
-    if (now < twoHoursBeforeStart) {
+    // Completed recurring events (e.g. Community Worship) are available for check-in anytime
+    const isCompletedRecurring = event.status === 'COMPLETED' && event.isRecurring === true;
+
+    // Check if trying to check in too early (more than 2 hours before start) — skip for completed recurring
+    if (!isCompletedRecurring && now < twoHoursBeforeStart) {
       // Format the acceptable check-in time for the error message
       const acceptableTime = twoHoursBeforeStart.toLocaleString('en-US', {
         weekday: 'short',
@@ -79,11 +82,8 @@ export class AttendanceService {
       );
     }
 
-    // Allow check-in if:
-    // 1. Current time is 2 hours before event start or later (already checked above)
-    // 2. Event has started (current time >= event start time)
-    // 3. Event hasn't ended yet (current time < event end time)
-    if (eventEndDate < now && event.status !== 'COMPLETED') {
+    // Block check-in after event end, except for completed recurring events (check-in anytime)
+    if (!isCompletedRecurring && eventEndDate < now) {
       throw new BadRequestException('Event has already ended');
     }
 
