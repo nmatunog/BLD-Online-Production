@@ -93,10 +93,14 @@ export class AuthService {
     }
 
     // All sign-ups default to MEMBER. Only the designated master super user (env) can become SUPER_USER on sign-up.
+    // Require env vars to be set and non-empty before matching (otherwise undefined === undefined would make everyone super user).
+    const masterEmail = process.env.MASTER_SUPER_USER_EMAIL?.trim().toLowerCase();
+    const masterPhone = process.env.MASTER_SUPER_USER_PHONE
+      ? normalizePhoneNumber(process.env.MASTER_SUPER_USER_PHONE)
+      : null;
     const isMasterSuperUser =
-      registerDto.email === process.env.MASTER_SUPER_USER_EMAIL ||
-      normalizedPhone === process.env.MASTER_SUPER_USER_PHONE ||
-      registerDto.phone === process.env.MASTER_SUPER_USER_PHONE;
+      (!!masterEmail && normalizedEmail === masterEmail) ||
+      (!!masterPhone && normalizedPhone === masterPhone);
     const role: UserRole = isMasterSuperUser ? UserRole.SUPER_USER : UserRole.MEMBER;
 
     // Generate Community ID

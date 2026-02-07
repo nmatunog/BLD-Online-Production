@@ -1,14 +1,18 @@
 // BLD Cebu Organization Structure
-// Organization: Apostolates > Ministries > Homesteads
-// This structure is used throughout the backend for consistency
+// Leadership: District Council of Stewards (DCS) — lead apostolates; not "in" an apostolate.
+// Apostolates: Pastoral, Evangelization, Formation, Management, Mission (each led by DCS).
+// Ministries: belong to an apostolate (or, for DCS, ministry = "District Council of Stewards").
+
+/** Leadership group above apostolates (DCS). Stored as apostolate + ministry for validation; displayed first in reports. */
+export const LEADERSHIP_GROUP_APOSTOLATE = 'District Council of Stewards';
 
 export const APOSTOLATES = [
+  LEADERSHIP_GROUP_APOSTOLATE,
   'Pastoral Apostolate',
   'Evangelization Apostolate',
   'Formation Apostolate',
   'Management Apostolate',
   'Mission Apostolate',
-  'District Council of Stewards',
 ] as const;
 
 export const MINISTRIES_BY_APOSTOLATE: Record<string, string[]> = {

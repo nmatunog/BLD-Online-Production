@@ -666,14 +666,15 @@ export class ReportsService {
     };
   }
 
+  /** Order for Community Report: District Council of Stewards (leadership) first, then the five apostolates. */
   private getApostolateOrder(): string[] {
     return [
+      'District Council of Stewards',
       'Pastoral Apostolate',
       'Evangelization Apostolate',
       'Formation Apostolate',
       'Management Apostolate',
       'Mission Apostolate',
-      'District Council of Stewards',
     ];
   }
 
