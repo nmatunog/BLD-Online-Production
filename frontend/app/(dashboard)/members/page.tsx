@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Search, Users, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Loader2, RefreshCw, Download } from 'lucide-react';
+import { Search, Users, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Loader2, RefreshCw, Download, Save } from 'lucide-react';
 import { membersService, type Member, type MemberQueryParams } from '@/services/members.service';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
@@ -88,6 +88,8 @@ export default function MembersPage() {
     shepherdClassNumber: '',
     ministry: '',
   });
+  const [pendingRoleByMemberId, setPendingRoleByMemberId] = useState<Record<string, string>>({});
+  const [roleSaveLoading, setRoleSaveLoading] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<EditFormData>({
     firstName: '',
     lastName: '',
@@ -298,13 +300,10 @@ export default function MembersPage() {
     });
   };
 
-  // Handle role change
-  const handleRoleChange = async (memberId: string, newRole: string) => {
+  // Handle role dropdown change (sets pending role; Save button persists)
+  const handleRoleSelectChange = (memberId: string, newRole: string) => {
     const member = members.find(m => m.id === memberId);
-    if (!member) {
-      toast.error('Error', { description: 'Member not found' });
-      return;
-    }
+    if (!member) return;
 
     // For CLASS_SHEPHERD and MINISTRY_COORDINATOR, open dialog for additional info
     if (newRole === 'CLASS_SHEPHERD' || newRole === 'MINISTRY_COORDINATOR') {
@@ -319,20 +318,44 @@ export default function MembersPage() {
       return;
     }
 
-    // For other roles, assign directly
+    // Same as current role: clear any pending
+    if (newRole === member.user.role) {
+      setPendingRoleByMemberId((prev) => {
+        const next = { ...prev };
+        delete next[memberId];
+        return next;
+      });
+      return;
+    }
+
+    // Set pending role; user clicks Save to persist
+    setPendingRoleByMemberId((prev) => ({ ...prev, [memberId]: newRole }));
+  };
+
+  // Save pending role (Super User / Admin / DCS)
+  const handleSaveRole = async (memberId: string) => {
+    const member = members.find(m => m.id === memberId);
+    const pendingRole = pendingRoleByMemberId[memberId];
+    if (!member || pendingRole === undefined) return;
+
+    setRoleSaveLoading(memberId);
     try {
       const { usersService } = await import('@/services/users.service');
-      await usersService.assignRole(member.userId, {
-        role: newRole as any,
+      await usersService.assignRole(member.userId, { role: pendingRole as any });
+      setPendingRoleByMemberId((prev) => {
+        const next = { ...prev };
+        delete next[memberId];
+        return next;
       });
-      
       toast.success('Role Updated', {
-        description: `Role updated to ${getRoleDisplayName(newRole)}`,
+        description: `Role updated to ${getRoleDisplayName(pendingRole)}`,
       });
       loadMembers();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update role';
       toast.error('Error', { description: errorMessage });
+    } finally {
+      setRoleSaveLoading(null);
     }
   };
 
@@ -754,25 +777,48 @@ export default function MembersPage() {
                             </div>
                           </TableCell>
                           <TableCell className="px-4 py-3">
-                            <Select
-                              value={member.user.role}
-                              onValueChange={(value) => handleRoleChange(member.id, value)}
-                              disabled={userRole !== 'SUPER_USER' && userRole !== 'ADMINISTRATOR' && userRole !== 'DCS'}
-                            >
-                              <SelectTrigger className="text-sm border border-gray-300 rounded px-2 py-1">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {USER_ROLES.map(role => {
-                                  if (role.value === 'SUPER_USER' && userRole !== 'SUPER_USER') {
-                                    return null;
-                                  }
-                                  return (
-                                    <SelectItem key={role.value} value={role.value}>{role.label}</SelectItem>
-                                  );
-                                })}
-                              </SelectContent>
-                            </Select>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Select
+                                value={pendingRoleByMemberId[member.id] ?? member.user.role}
+                                onValueChange={(value) => handleRoleSelectChange(member.id, value)}
+                                disabled={userRole !== 'SUPER_USER' && userRole !== 'ADMINISTRATOR' && userRole !== 'DCS'}
+                              >
+                                <SelectTrigger className="text-sm border border-gray-300 rounded px-2 py-1 w-[140px]">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {USER_ROLES.map(role => {
+                                    // Only Super User can assign Administrator or Super User
+                                    if ((role.value === 'SUPER_USER' || role.value === 'ADMINISTRATOR') && userRole !== 'SUPER_USER') {
+                                      return null;
+                                    }
+                                    return (
+                                      <SelectItem key={role.value} value={role.value}>{role.label}</SelectItem>
+                                    );
+                                  })}
+                                </SelectContent>
+                              </Select>
+                              {(userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR' || userRole === 'DCS') &&
+                               pendingRoleByMemberId[member.id] !== undefined &&
+                               pendingRoleByMemberId[member.id] !== member.user.role && (
+                                <Button
+                                  size="sm"
+                                  variant="default"
+                                  className="h-8 px-2 text-xs bg-purple-600 hover:bg-purple-700"
+                                  onClick={() => handleSaveRole(member.id)}
+                                  disabled={roleSaveLoading === member.id}
+                                >
+                                  {roleSaveLoading === member.id ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <>
+                                      <Save className="w-3.5 h-3.5 mr-1" />
+                                      Save
+                                    </>
+                                  )}
+                                </Button>
+                              )}
+                            </div>
                           </TableCell>
                           <TableCell className="px-4 py-3">
                             <Button

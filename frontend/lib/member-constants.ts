@@ -8,6 +8,7 @@ export const APOSTOLATES = [
   'Formation Apostolate',
   'Management Apostolate',
   'Mission Apostolate',
+  'District Council of Stewards',
 ] as const;
 
 export const MINISTRIES_BY_APOSTOLATE: Record<string, string[]> = {
@@ -41,6 +42,9 @@ export const MINISTRIES_BY_APOSTOLATE: Record<string, string[]> = {
     'Secretariat Office',
     'Management Services',
     'Technical Group',
+  ],
+  'District Council of Stewards': [
+    'District Council of Stewards',
   ],
   'Mission Apostolate': [
     'Parish Services Ministry',

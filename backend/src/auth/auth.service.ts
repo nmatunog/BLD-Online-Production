@@ -92,15 +92,12 @@ export class AuthService {
       }
     }
 
-    // Determine role (first user gets SUPER_USER, or check master super user)
-    const userCount = await this.prisma.user.count();
+    // All sign-ups default to MEMBER. Only the designated master super user (env) can become SUPER_USER on sign-up.
     const isMasterSuperUser =
       registerDto.email === process.env.MASTER_SUPER_USER_EMAIL ||
       normalizedPhone === process.env.MASTER_SUPER_USER_PHONE ||
       registerDto.phone === process.env.MASTER_SUPER_USER_PHONE;
-    const role: UserRole = isMasterSuperUser || userCount === 0
-      ? UserRole.SUPER_USER
-      : UserRole.MEMBER;
+    const role: UserRole = isMasterSuperUser ? UserRole.SUPER_USER : UserRole.MEMBER;
 
     // Generate Community ID
     const communityId = await this.generateCommunityId(

@@ -673,6 +673,7 @@ export class ReportsService {
       'Formation Apostolate',
       'Management Apostolate',
       'Mission Apostolate',
+      'District Council of Stewards',
     ];
   }
 
@@ -737,9 +738,9 @@ export class ReportsService {
       'Life in the Spirit Ministry', 'Praise Ministry', 'Liturgy Ministry', 'Post-LSS Group (PLSG)',
       'Teaching Ministry', 'Intercessory Ministry', 'Discipling Ministry', 'Word Ministry',
       'Witness Development Ministry', 'Coach Development Ministry', 'Service Ministry', 'Treasury Ministry',
-      'Secretariat Office', 'Management Services', 'Technical Group', 'Parish Services Ministry',
-      'Institutional Services Ministry', 'Scholarship of Hope Ministry', 'Nazareth Housing Program',
-      'Mission Homesteads', 'Shepherds of Districts-in-Process',
+      'Secretariat Office', 'Management Services', 'Technical Group', 'District Council of Stewards',
+      'Parish Services Ministry', 'Institutional Services Ministry', 'Scholarship of Hope Ministry',
+      'Nazareth Housing Program', 'Mission Homesteads', 'Shepherds of Districts-in-Process',
     ];
   }
 

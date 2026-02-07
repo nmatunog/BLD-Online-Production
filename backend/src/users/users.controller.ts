@@ -55,6 +55,13 @@ export class UsersController {
     @Body() assignRoleDto: AssignRoleDto,
     @CurrentUser() currentUser: { id: string; role: UserRole },
   ): Promise<ApiResponseDto<unknown>> {
+    // Only Super User can assign Administrator or Super User roles
+    if (
+      (assignRoleDto.role === UserRole.ADMINISTRATOR || assignRoleDto.role === UserRole.SUPER_USER) &&
+      currentUser.role !== UserRole.SUPER_USER
+    ) {
+      throw new ForbiddenException('Only a Super User can assign Administrator or Super User roles');
+    }
     // Prevent self-role modification to prevent lockout
     if (userId === currentUser.id && assignRoleDto.role !== currentUser.role) {
       throw new ForbiddenException('You cannot change your own role');
