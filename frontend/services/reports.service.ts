@@ -16,6 +16,7 @@ export enum RecurringReportType {
 }
 
 export enum PeriodType {
+  WEEKLY = 'weekly',
   MONTHLY = 'monthly',
   QUARTERLY = 'quarterly',
   YTD = 'ytd',
@@ -221,32 +222,62 @@ export interface EventReport {
   };
 }
 
+/** Community Report: per apostolate/ministry summary (no per-member list) */
+export interface CommunitySummaryRow {
+  apostolate: string;
+  ministry: string;
+  totalMembers: number;
+  totalCwAttended: number;
+  totalCwInPeriod: number;
+  cwPercentage: number;
+  totalWscAttended: number;
+  totalWscInPeriod: number;
+  wscPercentage: number;
+}
+
 export interface RecurringAttendanceReport {
   data: Array<{
-    id: string;
-    communityId: string;
-    firstName: string;
-    lastName: string;
+    id?: string;
+    communityId?: string;
+    firstName?: string;
+    lastName?: string;
+    middleName?: string;
     middleInitial?: string;
+    meClass?: string;
     ministry?: string;
     apostolate?: string;
-    corporateWorshipAttended: number;
-    wordSharingCirclesAttended: number;
-    totalAttended: number;
-    totalPossible: number;
-    percentage: number;
-    corporateWorshipPercentage: number;
-    wordSharingCirclesPercentage: number;
+    corporateWorshipAttended?: number;
+    wordSharingCirclesAttended?: number;
+    totalCwInPeriod?: number;
+    totalWscInPeriod?: number;
+    totalAttended?: number;
+    totalPossible?: number;
+    percentage?: number;
+    corporateWorshipPercentage?: number;
+    wordSharingCirclesPercentage?: number;
+    totalMembers?: number;
+    totalCwAttended?: number;
+    cwPercentage?: number;
+    totalWscAttended?: number;
+    wscPercentage?: number;
   }>;
   statistics: {
-    totalMembers: number;
-    totalInstances: {
+    totalMembers?: number;
+    totalMinistries?: number;
+    totalInstances?: {
       corporateWorship: number;
       wordSharingCircles: number;
+      wscByMinistry?: Record<string, number>;
     };
-    averageAttendance: number;
-    totalCorporateWorshipAttended: number;
-    totalWordSharingCirclesAttended: number;
+    averageAttendance?: number;
+    averageCwPercentageByMinistry?: number;
+    averageWscPercentageByMinistry?: number;
+    communityCwPercentage?: number;
+    communityWscPercentage?: number;
+    totalCorporateWorshipAttended?: number;
+    totalWordSharingCirclesAttended?: number;
+    totalCwAttended?: number;
+    totalWscAttended?: number;
   };
   summary: {
     reportType: ReportType;

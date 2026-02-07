@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileText, Download, Calendar, Users, CheckCircle, DollarSign, BarChart3, Loader2, Filter, RefreshCw, X, TrendingUp, Eye, EyeOff, Church, MessageCircle, AlertCircle, ChevronDown, ChevronUp, Search, ZoomIn, LineChart, Clock, ArrowUp, ArrowDown } from 'lucide-react';
-import { reportsService, ReportType, RecurringReportType, PeriodType, type ReportResult, type AttendanceReport, type RegistrationReport, type MemberReport, type EventReport, type RecurringAttendanceReport } from '@/services/reports.service';
+import { reportsService, ReportType, RecurringReportType, PeriodType, type ReportResult, type AttendanceReport, type RegistrationReport, type MemberReport, type EventReport, type RecurringAttendanceReport, type CommunitySummaryRow } from '@/services/reports.service';
 import { eventsService, type Event } from '@/services/events.service';
 import { membersService, type Member } from '@/services/members.service';
 import { attendanceService, type Attendance } from '@/services/attendance.service';
@@ -407,8 +407,22 @@ export default function ReportsPage() {
   const calculatePeriodDates = useCallback((period: PeriodType, selectedMonth?: string, selectedYear?: string, selectedQuarter?: string) => {
     const currentYear = selectedYear ? parseInt(selectedYear) : new Date().getFullYear();
     const currentMonth = selectedMonth ? parseInt(selectedMonth) - 1 : new Date().getMonth();
+    const now = new Date();
 
     switch (period) {
+      case PeriodType.WEEKLY:
+        const dayOfWeek = now.getDay();
+        const weekStart = new Date(now);
+        weekStart.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
+        weekStart.setHours(0, 0, 0, 0);
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 6);
+        weekEnd.setHours(23, 59, 59, 999);
+        return {
+          startDate: weekStart.toISOString().split('T')[0],
+          endDate: weekEnd.toISOString().split('T')[0],
+        };
+
       case PeriodType.MONTHLY:
         if (!selectedMonth || !selectedYear) {
           const now = new Date();
@@ -447,7 +461,10 @@ export default function ReportsPage() {
 
       case PeriodType.YTD:
         const ytdStart = new Date(currentYear, 0, 1);
-        const ytdEnd = new Date();
+        const now = new Date();
+        const ytdEnd = currentYear < now.getFullYear()
+          ? new Date(currentYear, 11, 31)
+          : new Date();
         return {
           startDate: ytdStart.toISOString().split('T')[0],
           endDate: ytdEnd.toISOString().split('T')[0],
@@ -677,88 +694,126 @@ export default function ReportsPage() {
     yPosition = addText('BLD Cebu Community Online Portal - Attendance Report', 20, yPosition, { fontSize: 20, fontStyle: 'bold', color: [0, 0, 139] });
     yPosition += 5;
     
-    const ministry = recurringReportConfig.ministry || 'All Ministries';
-    const apostolate = recurringReportConfig.apostolate || 'All Apostolates';
-    yPosition = addText(`${ministry} - ${apostolate}`, 20, yPosition, { fontSize: 14, color: [0, 0, 139] });
-    
+    const isCommunity = recurringReportConfig.reportType === RecurringReportType.COMMUNITY;
+    yPosition = addText(
+      isCommunity ? 'Community Report – by Apostolate & Ministry' : `${recurringReportConfig.ministry || 'All Ministries'} - ${recurringReportConfig.apostolate || 'All Apostolates'}`,
+      20,
+      yPosition,
+      { fontSize: 14, color: [0, 0, 139] }
+    );
     const periodText = `${recurringReportConfig.startDate} to ${recurringReportConfig.endDate}`;
     yPosition = addText(`Period: ${periodText}`, 20, yPosition, { fontSize: 12, color: [100, 100, 100] });
     yPosition += 10;
 
-    // Summary Statistics
+    const summary = recurringReportData.statistics;
     yPosition = addText('Summary Statistics', 20, yPosition, { fontSize: 16, fontStyle: 'bold' });
     yPosition += 10;
 
-    const summary = recurringReportData.statistics;
-    const summaryData = [
-      ['Total Members', summary.totalMembers.toString()],
-      ['Average Attendance', `${summary.averageAttendance}%`],
-      ['Community Worship Instances', summary.totalInstances.corporateWorship.toString()],
-      ['Word Sharing Circles Instances', summary.totalInstances.wordSharingCircles.toString()],
-    ];
+    const summaryData = isCommunity
+      ? [
+          ['Total Ministries', (summary?.totalMinistries ?? 0).toString()],
+          ['Total Members', (summary?.totalMembers ?? 0).toString()],
+          ['CW % (vs 100%)', `${summary?.communityCwPercentage ?? 0}%`],
+          ['WSC % (vs 100%)', `${summary?.communityWscPercentage ?? 0}%`],
+          ['Avg CW % by Ministry', `${summary?.averageCwPercentageByMinistry ?? 0}%`],
+          ['Avg WSC % by Ministry', `${summary?.averageWscPercentageByMinistry ?? 0}%`],
+        ]
+      : [
+          ['Total Members', (summary?.totalMembers ?? 0).toString()],
+          ['Average Attendance', `${summary?.averageAttendance ?? 0}%`],
+          ['Community Worship Instances', (summary?.totalInstances?.corporateWorship ?? 0).toString()],
+          ['Word Sharing Circles Instances', (summary?.totalInstances?.wordSharingCircles ?? 0).toString()],
+        ];
 
     summaryData.forEach(([label, value]) => {
       yPosition = addText(`${label}:`, 20, yPosition, { fontSize: 12, fontStyle: 'bold' });
       yPosition = addText(value, 80, yPosition, { fontSize: 12 });
       yPosition += 5;
     });
-
     yPosition += 10;
 
-    // Member Attendance Table
     if (recurringReportData.data.length > 0) {
       if (yPosition > 250) {
         doc.addPage();
         yPosition = 20;
       }
 
-      yPosition = addText('Member Attendance', 20, yPosition, { fontSize: 16, fontStyle: 'bold' });
-      yPosition += 10;
-
-      // Table headers
-      const headers = ['Community ID', 'Last Name', 'First Name', 'MI', 'CW', 'CW%', 'WSC', 'WSC%', 'Total', 'Overall%'];
-      const colWidths = [25, 30, 30, 10, 12, 15, 12, 15, 12, 15];
-      let xPos = 20;
-
-      headers.forEach((header, index) => {
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
-        doc.text(header, xPos, yPosition);
-        xPos += colWidths[index];
-      });
-
-      yPosition += 8;
-
-      // Table rows
-      recurringReportData.data.forEach((member, index) => {
-        if (yPosition > 280) {
-          doc.addPage();
-          yPosition = 20;
-        }
-
-        xPos = 20;
-        const rowData = [
-          member.communityId || '',
-          member.lastName || '',
-          member.firstName || '',
-          member.middleInitial || '',
-          member.corporateWorshipAttended?.toString() || '0',
-          `${member.corporateWorshipPercentage || 0}%`,
-          member.wordSharingCirclesAttended?.toString() || '0',
-          `${member.wordSharingCirclesPercentage || 0}%`,
-          member.totalAttended?.toString() || '0',
-          `${member.percentage || 0}%`,
-        ];
-
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'normal');
-        rowData.forEach((cell, cellIndex) => {
-          doc.text(cell, xPos, yPosition);
-          xPos += colWidths[cellIndex];
+      if (isCommunity && recurringReportData.data[0] && 'totalMembers' in recurringReportData.data[0]) {
+        yPosition = addText('Attendance by Apostolate & Ministry', 20, yPosition, { fontSize: 16, fontStyle: 'bold' });
+        yPosition += 10;
+        const headers = ['Apostolate', 'Ministry', 'Members', 'CW Att.', 'CW %', 'WSC Att.', 'WSC %'];
+        const colWidths = [38, 38, 14, 14, 12, 14, 12];
+        let xPos = 20;
+        headers.forEach((header, index) => {
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'bold');
+          doc.text(header, xPos, yPosition);
+          xPos += colWidths[index];
         });
-
-        yPosition += 6;
-      });
+        yPosition += 8;
+        (recurringReportData.data as CommunitySummaryRow[]).forEach((row) => {
+          if (yPosition > 280) {
+            doc.addPage();
+            yPosition = 20;
+          }
+          xPos = 20;
+          const rowData = [
+            String(row.apostolate).slice(0, 22),
+            String(row.ministry).slice(0, 22),
+            row.totalMembers.toString(),
+            row.totalCwAttended.toString(),
+            `${row.cwPercentage}%`,
+            row.totalWscAttended.toString(),
+            `${row.wscPercentage}%`,
+          ];
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'normal');
+          rowData.forEach((cell, cellIndex) => {
+            doc.text(cell, xPos, yPosition);
+            xPos += colWidths[cellIndex];
+          });
+          yPosition += 6;
+        });
+      } else {
+        yPosition = addText('Member Attendance', 20, yPosition, { fontSize: 16, fontStyle: 'bold' });
+        yPosition += 10;
+        const headers = ['Name', 'Community ID', 'CW present', 'Total CW', 'CW %', 'WSC present', 'Total WSC', 'WSC %'];
+        const colWidths = [45, 22, 14, 12, 12, 14, 12, 12];
+        let xPos = 20;
+        headers.forEach((header, index) => {
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'bold');
+          doc.text(header, xPos, yPosition);
+          xPos += colWidths[index];
+        });
+        yPosition += 8;
+        recurringReportData.data.forEach((member: any) => {
+          if (yPosition > 280) {
+            doc.addPage();
+            yPosition = 20;
+          }
+          const name = [member.lastName, member.firstName].filter(Boolean).join(', ') +
+            (member.middleInitial ? ` ${member.middleInitial}.` : (member.middleName ? ` ${member.middleName.charAt(0).toUpperCase()}.` : ''));
+          xPos = 20;
+          const rowData = [
+            name,
+            member.communityId || '',
+            (member.corporateWorshipAttended ?? 0).toString(),
+            (member.totalCwInPeriod ?? summary?.totalInstances?.corporateWorship ?? '-').toString(),
+            `${member.corporateWorshipPercentage ?? 0}%`,
+            (member.wordSharingCirclesAttended ?? 0).toString(),
+            (member.totalWscInPeriod ?? summary?.totalInstances?.wordSharingCircles ?? '-').toString(),
+            `${member.wordSharingCirclesPercentage ?? 0}%`,
+          ];
+          doc.setFontSize(8);
+          doc.setFont('helvetica', 'normal');
+          rowData.forEach((cell, cellIndex) => {
+            doc.text(String(cell).slice(0, 25), xPos, yPosition);
+            xPos += colWidths[cellIndex];
+          });
+          yPosition += 6;
+        });
+      }
     }
 
     // Save PDF
@@ -767,12 +822,14 @@ export default function ReportsPage() {
     toast.success('Report Exported to PDF');
   };
 
-  // Chart data for recurring attendance report
+  // Chart data for recurring attendance report (member list only; Community Report has no member list)
   const chartData = useMemo(() => {
     if (!recurringReportData) return null;
-
     const data = Array.isArray(recurringReportData.data) ? recurringReportData.data : [];
-    const labels = data.slice(0, 20).map(m => `${m.lastName}, ${m.firstName}`);
+    if (data.length > 0 && (data[0] as any).totalMembers != null && (data[0] as any).communityId == null) {
+      return null; // Community summary rows, not members
+    }
+    const labels = data.slice(0, 20).map((m: any) => `${m.lastName || ''}, ${m.firstName || ''}`);
     const cwData = data.slice(0, 20).map(m => m.corporateWorshipAttended || 0);
     const wscData = data.slice(0, 20).map(m => m.wordSharingCirclesAttended || 0);
 
@@ -1340,6 +1397,7 @@ export default function ReportsPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value={PeriodType.WEEKLY}>Weekly</SelectItem>
                           <SelectItem value={PeriodType.MONTHLY}>Monthly</SelectItem>
                           <SelectItem value={PeriodType.QUARTERLY}>Quarterly</SelectItem>
                           <SelectItem value={PeriodType.YTD}>Year to Date</SelectItem>
@@ -1429,6 +1487,28 @@ export default function ReportsPage() {
                             </SelectContent>
                           </Select>
                         </div>
+                      </div>
+                    )}
+
+                    {/* Year Selection (for YTD) */}
+                    {recurringReportConfig.period === PeriodType.YTD && (
+                      <div>
+                        <Label htmlFor="yearYtd">Year (Jan 1 – today)</Label>
+                        <Select
+                          value={recurringReportConfig.selectedYear}
+                          onValueChange={handleYearChange}
+                        >
+                          <SelectTrigger id="yearYtd">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {yearOptions.map((year) => (
+                              <SelectItem key={year.value} value={year.value}>
+                                {year.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     )}
 
@@ -2869,35 +2949,122 @@ export default function ReportsPage() {
               {/* Report Header */}
               <div className="bg-purple-50 p-4 rounded-lg">
                 <h4 className="text-xl font-semibold text-purple-800 mb-2">
-                  {recurringReportConfig.ministry || 'All Ministries'} - {recurringReportConfig.apostolate || 'All Apostolates'}
+                  {recurringReportConfig.reportType === RecurringReportType.COMMUNITY
+                    ? 'Community Report – by Apostolate & Ministry'
+                    : `${recurringReportConfig.ministry || 'All Ministries'} - ${recurringReportConfig.apostolate || 'All Apostolates'}`}
                 </h4>
                 <p className="text-purple-600">
                   Period: {recurringReportConfig.startDate} to {recurringReportConfig.endDate}
+                  {recurringReportConfig.period && (
+                    <span className="ml-2 text-purple-500">({recurringReportConfig.period})</span>
+                  )}
                 </p>
               </div>
 
-              {/* Summary Statistics */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="bg-gray-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-gray-800">{recurringReportData.statistics?.totalMembers ?? 0}</div>
-                  <div className="text-sm text-gray-600">Total Members</div>
+              {/* Summary Statistics: Community vs Ministry/Individual */}
+              {recurringReportConfig.reportType === RecurringReportType.COMMUNITY ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                  <div className="bg-gray-50 p-4 rounded-lg text-center">
+                    <div className="text-2xl font-bold text-gray-800">{recurringReportData.statistics?.totalMinistries ?? 0}</div>
+                    <div className="text-sm text-gray-600">Ministries</div>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-lg text-center">
+                    <div className="text-2xl font-bold text-gray-800">{recurringReportData.statistics?.totalMembers ?? 0}</div>
+                    <div className="text-sm text-gray-600">Total Members</div>
+                  </div>
+                  <div className="bg-purple-50 p-4 rounded-lg text-center">
+                    <div className="text-2xl font-bold text-purple-800">{recurringReportData.statistics?.communityCwPercentage ?? 0}%</div>
+                    <div className="text-sm text-purple-600">CW % (vs 100%)</div>
+                  </div>
+                  <div className="bg-blue-50 p-4 rounded-lg text-center">
+                    <div className="text-2xl font-bold text-blue-800">{recurringReportData.statistics?.communityWscPercentage ?? 0}%</div>
+                    <div className="text-sm text-blue-600">WSC % (vs 100%)</div>
+                  </div>
+                  <div className="bg-green-50 p-4 rounded-lg text-center">
+                    <div className="text-2xl font-bold text-green-800">{recurringReportData.statistics?.averageCwPercentageByMinistry ?? 0}%</div>
+                    <div className="text-sm text-green-600">Avg CW % by Ministry</div>
+                  </div>
+                  <div className="bg-green-50 p-4 rounded-lg text-center">
+                    <div className="text-2xl font-bold text-green-800">{recurringReportData.statistics?.averageWscPercentageByMinistry ?? 0}%</div>
+                    <div className="text-sm text-green-600">Avg WSC % by Ministry</div>
+                  </div>
                 </div>
-                <div className="bg-green-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-green-800">{recurringReportData.statistics?.averageAttendance ?? 0}%</div>
-                  <div className="text-sm text-green-600">Average Attendance</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="bg-gray-50 p-4 rounded-lg text-center">
+                    <div className="text-2xl font-bold text-gray-800">{recurringReportData.statistics?.totalMembers ?? 0}</div>
+                    <div className="text-sm text-gray-600">Total Members</div>
+                  </div>
+                  <div className="bg-green-50 p-4 rounded-lg text-center">
+                    <div className="text-2xl font-bold text-green-800">{recurringReportData.statistics?.averageAttendance ?? 0}%</div>
+                    <div className="text-sm text-green-600">Average Attendance</div>
+                  </div>
+                  <div className="bg-purple-50 p-4 rounded-lg text-center">
+                    <div className="text-2xl font-bold text-purple-800">{recurringReportData.statistics?.totalInstances?.corporateWorship ?? 0}</div>
+                    <div className="text-sm text-purple-600">Community Worship Instances</div>
+                  </div>
+                  <div className="bg-blue-50 p-4 rounded-lg text-center">
+                    <div className="text-2xl font-bold text-blue-800">{recurringReportData.statistics?.totalInstances?.wordSharingCircles ?? 0}</div>
+                    <div className="text-sm text-blue-600">Word Sharing Circles Instances</div>
+                  </div>
                 </div>
-                <div className="bg-purple-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-purple-800">{recurringReportData.statistics?.totalInstances?.corporateWorship ?? 0}</div>
-                  <div className="text-sm text-purple-600">Community Worship Instances</div>
-                </div>
-                <div className="bg-blue-50 p-4 rounded-lg text-center">
-                  <div className="text-2xl font-bold text-blue-800">{recurringReportData.statistics?.totalInstances?.wordSharingCircles ?? 0}</div>
-                  <div className="text-sm text-blue-600">Word Sharing Circles Instances</div>
-                </div>
-              </div>
+              )}
 
-              {/* Charts */}
-              {chartData && (
+              {/* Community Report: Apostolate / Ministry table (no per-member list) */}
+              {recurringReportConfig.reportType === RecurringReportType.COMMUNITY &&
+               Array.isArray(recurringReportData.data) &&
+               recurringReportData.data.length > 0 &&
+               'totalMembers' in recurringReportData.data[0] && (() => {
+                const rows = recurringReportData.data as Array<CommunitySummaryRow>;
+                const byApostolate = rows.reduce<Record<string, CommunitySummaryRow[]>>((acc, r) => {
+                  const a = r.apostolate || 'Other';
+                  if (!acc[a]) acc[a] = [];
+                  acc[a].push(r);
+                  return acc;
+                }, {});
+                const apostolateOrder = ['Pastoral Apostolate', 'Evangelization Apostolate', 'Formation Apostolate', 'Management Apostolate', 'Mission Apostolate'];
+                const order = [...apostolateOrder.filter((a) => byApostolate[a]), ...Object.keys(byApostolate).filter((a) => !apostolateOrder.includes(a))];
+                return (
+                  <div className="space-y-4">
+                    <h5 className="font-semibold text-gray-800">Attendance by Apostolate & Ministry (analytics for activity planning)</h5>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Apostolate</TableHead>
+                            <TableHead>Ministry</TableHead>
+                            <TableHead className="text-center">Total Members</TableHead>
+                            <TableHead className="text-center">Total CW Attended</TableHead>
+                            <TableHead className="text-center">CW % (vs 100%)</TableHead>
+                            <TableHead className="text-center">Total WSC Attended</TableHead>
+                            <TableHead className="text-center">WSC % (vs 100%)</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {order.map((apostolate) => (
+                            <Fragment key={apostolate}>
+                              {byApostolate[apostolate].map((row, idx) => (
+                                <TableRow key={`${row.apostolate}-${row.ministry}-${idx}`} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                  <TableCell className="font-medium text-slate-700">{row.apostolate}</TableCell>
+                                  <TableCell className="font-medium">{row.ministry}</TableCell>
+                                  <TableCell className="text-center">{row.totalMembers}</TableCell>
+                                  <TableCell className="text-center">{row.totalCwAttended}</TableCell>
+                                  <TableCell className="text-center font-medium text-purple-600">{row.cwPercentage}%</TableCell>
+                                  <TableCell className="text-center">{row.totalWscAttended}</TableCell>
+                                  <TableCell className="text-center font-medium text-green-600">{row.wscPercentage}%</TableCell>
+                                </TableRow>
+                              ))}
+                            </Fragment>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Charts (only for Ministry/Individual, not Community) */}
+              {recurringReportConfig.reportType !== RecurringReportType.COMMUNITY && chartData && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Card>
                     <CardHeader>
@@ -2918,48 +3085,101 @@ export default function ReportsPage() {
                 </div>
               )}
 
-              {/* Member Attendance Table */}
-              {Array.isArray(recurringReportData.data) && recurringReportData.data.length > 0 && (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="font-mono text-xs">Community ID</TableHead>
-                        <TableHead>Last Name</TableHead>
-                        <TableHead>First Name</TableHead>
-                        <TableHead>MI</TableHead>
-                        <TableHead className="text-center">CW</TableHead>
-                        <TableHead className="text-center">CW%</TableHead>
-                        <TableHead className="text-center">WSC</TableHead>
-                        <TableHead className="text-center">WSC%</TableHead>
-                        <TableHead className="text-center">Total</TableHead>
-                        <TableHead className="text-center">Overall%</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {recurringReportData.data.map((member, index) => {
-                        // Get middleInitial from the member data (may need to derive from middleName)
-                        const middleInitial = (member as any).middleInitial || 
-                          ((member as any).middleName ? (member as any).middleName.charAt(0).toUpperCase() : '');
-                        return (
-                          <TableRow key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                            <TableCell className="font-mono text-sm">{member.communityId}</TableCell>
-                            <TableCell>{member.lastName}</TableCell>
-                            <TableCell>{member.firstName}</TableCell>
-                            <TableCell>{middleInitial}</TableCell>
-                          <TableCell className="text-center">{member.corporateWorshipAttended || 0}</TableCell>
-                          <TableCell className="text-center font-medium text-purple-600">{member.corporateWorshipPercentage || 0}%</TableCell>
-                          <TableCell className="text-center">{member.wordSharingCirclesAttended || 0}</TableCell>
-                          <TableCell className="text-center font-medium text-green-600">{member.wordSharingCirclesPercentage || 0}%</TableCell>
-                          <TableCell className="text-center font-medium">{member.totalAttended || 0}</TableCell>
-                          <TableCell className="text-center font-medium text-purple-600">{member.percentage || 0}%</TableCell>
+              {/* Member Attendance Table (Ministry/Individual only): Name, Community ID, CW present, Total CW, CW %, WSC present, Total WSC, WSC %. */}
+              {recurringReportConfig.reportType !== RecurringReportType.COMMUNITY &&
+               Array.isArray(recurringReportData.data) &&
+               recurringReportData.data.length > 0 &&
+               (recurringReportData.data[0] as any).communityId != null && (() => {
+                const data = recurringReportData.data as Array<{
+                  id: string;
+                  communityId: string;
+                  firstName: string;
+                  lastName: string;
+                  middleInitial?: string;
+                  middleName?: string;
+                  meClass?: string;
+                  corporateWorshipAttended: number;
+                  wordSharingCirclesAttended: number;
+                  totalCwInPeriod?: number;
+                  totalWscInPeriod?: number;
+                  corporateWorshipPercentage: number;
+                  wordSharingCirclesPercentage: number;
+                  totalAttended?: number;
+                  percentage?: number;
+                }>;
+                const ministry = recurringReportConfig.ministry || '';
+                const groupByMeClass = ['Post-LSS Group (PLSG)', 'Service Ministry', 'Intercessory Ministry'].includes(ministry);
+                const byMeClass = groupByMeClass
+                  ? data.reduce<Record<string, typeof data>>((acc, m) => {
+                      const key = m.meClass || 'Other';
+                      if (!acc[key]) acc[key] = [];
+                      acc[key].push(m);
+                      return acc;
+                    }, {})
+                  : { '': data };
+                const meClassOrder = Object.keys(byMeClass).filter(Boolean).sort((a, b) => {
+                  const aMatch = a.match(/^([A-Z]+)(\d+)$/);
+                  const bMatch = b.match(/^([A-Z]+)(\d+)$/);
+                  if (aMatch && bMatch) {
+                    if (aMatch[1] !== bMatch[1]) return aMatch[1].localeCompare(bMatch[1]);
+                    return parseInt(aMatch[2], 10) - parseInt(bMatch[2], 10);
+                  }
+                  return a.localeCompare(b);
+                });
+                if (!groupByMeClass) meClassOrder.push('');
+
+                return (
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead className="font-mono text-xs">Community ID</TableHead>
+                          <TableHead className="text-center">CW present</TableHead>
+                          <TableHead className="text-center">Total CW</TableHead>
+                          <TableHead className="text-center">CW %</TableHead>
+                          <TableHead className="text-center">WSC present</TableHead>
+                          <TableHead className="text-center">Total WSC</TableHead>
+                          <TableHead className="text-center">WSC %</TableHead>
                         </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
+                      </TableHeader>
+                      <TableBody>
+                        {meClassOrder.map((meClass) => {
+                          const rows = byMeClass[meClass] || [];
+                          return (
+                            <Fragment key={meClass || 'all'}>
+                              {groupByMeClass && meClass && (
+                                <TableRow className="bg-slate-100 border-t-2 border-slate-300">
+                                  <TableCell colSpan={8} className="font-semibold text-slate-700 py-2">
+                                    ME Class {meClass}
+                                  </TableCell>
+                                </TableRow>
+                              )}
+                              {rows.map((member, idx) => {
+                                const middleInitial = member.middleInitial ||
+                                  (member.middleName ? member.middleName.charAt(0).toUpperCase() : '');
+                                const name = [member.lastName, member.firstName].filter(Boolean).join(', ') + (middleInitial ? ` ${middleInitial}.` : '');
+                                return (
+                                  <TableRow key={member.id || `${meClass}-${idx}`} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                    <TableCell className="font-medium">{name}</TableCell>
+                                    <TableCell className="font-mono text-sm">{member.communityId}</TableCell>
+                                    <TableCell className="text-center">{member.corporateWorshipAttended ?? 0}</TableCell>
+                                    <TableCell className="text-center text-slate-600">{member.totalCwInPeriod ?? recurringReportData.statistics?.totalInstances?.corporateWorship ?? '-'}</TableCell>
+                                    <TableCell className="text-center font-medium text-purple-600">{member.corporateWorshipPercentage ?? 0}%</TableCell>
+                                    <TableCell className="text-center">{member.wordSharingCirclesAttended ?? 0}</TableCell>
+                                    <TableCell className="text-center text-slate-600">{member.totalWscInPeriod ?? recurringReportData.statistics?.totalInstances?.wordSharingCircles ?? '-'}</TableCell>
+                                    <TableCell className="text-center font-medium text-green-600">{member.wordSharingCirclesPercentage ?? 0}%</TableCell>
+                                  </TableRow>
+                                );
+                              })}
+                            </Fragment>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                );
+              })()}
 
               {/* Export Buttons */}
               <div className="flex flex-wrap justify-end gap-3">

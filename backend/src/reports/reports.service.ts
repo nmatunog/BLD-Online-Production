@@ -369,6 +369,8 @@ export class ReportsService {
 
   /**
    * Generate recurring attendance report (for Community Worship and Word Sharing Circles)
+   * Ministry report: CW = Tuesdays in period; WSC = actual Event count for that ministry in period.
+   * Members sorted by ME class (encounterType + classNumber), then alphabetically; PLSG/Service/Intercessory grouped by ME class.
    */
   async generateRecurringAttendanceReport(query: ReportQueryDto) {
     if (!query.startDate || !query.endDate) {
@@ -381,13 +383,15 @@ export class ReportsService {
     const endDate = new Date(query.endDate);
     endDate.setHours(23, 59, 59, 999);
 
-    // Count event instances for Community Worship (Tuesdays) and Word Sharing Circles (Thursdays)
-    const totalInstances = {
-      corporateWorship: this.countEventInstances('Community Worship', startDate, endDate),
-      wordSharingCircles: this.countEventInstances('Word Sharing Circles', startDate, endDate),
-    };
+    // Community Worship = number of Tuesdays in period (typically 4–5 per month)
+    const totalCwInPeriod = this.countEventInstances('Community Worship', startDate, endDate);
 
-    // Get members based on report type
+    // Community Report: apostolate/ministry summary only (no per-member list). Track CW and WSC % vs registered members for analytics.
+    if (query.recurringReportType === 'community') {
+      return this.generateCommunitySummaryReport(query, startDate, endDate, totalCwInPeriod);
+    }
+
+    // Ministry / Individual: per-member list
     const members = await this.getMembersForReport(
       query.recurringReportType || 'community',
       query.memberId,
@@ -395,46 +399,53 @@ export class ReportsService {
       query.apostolate,
     );
 
-    // Get attendance records for the period
+    const ministryFilter = query.recurringReportType === 'ministry' ? query.ministry : undefined;
+    const wscTotalsByMinistry = await this.getWscEventCountsByMinistry(startDate, endDate, ministryFilter);
+    const totalInstances = {
+      corporateWorship: totalCwInPeriod,
+      wordSharingCircles: ministryFilter
+        ? wscTotalsByMinistry.get(ministryFilter || '') ?? 0
+        : 0,
+      wscByMinistry: wscTotalsByMinistry,
+    };
+
     const attendanceRecords = await this.prisma.attendance.findMany({
       where: {
-        checkInTime: {
-          gte: startDate,
-          lte: endDate,
-        },
+        checkInTime: { gte: startDate, lte: endDate },
       },
       include: {
         member: true,
-        event: {
-          select: {
-            title: true,
-            category: true,
-          },
-        },
+        event: { select: { id: true, title: true, category: true } },
       },
     });
 
-    // Calculate member attendance
     const memberAttendance = this.calculateMemberAttendance(
       members,
       attendanceRecords,
       totalInstances,
+      query.recurringReportType,
+      query.ministry,
     );
-
-    // Sort members according to ministry rules
     const sortedMembers = this.sortMembersForReport(memberAttendance, query.ministry);
 
-    // Calculate summary statistics
+    const totalInstancesResponse = {
+      corporateWorship: totalInstances.corporateWorship,
+      wordSharingCircles: totalInstances.wordSharingCircles,
+      wscByMinistry: totalInstances.wscByMinistry
+        ? Object.fromEntries(totalInstances.wscByMinistry)
+        : undefined,
+    };
+
     const summary = {
       totalMembers: sortedMembers.length,
-      totalInstances,
+      totalInstances: totalInstancesResponse,
       averageAttendance: this.calculateAverageAttendance(sortedMembers),
       totalCorporateWorshipAttended: sortedMembers.reduce(
-        (sum, member) => sum + (member.corporateWorshipAttended || 0),
+        (sum, m) => sum + (m.corporateWorshipAttended || 0),
         0,
       ),
       totalWordSharingCirclesAttended: sortedMembers.reduce(
-        (sum, member) => sum + (member.wordSharingCirclesAttended || 0),
+        (sum, m) => sum + (m.wordSharingCirclesAttended || 0),
         0,
       ),
     };
@@ -459,33 +470,277 @@ export class ReportsService {
   }
 
   /**
-   * Count event instances for recurring events
+   * Community Report: summary by Apostolate and Ministry (no per-member list).
+   * Tracks total members per ministry, total CW/WSC attendances, and % vs 100% possible (for analytics and activity planning).
+   */
+  private async generateCommunitySummaryReport(
+    query: ReportQueryDto,
+    startDate: Date,
+    endDate: Date,
+    totalCwInPeriod: number,
+  ) {
+    const wscByMinistry = await this.getWscEventCountsByMinistry(startDate, endDate);
+
+    const where: Prisma.MemberWhereInput = {
+      apostolate: { not: null },
+      ministry: { not: null },
+    };
+    if (query.apostolate) {
+      where.apostolate = query.apostolate;
+    }
+    const members = await this.prisma.member.findMany({
+      where,
+      select: { id: true, apostolate: true, ministry: true },
+    });
+
+    const attendanceRecords = await this.prisma.attendance.findMany({
+      where: {
+        checkInTime: { gte: startDate, lte: endDate },
+      },
+      include: {
+        member: { select: { id: true, apostolate: true, ministry: true } },
+        event: { select: { id: true, title: true, category: true } },
+      },
+    });
+
+    const isCwEvent = (record: { event?: { title?: string; category?: string } | null }) => {
+      const t = (record.event?.title || '').toLowerCase();
+      const c = (record.event?.category || '').toLowerCase();
+      return (
+        t.includes('community worship') ||
+        t.includes('corporate worship') ||
+        c.includes('community worship') ||
+        c.includes('corporate worship')
+      );
+    };
+    const isWscForMinistry = (record: { event?: { title?: string } | null }, ministry: string) => {
+      const t = (record.event?.title || '').toLowerCase();
+      const isWsc =
+        t.includes('word sharing') || t.includes('wsc');
+      if (!isWsc || !ministry) return false;
+      return t.includes(ministry.toLowerCase());
+    };
+
+    const byApostolateMinistry = new Map<
+      string,
+      { memberIds: Set<string>; cwAttended: number; wscAttended: number; seenCw: Set<string>; seenWsc: Set<string> }
+    >();
+    for (const m of members) {
+      const key = `${m.apostolate || ''}|${m.ministry || ''}`;
+      if (!byApostolateMinistry.has(key)) {
+        byApostolateMinistry.set(key, {
+          memberIds: new Set(),
+          cwAttended: 0,
+          wscAttended: 0,
+          seenCw: new Set(),
+          seenWsc: new Set(),
+        });
+      }
+      byApostolateMinistry.get(key)!.memberIds.add(m.id);
+    }
+
+    for (const rec of attendanceRecords) {
+      const memberId = rec.memberId;
+      const apostolate = rec.member?.apostolate;
+      const ministry = rec.member?.ministry;
+      if (!apostolate || !ministry) continue;
+      const key = `${apostolate}|${ministry}`;
+      const group = byApostolateMinistry.get(key);
+      if (!group || !group.memberIds.has(memberId)) continue;
+
+      const dateKey = new Date(rec.checkInTime).toISOString().split('T')[0];
+      const eventId = rec.eventId;
+      const uk = `${key}|${memberId}|${eventId}|${dateKey}`;
+
+      if (isCwEvent(rec)) {
+        if (!group.seenCw.has(uk)) {
+          group.seenCw.add(uk);
+          group.cwAttended += 1;
+        }
+      }
+      if (isWscForMinistry(rec, ministry)) {
+        if (!group.seenWsc.has(uk)) {
+          group.seenWsc.add(uk);
+          group.wscAttended += 1;
+        }
+      }
+    }
+
+    const data: Array<{
+      apostolate: string;
+      ministry: string;
+      totalMembers: number;
+      totalCwAttended: number;
+      totalCwInPeriod: number;
+      cwPercentage: number;
+      totalWscAttended: number;
+      totalWscInPeriod: number;
+      wscPercentage: number;
+    }> = [];
+    const apostolateOrder = this.getApostolateOrder();
+    for (const [key, group] of byApostolateMinistry) {
+      const [apostolate, ministry] = key.split('|');
+      const totalMembers = group.memberIds.size;
+      const totalCwAttended = group.cwAttended;
+      const totalWscInPeriod = wscByMinistry.get(ministry) ?? 0;
+      const totalWscAttended = group.wscAttended;
+      const possibleCw = totalMembers * totalCwInPeriod;
+      const possibleWsc = totalMembers * totalWscInPeriod;
+      const cwPercentage =
+        possibleCw > 0 ? Math.round((totalCwAttended / possibleCw) * 100) : 0;
+      const wscPercentage =
+        possibleWsc > 0 ? Math.round((totalWscAttended / possibleWsc) * 100) : 0;
+      data.push({
+        apostolate: apostolate || '',
+        ministry: ministry || '',
+        totalMembers,
+        totalCwAttended,
+        totalCwInPeriod,
+        cwPercentage,
+        totalWscAttended,
+        totalWscInPeriod,
+        wscPercentage,
+      });
+    }
+
+    data.sort((a, b) => {
+      const aApo = apostolateOrder.indexOf(a.apostolate);
+      const bApo = apostolateOrder.indexOf(b.apostolate);
+      if (aApo !== -1 || bApo !== -1) {
+        const aOrd = aApo === -1 ? 999 : aApo;
+        const bOrd = bApo === -1 ? 999 : bApo;
+        if (aOrd !== bOrd) return aOrd - bOrd;
+      } else if (a.apostolate !== b.apostolate) {
+        return a.apostolate.localeCompare(b.apostolate);
+      }
+      return a.ministry.localeCompare(b.ministry);
+    });
+
+    const totalMembersAll = data.reduce((s, r) => s + r.totalMembers, 0);
+    const totalCwAttendedAll = data.reduce((s, r) => s + r.totalCwAttended, 0);
+    const totalWscAttendedAll = data.reduce((s, r) => s + r.totalWscAttended, 0);
+    const possibleCwAll = totalMembersAll * totalCwInPeriod;
+    const possibleWscAll = data.reduce(
+      (s, r) => s + r.totalMembers * r.totalWscInPeriod,
+      0,
+    );
+
+    const totalInstancesResponse = {
+      corporateWorship: totalCwInPeriod,
+      wordSharingCircles: 0,
+      wscByMinistry: Object.fromEntries(wscByMinistry),
+    };
+
+    return {
+      data,
+      statistics: {
+        totalMinistries: data.length,
+        totalMembers: totalMembersAll,
+        totalInstances: totalInstancesResponse,
+        totalCwAttended: totalCwAttendedAll,
+        totalWscAttended: totalWscAttendedAll,
+        communityCwPercentage:
+          possibleCwAll > 0 ? Math.round((totalCwAttendedAll / possibleCwAll) * 100) : 0,
+        communityWscPercentage:
+          possibleWscAll > 0 ? Math.round((totalWscAttendedAll / possibleWscAll) * 100) : 0,
+        averageCwPercentageByMinistry:
+          data.length > 0
+            ? Math.round(data.reduce((s, r) => s + r.cwPercentage, 0) / data.length)
+            : 0,
+        averageWscPercentageByMinistry:
+          data.length > 0
+            ? Math.round(data.reduce((s, r) => s + r.wscPercentage, 0) / data.length)
+            : 0,
+      },
+      summary: {
+        reportType: ReportType.RECURRING_ATTENDANCE,
+        generatedAt: new Date(),
+        filters: {
+          recurringReportType: 'community',
+          period: query.period,
+          startDate: query.startDate,
+          endDate: query.endDate,
+          apostolate: query.apostolate,
+        },
+      },
+    };
+  }
+
+  private getApostolateOrder(): string[] {
+    return [
+      'Pastoral Apostolate',
+      'Evangelization Apostolate',
+      'Formation Apostolate',
+      'Management Apostolate',
+      'Mission Apostolate',
+    ];
+  }
+
+  /**
+   * Count event instances for Community Worship (Tuesdays in period)
    */
   private countEventInstances(eventType: string, startDate: Date, endDate: Date): number {
     if (eventType === 'Community Worship') {
-      // Community Worship happens on Tuesdays (day 2)
       let count = 0;
       const current = new Date(startDate);
       while (current <= endDate) {
-        if (current.getDay() === 2) {
-          count++;
-        }
-        current.setDate(current.getDate() + 1);
-      }
-      return count;
-    } else if (eventType === 'Word Sharing Circles') {
-      // Word Sharing Circles happens on Thursdays (day 4)
-      let count = 0;
-      const current = new Date(startDate);
-      while (current <= endDate) {
-        if (current.getDay() === 4) {
-          count++;
-        }
+        if (current.getDay() === 2) count++;
         current.setDate(current.getDate() + 1);
       }
       return count;
     }
     return 0;
+  }
+
+  /**
+   * Count WSC events per ministry from Event table (ministries have different WSC days).
+   * Events: category contains 'Word Sharing Circle', title contains ministry name, startDate in range.
+   */
+  private async getWscEventCountsByMinistry(
+    startDate: Date,
+    endDate: Date,
+    ministryFilter?: string,
+  ): Promise<Map<string, number>> {
+    const events = await this.prisma.event.findMany({
+      where: {
+        startDate: { gte: startDate, lte: endDate },
+        category: { contains: 'Word Sharing', mode: 'insensitive' },
+      },
+      select: { id: true, title: true },
+    });
+
+    const ministries = this.getKnownMinistries().filter((m) => !ministryFilter || m === ministryFilter);
+    const byMinistry = new Map<string, number>();
+    for (const e of events) {
+      const title = (e.title || '').toLowerCase();
+      // Assign event to one ministry: longest ministry name that appears in title (e.g. "WSC - Service Ministry -")
+      let best: string | null = null;
+      let bestLen = 0;
+      for (const ministry of ministries) {
+        const slug = ministry.toLowerCase();
+        if (title.includes(slug) && slug.length > bestLen) {
+          best = ministry;
+          bestLen = slug.length;
+        }
+      }
+      if (best) {
+        byMinistry.set(best, (byMinistry.get(best) ?? 0) + 1);
+      }
+    }
+    return byMinistry;
+  }
+
+  private getKnownMinistries(): string[] {
+    return [
+      'Pastoral Services', 'Youth Ministry', 'Singles Ministry', 'Solo Parent Ministry', 'Mark 10 Ministry',
+      'Prayer Counseling and Healing Services (PCHS)', 'Marriage Encounter Program', 'Family Encounter Program',
+      'Life in the Spirit Ministry', 'Praise Ministry', 'Liturgy Ministry', 'Post-LSS Group (PLSG)',
+      'Teaching Ministry', 'Intercessory Ministry', 'Discipling Ministry', 'Word Ministry',
+      'Witness Development Ministry', 'Coach Development Ministry', 'Service Ministry', 'Treasury Ministry',
+      'Secretariat Office', 'Management Services', 'Technical Group', 'Parish Services Ministry',
+      'Institutional Services Ministry', 'Scholarship of Hope Ministry', 'Nazareth Housing Program',
+      'Mission Homesteads', 'Shepherds of Districts-in-Process',
+    ];
   }
 
   /**
@@ -516,88 +771,94 @@ export class ReportsService {
   }
 
   /**
-   * Calculate member attendance for recurring events
+   * Calculate member attendance for recurring events.
+   * CW: check-ins to Community Worship. WSC: check-ins to WSC events for that member's ministry.
+   * CW % = attended / total Tuesdays in period; WSC % = attended / total WSC events for ministry in period.
    */
   private calculateMemberAttendance(
     members: any[],
     attendanceRecords: any[],
-    totalInstances: { corporateWorship: number; wordSharingCircles: number },
+    totalInstances: {
+      corporateWorship: number;
+      wordSharingCircles: number;
+      wscByMinistry?: Map<string, number>;
+    },
+    recurringReportType?: string,
+    reportMinistry?: string,
   ) {
-    return members.map((member) => {
-      const memberAttendance = attendanceRecords.filter(
-        (record) => record.memberId === member.id,
-      );
+    const totalCw = totalInstances.corporateWorship;
+    const wscByMinistry = totalInstances.wscByMinistry ?? new Map<string, number>();
 
-      // Deduplicate attendance records: same member + same event + same date = one attendance
+    return members.map((member) => {
+      const memberAttendance = attendanceRecords.filter((r) => r.memberId === member.id);
       const uniqueAttendances = new Map<string, any>();
       memberAttendance.forEach((record) => {
         const checkInTime = new Date(record.checkInTime);
-        const dateKey = checkInTime.toISOString().split('T')[0]; // YYYY-MM-DD
-        const eventTitle = (record.event?.title || '').toLowerCase().trim();
-        const eventCategory = (record.event?.category || '').toLowerCase().trim();
-
-        const uniqueKey = `${member.id}|${eventTitle}|${eventCategory}|${dateKey}`;
-
+        const dateKey = checkInTime.toISOString().split('T')[0];
+        const uniqueKey = `${member.id}|${record.eventId}|${dateKey}`;
         if (!uniqueAttendances.has(uniqueKey)) {
           uniqueAttendances.set(uniqueKey, record);
         } else {
           const existing = uniqueAttendances.get(uniqueKey);
-          const existingTime = new Date(existing.checkInTime);
-          if (checkInTime < existingTime) {
+          if (checkInTime < new Date(existing.checkInTime)) {
             uniqueAttendances.set(uniqueKey, record);
           }
         }
       });
+      const deduplicated = Array.from(uniqueAttendances.values());
 
-      const deduplicatedAttendance = Array.from(uniqueAttendances.values());
-
-      // Count Community Worship and Word Sharing Circles attendance
-      const corporateWorshipAttended = deduplicatedAttendance.filter((record) => {
+      const corporateWorshipAttended = deduplicated.filter((record) => {
         const title = (record.event?.title || '').toLowerCase();
         const category = (record.event?.category || '').toLowerCase();
         return (
+          title.includes('community worship') ||
           title.includes('corporate worship') ||
-          title.includes('corporate') ||
-          category.includes('corporate worship') ||
-          title === 'corporate worship'
+          category.includes('community worship') ||
+          category.includes('corporate worship')
         );
       }).length;
 
-      const wordSharingCirclesAttended = deduplicatedAttendance.filter((record) => {
+      const memberMinistry = (member.ministry || reportMinistry || '').trim();
+      const wordSharingCirclesAttended = deduplicated.filter((record) => {
         const title = (record.event?.title || '').toLowerCase();
         const category = (record.event?.category || '').toLowerCase();
-        return (
+        const isWsc =
           title.includes('word sharing') ||
           title.includes('wsc') ||
-          category.includes('word sharing') ||
-          title === 'word sharing circles' ||
-          title === 'word sharing circle'
-        );
+          category.includes('word sharing');
+        if (!isWsc) return false;
+        if (!memberMinistry) return true;
+        return title.includes(memberMinistry.toLowerCase());
       }).length;
 
-      const totalAttended = corporateWorshipAttended + wordSharingCirclesAttended;
-      const totalPossible = totalInstances.corporateWorship + totalInstances.wordSharingCircles;
-      const percentage = totalPossible > 0 ? Math.round((totalAttended / totalPossible) * 100) : 0;
-
+      const wscTotalForMember =
+        recurringReportType === 'ministry' && reportMinistry
+          ? totalInstances.wordSharingCircles
+          : wscByMinistry.get(memberMinistry) ?? 0;
       const corporateWorshipPercentage =
-        totalInstances.corporateWorship > 0
-          ? Math.round((corporateWorshipAttended / totalInstances.corporateWorship) * 100)
-          : 0;
-
+        totalCw > 0 ? Math.round((corporateWorshipAttended / totalCw) * 100) : 0;
       const wordSharingCirclesPercentage =
-        totalInstances.wordSharingCircles > 0
-          ? Math.round((wordSharingCirclesAttended / totalInstances.wordSharingCircles) * 100)
+        wscTotalForMember > 0
+          ? Math.round((wordSharingCirclesAttended / wscTotalForMember) * 100)
           : 0;
+      const totalPossible = totalCw + wscTotalForMember;
+      const totalAttended = corporateWorshipAttended + wordSharingCirclesAttended;
+      const percentage =
+        totalPossible > 0 ? Math.round((totalAttended / totalPossible) * 100) : 0;
 
-      // Extract middleInitial from middleName if not already set
-      const middleInitial = member.middleInitial || 
+      const meClass = `${member.encounterType || ''}${member.classNumber ?? ''}`.trim() || undefined;
+      const middleInitial =
+        member.middleInitial ||
         (member.middleName ? member.middleName.charAt(0).toUpperCase() : '');
 
       return {
         ...member,
         middleInitial,
+        meClass,
         corporateWorshipAttended,
         wordSharingCirclesAttended,
+        totalCwInPeriod: totalCw,
+        totalWscInPeriod: wscTotalForMember,
         totalAttended,
         totalPossible,
         percentage,
@@ -607,35 +868,36 @@ export class ReportsService {
     });
   }
 
+  /** Ministries that are grouped by ME class (encounterType + classNumber), then alphabetically by name */
+  private readonly ME_CLASS_GROUP_MINISTRIES = [
+    'Post-LSS Group (PLSG)',
+    'Service Ministry',
+    'Intercessory Ministry',
+  ];
+
   /**
-   * Sort members according to ministry rules
+   * Sort members: for PLSG, Service, Intercessory — by ME class (encounterType + classNumber), then alphabetically.
+   * Otherwise by last name, first name.
    */
   private sortMembersForReport(members: any[], ministry?: string) {
-    if (ministry && ['PLSG', 'Service', 'Intercessory'].includes(ministry)) {
-      // Sort by ME Class No., then alphabetically
+    const groupByMeClass = ministry && this.ME_CLASS_GROUP_MINISTRIES.includes(ministry);
+
+    if (groupByMeClass) {
       return members.sort((a, b) => {
-        const aClass = parseInt(a.meClassNo || '0') || 0;
-        const bClass = parseInt(b.meClassNo || '0') || 0;
-
-        if (aClass !== bClass) {
-          return aClass - bClass;
-        }
-
-        const lastNameCompare = (a.lastName || '').localeCompare(b.lastName || '');
-        if (lastNameCompare !== 0) {
-          return lastNameCompare;
-        }
-
+        const aType = (a.encounterType || '').localeCompare(b.encounterType || '');
+        if (aType !== 0) return aType;
+        const aNum = Number(a.classNumber) ?? 0;
+        const bNum = Number(b.classNumber) ?? 0;
+        if (aNum !== bNum) return aNum - bNum;
+        const last = (a.lastName || '').localeCompare(b.lastName || '');
+        if (last !== 0) return last;
         return (a.firstName || '').localeCompare(b.firstName || '');
       });
     }
 
-    // Default: sort alphabetically by last name, then first name
     return members.sort((a, b) => {
-      const lastNameCompare = (a.lastName || '').localeCompare(b.lastName || '');
-      if (lastNameCompare !== 0) {
-        return lastNameCompare;
-      }
+      const last = (a.lastName || '').localeCompare(b.lastName || '');
+      if (last !== 0) return last;
       return (a.firstName || '').localeCompare(b.firstName || '');
     });
   }
