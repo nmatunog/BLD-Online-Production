@@ -912,6 +912,73 @@ export class ReportsService {
   }
 
   /**
+   * Monthly attendance trend for a ministry: CW % and WSC % per month for a given year.
+   * Used for the "Monthly attendance (CW % & WSC %)" chart on the Ministry report.
+   */
+  async getMonthlyAttendanceTrend(
+    ministry: string,
+    year: number,
+  ): Promise<Array<{ month: string; monthLabel: string; cwPercentage: number; wscPercentage: number }>> {
+    if (!ministry || !year) {
+      return [];
+    }
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const result: Array<{ month: string; monthLabel: string; cwPercentage: number; wscPercentage: number }> = [];
+
+    for (let m = 1; m <= 12; m++) {
+      const startDate = new Date(year, m - 1, 1);
+      startDate.setHours(0, 0, 0, 0);
+      const endDate = new Date(year, m, 0, 23, 59, 59, 999);
+
+      const totalCwInPeriod = this.countEventInstances('Community Worship', startDate, endDate);
+      const wscByMinistry = await this.getWscEventCountsByMinistry(startDate, endDate, ministry);
+      const totalWscInPeriod = wscByMinistry.get(ministry) ?? 0;
+
+      const members = await this.getMembersForReport('ministry', undefined, ministry, undefined);
+      const attendanceRecords = await this.prisma.attendance.findMany({
+        where: {
+          checkInTime: { gte: startDate, lte: endDate },
+        },
+        include: {
+          member: true,
+          event: { select: { id: true, title: true, category: true } },
+        },
+      });
+
+      const totalInstances = {
+        corporateWorship: totalCwInPeriod,
+        wordSharingCircles: totalWscInPeriod,
+        wscByMinistry,
+      };
+      const memberAttendance = this.calculateMemberAttendance(
+        members,
+        attendanceRecords,
+        totalInstances,
+        'ministry',
+        ministry,
+      );
+
+      let cwPercentage = 0;
+      let wscPercentage = 0;
+      if (memberAttendance.length > 0) {
+        const sumCw = memberAttendance.reduce((s, mem) => s + (mem.corporateWorshipPercentage ?? 0), 0);
+        const sumWsc = memberAttendance.reduce((s, mem) => s + (mem.wordSharingCirclesPercentage ?? 0), 0);
+        cwPercentage = Math.round(sumCw / memberAttendance.length);
+        wscPercentage = Math.round(sumWsc / memberAttendance.length);
+      }
+
+      result.push({
+        month: `${year}-${String(m).padStart(2, '0')}`,
+        monthLabel: `${monthNames[m - 1]} ${year}`,
+        cwPercentage,
+        wscPercentage,
+      });
+    }
+
+    return result;
+  }
+
+  /**
    * Generate report based on type
    */
   async generateReport(query: ReportQueryDto) {

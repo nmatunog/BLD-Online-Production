@@ -1,5 +1,5 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ReportsService } from './reports.service';
 import { ReportQueryDto, ReportType } from './dto/report-query.dto';
@@ -52,5 +52,21 @@ export class ReportsController {
       ...(query as any),
       reportType: ReportType.EVENT,
     });
+  }
+
+  @Get('monthly-attendance-trend')
+  @ApiOperation({ summary: 'Monthly attendance trend (CW % & WSC %) for a ministry by year' })
+  @ApiQuery({ name: 'ministry', required: true, description: 'Ministry name' })
+  @ApiQuery({ name: 'year', required: false, description: 'Year (default: current year)' })
+  @ApiResponse({ status: 200, description: 'Array of { month, monthLabel, cwPercentage, wscPercentage }' })
+  async monthlyAttendanceTrend(
+    @Query('ministry') ministry: string,
+    @Query('year') yearParam?: string,
+  ) {
+    const year = yearParam ? parseInt(yearParam, 10) : new Date().getFullYear();
+    if (Number.isNaN(year)) {
+      return [];
+    }
+    return this.reportsService.getMonthlyAttendanceTrend(ministry, year);
   }
 }

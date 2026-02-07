@@ -288,6 +288,14 @@ export interface RecurringAttendanceReport {
 
 export type ReportResult = AttendanceReport | RegistrationReport | MemberReport | EventReport | RecurringAttendanceReport;
 
+/** Monthly attendance trend for ministry: CW % and WSC % per month */
+export interface MonthlyAttendanceTrendPoint {
+  month: string;
+  monthLabel: string;
+  cwPercentage: number;
+  wscPercentage: number;
+}
+
 class ReportsService {
   async generateReport(params: ReportQueryParams): Promise<{ success: boolean; data: ReportResult }> {
     const response = await apiClient.get<ApiResponse<ReportResult>>('/reports', { params });
@@ -328,6 +336,20 @@ class ReportsService {
       success: true,
       data: response.data.data!,
     };
+  }
+
+  /**
+   * Monthly attendance trend (CW % & WSC %) for a ministry by year.
+   * Used for the Ministry report chart.
+   */
+  async getMonthlyAttendanceTrend(
+    ministry: string,
+    year: number,
+  ): Promise<MonthlyAttendanceTrendPoint[]> {
+    const response = await apiClient.get<MonthlyAttendanceTrendPoint[]>('/reports/monthly-attendance-trend', {
+      params: { ministry, year },
+    });
+    return Array.isArray(response.data) ? response.data : [];
   }
 
   /**

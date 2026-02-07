@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import { FileText, Download, Calendar, Users, CheckCircle, DollarSign, BarChart3, Loader2, Filter, RefreshCw, X, TrendingUp, Eye, EyeOff, Church, MessageCircle, AlertCircle, ChevronDown, ChevronUp, Search, ZoomIn, LineChart, Clock, ArrowUp, ArrowDown } from 'lucide-react';
-import { reportsService, ReportType, RecurringReportType, PeriodType, type ReportResult, type AttendanceReport, type RegistrationReport, type MemberReport, type EventReport, type RecurringAttendanceReport, type CommunitySummaryRow } from '@/services/reports.service';
+import { reportsService, ReportType, RecurringReportType, PeriodType, type ReportResult, type AttendanceReport, type RegistrationReport, type MemberReport, type EventReport, type RecurringAttendanceReport, type CommunitySummaryRow, type MonthlyAttendanceTrendPoint } from '@/services/reports.service';
 import { eventsService, type Event } from '@/services/events.service';
 import { membersService, type Member } from '@/services/members.service';
 import { attendanceService, type Attendance } from '@/services/attendance.service';
@@ -27,9 +27,8 @@ import {
   Title,
   Tooltip,
   Legend,
-  ArcElement,
 } from 'chart.js';
-import { Bar, Pie } from 'react-chartjs-2';
+import { Bar } from 'react-chartjs-2';
 import jsPDF from 'jspdf';
 
 // Register Chart.js components
@@ -39,8 +38,7 @@ ChartJS.register(
   BarElement,
   Title,
   Tooltip,
-  Legend,
-  ArcElement
+  Legend
 );
 
 export default function ReportsPage() {
@@ -98,6 +96,8 @@ export default function ReportsPage() {
     selectedYear: new Date().getFullYear().toString(),
     selectedQuarter: '',
   });
+  const [monthlyTrendData, setMonthlyTrendData] = useState<MonthlyAttendanceTrendPoint[] | null>(null);
+  const [monthlyTrendLoading, setMonthlyTrendLoading] = useState(false);
 
   // Filters
   const [filters, setFilters] = useState({
@@ -618,6 +618,23 @@ export default function ReportsPage() {
       const result = await reportsService.generateReport(params);
       setRecurringReportData(result.data as RecurringAttendanceReport);
       setShowRecurringReport(true);
+
+      // Fetch monthly attendance trend for Ministry report (CW % & WSC % per month)
+      if (recurringReportConfig.reportType === RecurringReportType.MINISTRY && recurringReportConfig.ministry) {
+        setMonthlyTrendData(null);
+        setMonthlyTrendLoading(true);
+        const year = recurringReportConfig.selectedYear
+          ? parseInt(recurringReportConfig.selectedYear, 10)
+          : new Date().getFullYear();
+        reportsService
+          .getMonthlyAttendanceTrend(recurringReportConfig.ministry, year)
+          .then((trend) => setMonthlyTrendData(trend))
+          .catch(() => setMonthlyTrendData([]))
+          .finally(() => setMonthlyTrendLoading(false));
+      } else {
+        setMonthlyTrendData(null);
+      }
+
       toast.success('Recurring Attendance Report Generated', {
         description: 'Report has been generated successfully.',
       });
@@ -818,54 +835,29 @@ export default function ReportsPage() {
     toast.success('Report Exported to PDF');
   };
 
-  // Chart data for recurring attendance report (member list only; Community Report has no member list)
-  const chartData = useMemo(() => {
-    if (!recurringReportData) return null;
-    const data = Array.isArray(recurringReportData.data) ? recurringReportData.data : [];
-    if (data.length > 0 && (data[0] as any).totalMembers != null && (data[0] as any).communityId == null) {
-      return null; // Community summary rows, not members
-    }
-    const labels = data.slice(0, 20).map((m: any) => `${m.lastName || ''}, ${m.firstName || ''}`);
-    const cwData = data.slice(0, 20).map(m => m.corporateWorshipAttended || 0);
-    const wscData = data.slice(0, 20).map(m => m.wordSharingCirclesAttended || 0);
-
-    const stats = recurringReportData.statistics ?? {};
-    const totalCW = stats.totalCorporateWorshipAttended ?? 0;
-    const totalWSC = stats.totalWordSharingCirclesAttended ?? 0;
-
+  // Monthly attendance trend chart (Ministry report only): CW % and WSC % per month
+  const monthlyTrendChartData = useMemo(() => {
+    if (!monthlyTrendData || monthlyTrendData.length === 0) return null;
     return {
-      bar: {
-        labels,
-        datasets: [
-          {
-            label: 'Community Worship',
-            data: cwData,
-            backgroundColor: 'rgba(59, 130, 246, 0.5)',
-            borderColor: 'rgb(59, 130, 246)',
-            borderWidth: 1,
-          },
-          {
-            label: 'Word Sharing Circles',
-            data: wscData,
-            backgroundColor: 'rgba(16, 185, 129, 0.5)',
-            borderColor: 'rgb(16, 185, 129)',
-            borderWidth: 1,
-          },
-        ],
-      },
-      pie: {
-        labels: ['Community Worship', 'Word Sharing Circles'],
-        datasets: [
-          {
-            data: [totalCW, totalWSC],
-            backgroundColor: ['rgba(59, 130, 246, 0.5)', 'rgba(16, 185, 129, 0.5)'],
-            borderColor: ['rgb(59, 130, 246)', 'rgb(16, 185, 129)'],
-            borderWidth: 1,
-          },
-        ],
-      },
+      labels: monthlyTrendData.map((d) => d.monthLabel),
+      datasets: [
+        {
+          label: 'CW %',
+          data: monthlyTrendData.map((d) => d.cwPercentage),
+          backgroundColor: 'rgba(59, 130, 246, 0.5)',
+          borderColor: 'rgb(59, 130, 246)',
+          borderWidth: 1,
+        },
+        {
+          label: 'WSC %',
+          data: monthlyTrendData.map((d) => d.wscPercentage),
+          backgroundColor: 'rgba(16, 185, 129, 0.5)',
+          borderColor: 'rgb(16, 185, 129)',
+          borderWidth: 1,
+        },
+      ],
     };
-  }, [recurringReportData]);
+  }, [monthlyTrendData]);
 
   const formatDate = (dateString: string): string => {
     try {
@@ -3165,26 +3157,38 @@ export default function ReportsPage() {
                 );
               })()}
 
-              {/* Charts (Ministry/Individual only, below table) */}
-              {recurringReportConfig.reportType !== RecurringReportType.COMMUNITY && chartData && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-lg">Attendance by Member (Top 20)</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <Bar data={chartData.bar} options={{ responsive: true, maintainAspectRatio: false }} />
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-lg">Overall Distribution</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <Pie data={chartData.pie} options={{ responsive: true, maintainAspectRatio: false }} />
-                    </CardContent>
-                  </Card>
-                </div>
+              {/* Monthly attendance trend (Ministry only): CW % & WSC % per month */}
+              {recurringReportConfig.reportType === RecurringReportType.MINISTRY && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Monthly attendance (CW % & WSC %)</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Periodic attendance by month for {recurringReportConfig.ministry || 'ministry'} — year {recurringReportConfig.selectedYear || new Date().getFullYear()}
+                    </p>
+                  </CardHeader>
+                  <CardContent>
+                    {monthlyTrendLoading ? (
+                      <div className="flex items-center justify-center h-64">
+                        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : monthlyTrendChartData ? (
+                      <div className="h-64">
+                        <Bar
+                          data={monthlyTrendChartData}
+                          options={{
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            scales: {
+                              y: { beginAtZero: true, max: 100, title: { display: true, text: 'Percentage (%)' } },
+                            },
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground py-4">No monthly trend data for this year. Generate a ministry report to load the chart.</p>
+                    )}
+                  </CardContent>
+                </Card>
               )}
 
               {/* Export Buttons */}
