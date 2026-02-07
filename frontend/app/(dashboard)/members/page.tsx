@@ -525,7 +525,10 @@ export default function MembersPage() {
     if (!editingMember) return;
 
     // Only send fields that are allowed by the backend DTO
-    // Filter out fields that aren't in UpdateMemberDto (like communityId, gender, profession, etc.)
+    // Apostolate/ministry: send null when empty so backend validation accepts (valid apostolates list)
+    const apostolate = (editForm.apostolate || '').trim() || null;
+    const ministry = (editForm.ministry || '').trim() || null;
+
     const updateData: Record<string, string | null> = {
       firstName: editForm.firstName,
       lastName: editForm.lastName,
@@ -537,11 +540,11 @@ export default function MembersPage() {
       city: editForm.city,
       encounterType: getEncounterTypeShort(editForm.encounterType),
       classNumber: editForm.classNumber,
-      apostolate: editForm.apostolate || null,
-      ministry: editForm.ministry || null,
+      apostolate,
+      ministry,
       serviceArea: editForm.serviceArea || null,
     };
-    
+
     // Remove undefined values
     Object.keys(updateData).forEach(key => {
       if (updateData[key] === undefined) {
@@ -957,6 +960,15 @@ export default function MembersPage() {
                       type="text"
                       value={editForm.middleName}
                       onChange={(e) => handleProfileInputChange('middleName', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label className="block text-sm font-medium text-gray-700 mb-2">Nickname</Label>
+                    <Input
+                      type="text"
+                      value={editForm.nickname}
+                      onChange={(e) => handleProfileInputChange('nickname', e.target.value)}
+                      placeholder="Optional"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-4">

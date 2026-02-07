@@ -24,22 +24,24 @@ export function IsValidMinistryForApostolate(
         validate(value: any, args: ValidationArguments) {
           const [relatedPropertyName] = args.constraints;
           const relatedValue = (args.object as any)[relatedPropertyName];
-          
-          // If ministry is not provided, skip validation (it's optional)
-          if (!value) {
+          const isEmpty = value == null || (typeof value === 'string' && value.trim() === '');
+          const isRelatedEmpty = relatedValue == null || (typeof relatedValue === 'string' && relatedValue.trim() === '');
+
+          // If ministry is not provided or empty, skip validation (it's optional)
+          if (isEmpty) {
             return true;
           }
-          
-          // If apostolate is not provided, we can't validate
-          if (!relatedValue) {
-            return true; // Allow if apostolate is also not set
+
+          // If apostolate is not provided or empty, we can't validate ministry
+          if (isRelatedEmpty) {
+            return true;
           }
-          
+
           // Validate apostolate first
           if (!isValidApostolate(relatedValue)) {
             return false;
           }
-          
+
           // Validate ministry belongs to apostolate
           return isValidMinistryForApostolate(value, relatedValue);
         },
@@ -71,11 +73,10 @@ export function IsValidApostolate(validationOptions?: ValidationOptions) {
       options: validationOptions,
       validator: {
         validate(value: any, _args: ValidationArguments) {
-          // If apostolate is not provided, skip validation (it's optional)
-          if (!value) {
+          // If apostolate is not provided or empty/whitespace, skip validation (it's optional)
+          if (value == null || (typeof value === 'string' && value.trim() === '')) {
             return true;
           }
-          
           return isValidApostolate(value);
         },
         defaultMessage(args: ValidationArguments) {
