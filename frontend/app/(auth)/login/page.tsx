@@ -2,305 +2,469 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
 import Link from 'next/link';
-import { Mail, Lock, Eye, EyeOff, Phone, LogIn, MessageSquare, Sparkles } from 'lucide-react';
+import {
+  LogIn,
+  Lock,
+  Eye,
+  EyeOff,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  Info,
+  Smartphone,
+  CheckCircle2,
+  QrCode,
+  ArrowLeft,
+  Mail,
+  Phone,
+} from 'lucide-react';
 import { authService } from '@/services/auth.service';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import ChatbotSignUp, { ChatbotSignUpHandle } from '@/components/chatbot/ChatbotSignUp';
 import { normalizePhoneNumber } from '@/utils/phone.util';
 import { parseAuthError } from '@/utils/error-handler';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { QRScanner, qrUtils } from '@/lib/qr-scanner-service';
 
-const loginSchema = z.object({
-  emailOrPhone: z.string().min(1, 'Email or mobile number is required'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-});
-
-type LoginFormValues = z.infer<typeof loginSchema>;
+const QR_LOGIN_REGION_ID = 'qr-reader-login';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const chatbotRef = useRef<ChatbotSignUpHandle>(null);
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-    watch,
-  } = useForm<LoginFormValues>({
-    resolver: zodResolver(loginSchema),
-    defaultValues: {
-      emailOrPhone: '',
-      password: '',
-    },
-  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [isManualOpen, setIsManualOpen] = useState(false);
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const emailOrPhoneValue = watch('emailOrPhone');
-  const passwordValue = watch('password');
+  // Sign in via member QR (inside manual section)
+  const [qrLoginStep, setQrLoginStep] = useState<'idle' | 'scanning' | 'password'>('idle');
+  const [qrScannedCommunityId, setQrScannedCommunityId] = useState<string | null>(null);
+  const [qrScannedName, setQrScannedName] = useState<string | null>(null);
+  const [qrLoginPassword, setQrLoginPassword] = useState('');
+  const [qrLoginShowPassword, setQrLoginShowPassword] = useState(false);
+  const [cameraAvailable, setCameraAvailable] = useState(false);
+  const qrScannerRef = useRef<QRScanner | null>(null);
 
-  // Auto-open chatbot in sign-in mode on page load - DISABLED for faster loading
-  // useEffect(() => {
-  //   // Prevent immediate re-open if the user intentionally closes it within the first render
-  //   const timer = setTimeout(() => {
-  //     setShowChatbotPromo(false);
-  //     chatbotRef.current?.open();
-  //   }, 200); // small delay to avoid layout shift
-  //   return () => clearTimeout(timer);
-  // }, []);
+  useEffect(() => {
+    if (qrLoginStep !== 'scanning') return;
+    let mounted = true;
+    QRScanner.isCameraAvailable()
+      .then((available) => {
+        if (mounted) setCameraAvailable(available);
+      })
+      .catch(() => {
+        if (mounted) setCameraAvailable(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, [qrLoginStep]);
 
-  // Helper function to detect if input is email or phone
-  const detectInputType = (value: string): 'email' | 'phone' | null => {
-    if (!value || value.trim().length === 0) return null;
-    
-    // Check if it looks like an email (contains @)
-    if (value.includes('@')) {
-      return 'email';
+  useEffect(() => {
+    if (qrLoginStep !== 'scanning') return;
+    const start = async () => {
+      await new Promise((r) => setTimeout(r, 100));
+      const element = document.getElementById(QR_LOGIN_REGION_ID);
+      if (!element) return;
+      try {
+        qrScannerRef.current = new QRScanner(
+          QR_LOGIN_REGION_ID,
+          handleQrScanSuccess,
+          () => {},
+          { continuousMode: false, scanCooldown: 2000 }
+        );
+        await qrScannerRef.current.start();
+      } catch (err) {
+        console.error('QR scanner start failed:', err);
+        toast.error('Camera error', { description: 'Could not start camera. Check permissions.' });
+        setQrLoginStep('idle');
+      }
+    };
+    start();
+    return () => {
+      if (qrScannerRef.current) {
+        qrScannerRef.current.stop().catch(() => {});
+        qrScannerRef.current = null;
+      }
+    };
+  }, [qrLoginStep]);
+
+  const handleQrScanSuccess = (decodedText: string) => {
+    const memberData = qrUtils.extractMemberData(decodedText);
+    if (!memberData?.communityId) {
+      toast.error('Invalid QR code', { description: 'Please scan your member QR code.' });
+      return;
     }
-    
-    // Check if it looks like a phone number (contains digits)
-    const digitsOnly = value.replace(/\D/g, '');
-    if (digitsOnly.length >= 10) {
-      return 'phone';
+    if (qrScannerRef.current) {
+      qrScannerRef.current.stop().catch(() => {});
+      qrScannerRef.current = null;
     }
-    
-    // Default to phone for mobile-first approach
-    return 'phone';
+    setQrScannedCommunityId(memberData.communityId);
+    setQrScannedName(memberData.name ?? null);
+    setQrLoginStep('password');
+    setQrLoginPassword('');
   };
 
-  const onSubmit = async (data: LoginFormValues) => {
+  const resetQrLogin = () => {
+    setQrLoginStep('idle');
+    setQrScannedCommunityId(null);
+    setQrScannedName(null);
+    setQrLoginPassword('');
+    if (qrScannerRef.current) {
+      qrScannerRef.current.stop().catch(() => {});
+      qrScannerRef.current = null;
+    }
+  };
+
+  const submitQrLogin = async () => {
+    if (!qrScannedCommunityId || !qrLoginPassword.trim()) {
+      toast.error('Password required', { description: 'Enter your account password.' });
+      return;
+    }
+    if (qrLoginPassword.length < 6) {
+      toast.error('Invalid password', { description: 'Password must be at least 6 characters.' });
+      return;
+    }
     setIsLoading(true);
     try {
-      // Detect if input is email or phone
-      const inputType = detectInputType(data.emailOrPhone);
-      
-      if (!inputType) {
-        toast.error('Input Required', {
-          description: 'Please enter your email address or mobile number',
-        });
-        setIsLoading(false);
-        return;
-      }
-
-      // Prepare login data based on detected input type
-      const loginData: { email?: string; phone?: string; password: string } = {
-        password: data.password,
-      };
-
-      if (inputType === 'email') {
-        // Validate email format
-        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(data.emailOrPhone.trim())) {
-          toast.error('Invalid Email', {
-            description: 'Please enter a valid email address',
-          });
-          setIsLoading(false);
-          return;
-        }
-        loginData.email = data.emailOrPhone.trim();
-      } else {
-        // Normalize phone number
-        const normalizedPhone = normalizePhoneNumber(data.emailOrPhone);
-        if (!normalizedPhone) {
-          toast.error('Invalid Mobile Number', {
-            description: 'Please enter a valid Philippine mobile number (e.g., 09123456789)',
-          });
-          setIsLoading(false);
-          return;
-        }
-        loginData.phone = normalizedPhone;
-      }
-      
-      await authService.login(loginData);
-
-      toast.success('✅ Logged in successfully!', {
-        description: 'Redirecting to your dashboard...',
-      });
+      await authService.loginByQr({ communityId: qrScannedCommunityId, password: qrLoginPassword });
+      toast.success('Signed in successfully', { description: 'Redirecting to dashboard...' });
       router.push('/dashboard');
     } catch (error) {
-      const parsedError = parseAuthError(error);
-      
-      // Show error toast with title and message - use longer duration
-      toast.error(parsedError.title, {
-        description: parsedError.message,
-        duration: 8000, // Increased to 8 seconds for better visibility
-      });
-      
-      console.error('Login error:', error);
-      console.error('Parsed error:', parsedError);
-      
-      // Log full error details for debugging
-      if (error && typeof error === 'object' && 'response' in error) {
-        const axiosError = error as any;
-        console.error('Error response:', axiosError.response?.data);
-        console.error('Error status:', axiosError.response?.status);
-      }
+      const parsed = parseAuthError(error);
+      toast.error(parsed.title, { description: parsed.message, duration: 8000 });
     } finally {
       setIsLoading(false);
     }
   };
 
+  const detectInputType = (value: string): 'email' | 'phone' | null => {
+    if (!value || value.trim().length === 0) return null;
+    if (value.includes('@')) return 'email';
+    const digitsOnly = value.replace(/\D/g, '');
+    if (digitsOnly.length >= 10) return 'phone';
+    return 'phone';
+  };
+
+  const handleManualSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const inputType = detectInputType(identifier);
+    if (!inputType) {
+      toast.error('Input required', { description: 'Please enter your email or mobile number.' });
+      return;
+    }
+
+    const loginData: { email?: string; phone?: string; password: string } = { password };
+    if (inputType === 'email') {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(identifier.trim())) {
+        toast.error('Invalid email', { description: 'Please enter a valid email address.' });
+        return;
+      }
+      loginData.email = identifier.trim();
+    } else {
+      const normalizedPhone = normalizePhoneNumber(identifier);
+      if (!normalizedPhone) {
+        toast.error('Invalid mobile number', {
+          description: 'Please enter a valid Philippine mobile number (e.g., 09123456789).',
+        });
+        return;
+      }
+      loginData.phone = normalizedPhone;
+    }
+
+    if (password.length < 6) {
+      toast.error('Invalid password', { description: 'Password must be at least 6 characters.' });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await authService.login(loginData);
+      toast.success('Signed in successfully', { description: 'Redirecting to dashboard...' });
+      router.push('/dashboard');
+    } catch (error) {
+      const parsed = parseAuthError(error);
+      toast.error(parsed.title, { description: parsed.message, duration: 8000 });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const identifierValid =
+    identifier.trim().length > 0 &&
+    (detectInputType(identifier) === 'email'
+      ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(identifier.trim())
+      : normalizePhoneNumber(identifier) != null);
+
   return (
-    <div className="min-h-screen min-h-[100dvh] flex items-center justify-center p-3 sm:p-4 relative overflow-hidden bg-gradient-to-br from-gray-50 via-gray-100 to-gray-200">
-      {/* Theme Toggle - Top Right */}
+    <div className="min-h-screen min-h-[100dvh] bg-slate-50 flex flex-col items-center justify-center p-2 sm:p-4 font-sans text-slate-800 relative">
       <div className="fixed top-4 right-4 z-50">
         <ThemeToggle />
       </div>
-      {/* Background Pattern */}
-      <div 
-        className="absolute inset-0 opacity-10"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='0.1'%3E%3Cpath d='M30 0l15 15-15 15-15-15z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-        }}
-      />
-      <div className="w-full max-w-md mx-auto relative z-10 flex flex-col items-center justify-center min-h-0 max-h-[100dvh] py-4">
-        <Card className="w-full rounded-xl shadow-xl bg-white border-2 border-gray-400 p-4 sm:p-5 max-h-[calc(100dvh-2rem)] flex flex-col min-h-0">
-          <div className="overflow-y-auto flex-1 min-h-0 rounded-lg pr-1 -mr-1">
-            {/* Header - compact */}
-            <div className="text-center mb-3 sm:mb-4">
-              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full mb-2 bg-gray-100 text-gray-600">
-                <LogIn className="w-6 h-6" />
-              </div>
-              <h1 className="text-xl sm:text-2xl font-bold mb-1 text-red-700 leading-tight">
-                BLD Cebu Community Online Portal
-              </h1>
-              <div className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-50 text-red-800 border border-gray-300">
-                <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14" />
-                </svg>
-                Welcome Back
-              </div>
-              <p className="text-xs mt-1.5 text-red-600">
-                Sign in to access your dashboard
-              </p>
+
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/60 overflow-y-auto max-h-[98vh] border border-slate-100 flex flex-col">
+        {/* Compact Header */}
+        <div className="pt-8 pb-6 px-6 text-center flex-shrink-0">
+          <div className="inline-flex items-center justify-center w-14 h-14 bg-red-50 rounded-2xl mb-4 text-red-600 shadow-sm border border-red-100">
+            <LogIn size={28} strokeWidth={2.5} />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight leading-tight">
+            BLD Cebu Community
+            <span className="block text-red-700">Online Portal</span>
+          </h1>
+          <p className="text-slate-500 text-sm mt-2">Connecting our community, simply.</p>
+        </div>
+
+        <div className="px-6 pb-8">
+          {/* PRIMARY ACTION: Assistant */}
+          <button
+            type="button"
+            onClick={() => chatbotRef.current?.open()}
+            className="w-full flex flex-col items-center justify-center p-6 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl transition-all shadow-lg shadow-indigo-200 group active:scale-[0.98] cursor-pointer touch-manipulation"
+          >
+            <div className="p-3 bg-white/20 rounded-full mb-3 group-hover:scale-110 transition-transform">
+              <Sparkles size={32} />
             </div>
+            <span className="text-xl font-bold text-center leading-tight">
+              Sign in or Sign up with Assistant
+            </span>
+            <span className="text-indigo-100 text-xs mt-2 font-medium italic">
+              &quot;Click here for the easiest way to get started&quot;
+            </span>
+          </button>
 
-            {/* Assistant button - compact */}
-            <div className="mb-3 sm:mb-4">
-              <Button
-                type="button"
-                onClick={() => chatbotRef.current?.open()}
-                className="w-full relative overflow-hidden bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white py-2.5 px-4 text-sm font-bold rounded-lg shadow-md hover:shadow-lg transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] border-0"
-              >
-                <span className="absolute inset-0 rounded-lg bg-white/20 animate-pulse" aria-hidden />
-                <MessageSquare className="w-4 h-4 mr-1.5 relative z-10 inline-block animate-bounce" style={{ animationDuration: '1.5s' }} />
-                <span className="relative z-10">Sign in or Sign up with Assistant</span>
-                <Sparkles className="w-4 h-4 ml-1.5 relative z-10 inline-block animate-pulse" style={{ animationDuration: '2s' }} />
-              </Button>
-              <p className="text-[10px] text-center text-gray-500 mt-1">
-                Step-by-step guide
-              </p>
-            </div>
+          {/* SECONDARY: Manual Login (collapsible) */}
+          <div className="mt-6">
+            <button
+              type="button"
+              onClick={() => setIsManualOpen(!isManualOpen)}
+              className="w-full flex items-center justify-center gap-2 py-3 text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <div className="flex-grow border-t border-slate-100" />
+              <span className="flex-shrink px-2 text-[11px] font-bold uppercase tracking-widest flex items-center gap-1">
+                Manual Login {isManualOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </span>
+              <div className="flex-grow border-t border-slate-100" />
+            </button>
 
-            {/* Login form - compact */}
-            <form onSubmit={handleSubmit(onSubmit)} className="space-y-2.5 sm:space-y-3">
-              <div className="space-y-1">
-                <Label htmlFor="emailOrPhone" className="text-sm font-medium text-gray-800">
-                  Email or Mobile Number
-                </Label>
-                <div className="relative">
-                  {detectInputType(emailOrPhoneValue) === 'email' ? (
-                    <Mail className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  ) : (
-                    <Phone className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  )}
-                  <Input
-                    id="emailOrPhone"
-                    type="text"
-                    placeholder="Email or mobile number"
-                    className={`pl-9 pr-9 py-2 text-base ${
-                      errors.emailOrPhone ? 'border-red-500' : 'border-gray-400'
-                    }`}
-                    {...register('emailOrPhone')}
-                    disabled={isLoading}
+            <div
+              className={`overflow-hidden transition-all duration-300 ease-in-out ${
+                isManualOpen ? 'max-h-[600px] opacity-100 mt-4' : 'max-h-0 opacity-0'
+              }`}
+            >
+              {/* QR flow: scanning or password step */}
+              {qrLoginStep === 'scanning' && (
+                <div className="space-y-3 pt-2">
+                  <p className="text-sm text-center text-slate-600">
+                    Scan your member QR code (e.g. from profile or ID)
+                  </p>
+                  <div
+                    id={QR_LOGIN_REGION_ID}
+                    className="rounded-xl overflow-hidden min-h-[200px] bg-slate-100"
                   />
-                  {emailOrPhoneValue && !errors.emailOrPhone && (
-                    <div className="absolute right-2.5 top-1/2 -translate-y-1/2">
-                      <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                  )}
-                </div>
-                {errors.emailOrPhone && (
-                  <p className="text-xs text-red-600">{errors.emailOrPhone.message}</p>
-                )}
-              </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="password" className="text-sm font-medium text-gray-800">
-                  Password
-                </Label>
-                <div className="relative">
-                  <Lock className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                  <Input
-                    id="password"
-                    type={showPassword ? 'text' : 'password'}
-                    placeholder="Password"
-                    className={`pl-9 pr-9 py-2 text-base ${
-                      errors.password ? 'border-red-500' : 'border-gray-400'
-                    }`}
-                    {...register('password')}
-                    disabled={isLoading}
-                  />
-                  {passwordValue && !errors.password && (
-                    <div className="absolute right-9 top-1/2 -translate-y-1/2">
-                      <svg className="w-4 h-4 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
+                  {!cameraAvailable && (
+                    <p className="text-xs text-center text-amber-600">Checking camera…</p>
                   )}
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    onClick={resetQrLogin}
+                    className="w-full flex items-center justify-center gap-2 py-3 text-slate-600 hover:text-slate-800 border border-slate-200 rounded-xl"
                   >
-                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    <ArrowLeft size={18} />
+                    Back to sign in
                   </button>
                 </div>
-                {errors.password && (
-                  <p className="text-xs text-red-600">{errors.password.message}</p>
-                )}
-              </div>
+              )}
 
-              <div className="text-right">
-                <Link href="/forgot-password" className="text-xs text-red-600 hover:text-red-800 hover:underline">
-                  Forgot your password?
-                </Link>
-              </div>
+              {qrLoginStep === 'password' && qrScannedCommunityId && (
+                <div className="space-y-4 pt-2">
+                  <p className="text-sm text-center text-slate-600">
+                    Member: <span className="font-mono font-semibold">{qrScannedCommunityId}</span>
+                    {qrScannedName && (
+                      <span className="block text-xs text-slate-500 mt-0.5">{qrScannedName}</span>
+                    )}
+                  </p>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">
+                      Password
+                    </label>
+                    <div className="relative">
+                      <Lock
+                        className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                        size={18}
+                      />
+                      <input
+                        type={qrLoginShowPassword ? 'text' : 'password'}
+                        value={qrLoginPassword}
+                        onChange={(e) => setQrLoginPassword(e.target.value)}
+                        placeholder="Enter your account password"
+                        className="w-full pl-11 pr-11 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:bg-white focus:border-red-600 outline-none transition-all"
+                        disabled={isLoading}
+                        autoComplete="current-password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setQrLoginShowPassword(!qrLoginShowPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        {qrLoginShowPassword ? (
+                          <EyeOff size={18} />
+                        ) : (
+                          <Eye size={18} />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={resetQrLogin}
+                      className="flex-1 flex items-center justify-center gap-2 py-3 border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50"
+                    >
+                      <ArrowLeft size={18} />
+                      Back
+                    </button>
+                    <button
+                      type="button"
+                      onClick={submitQrLogin}
+                      disabled={isLoading || qrLoginPassword.length < 6}
+                      className="flex-1 bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                    >
+                      {isLoading ? (
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        'Sign In'
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
 
-              <Button
-                type="submit"
-                disabled={isLoading}
-                className="w-full bg-red-800 hover:bg-red-900 text-white py-2.5 px-4 text-base font-bold rounded-lg shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isLoading ? (
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white" />
-                ) : (
-                  'Sign In'
-                )}
-              </Button>
+              {/* Manual form (email/phone + password) and QR entry - only when QR step is idle */}
+              {qrLoginStep === 'idle' && (
+                <>
+                  <form onSubmit={handleManualSignIn} className="space-y-4 pt-2">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-600 mb-1.5 ml-1">
+                        Email or Mobile
+                      </label>
+                      <div className="relative">
+                        {detectInputType(identifier) === 'email' ? (
+                          <Mail
+                            className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                            size={18}
+                          />
+                        ) : (
+                          <Smartphone
+                            className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                            size={18}
+                          />
+                        )}
+                        <input
+                          type="text"
+                          value={identifier}
+                          onChange={(e) => setIdentifier(e.target.value)}
+                          placeholder="Email or mobile number"
+                          className="w-full pl-11 pr-11 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:bg-white focus:border-red-600 outline-none transition-all"
+                          disabled={isLoading}
+                        />
+                        {identifierValid && (
+                          <CheckCircle2
+                            className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500"
+                            size={18}
+                          />
+                        )}
+                      </div>
+                    </div>
 
-              <div className="text-center text-xs">
-                Don&apos;t have an account?{' '}
-                <Link href="/register" className="text-red-600 hover:text-red-800 hover:underline font-medium">
-                  Create Account
-                </Link>
-              </div>
-            </form>
+                    <div>
+                      <div className="flex justify-between mb-1.5 ml-1">
+                        <label className="text-xs font-bold text-slate-600">Password</label>
+                        <Link
+                          href="/forgot-password"
+                          className="text-xs font-bold text-red-700 hover:underline"
+                        >
+                          Forgot?
+                        </Link>
+                      </div>
+                      <div className="relative">
+                        <Lock
+                          className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                          size={18}
+                        />
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="Password"
+                          className="w-full pl-11 pr-11 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl focus:bg-white focus:border-red-600 outline-none transition-all"
+                          disabled={isLoading}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          {showPassword ? (
+                            <EyeOff size={18} />
+                          ) : (
+                            <Eye size={18} />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-3.5 rounded-xl transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isLoading ? (
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        'Sign In Manually'
+                      )}
+                    </button>
+                  </form>
+
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setQrLoginStep('scanning')}
+                      className="w-full flex items-center justify-center gap-2 py-3 border-2 border-slate-200 rounded-xl text-slate-700 hover:bg-slate-50 cursor-pointer touch-manipulation"
+                    >
+                      <QrCode size={18} />
+                      Sign in with member QR code
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-        </Card>
+
+          {/* Footer */}
+          <div className="mt-8 flex flex-col items-center gap-4">
+            <p className="text-slate-500 text-sm font-medium">
+              New to the portal?{' '}
+              <Link href="/register" className="text-red-700 font-bold hover:underline">
+                Create Account
+              </Link>
+            </p>
+            <Link
+              href="/forgot-password"
+              className="inline-flex items-center gap-1.5 text-slate-400 hover:text-slate-600 text-[11px] font-medium transition-colors"
+            >
+              <Info size={14} />
+              <span>Need help logging in?</span>
+            </Link>
+          </div>
+        </div>
       </div>
-      
-      {/* Chatbot Component - Always Available */}
+
       <ChatbotSignUp ref={chatbotRef} />
     </div>
   );

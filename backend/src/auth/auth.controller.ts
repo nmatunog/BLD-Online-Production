@@ -8,6 +8,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+import { LoginByQrDto } from './dto/login-by-qr.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import {
@@ -59,6 +60,23 @@ export class AuthController {
   })
   async login(@Body() loginDto: LoginDto): Promise<ApiResponseDto<AuthResult>> {
     const result = await this.authService.login(loginDto);
+    return {
+      success: true,
+      data: result,
+      message: 'Login successful',
+    };
+  }
+
+  @Public()
+  @Post('login-by-qr')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Login with member QR code (communityId) + password' })
+  @ApiResponse({ status: 200, description: 'Login successful' })
+  @ApiResponse({ status: 401, description: 'Invalid credentials or member not found' })
+  async loginByQr(
+    @Body() loginByQrDto: LoginByQrDto,
+  ): Promise<ApiResponseDto<AuthResult>> {
+    const result = await this.authService.loginByQr(loginByQrDto);
     return {
       success: true,
       data: result,

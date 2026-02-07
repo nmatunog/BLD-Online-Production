@@ -8,6 +8,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../common/prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { LoginDto } from './dto/login.dto';
+import { LoginByQrDto } from './dto/login-by-qr.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RequestPasswordResetDto, ResetPasswordDto } from './dto/reset-password.dto';
@@ -223,6 +224,45 @@ export class AuthService {
           }
         : null,
     );
+  }
+
+  /**
+   * Login using member QR code (communityId) + password.
+   * Finds member by communityId, then authenticates the linked user with password.
+   */
+  async loginByQr(loginByQrDto: LoginByQrDto): Promise<AuthResult> {
+    const communityId = loginByQrDto.communityId.trim().toUpperCase();
+    if (!communityId) {
+      throw new BadRequestException('Community ID from QR code is required');
+    }
+
+    const member = await this.prisma.member.findUnique({
+      where: { communityId },
+      include: { user: true },
+    });
+
+    if (!member || !member.user) {
+      throw new UnauthorizedException('Invalid QR code or member not found');
+    }
+
+    const user = member.user;
+    const isPasswordValid = await bcrypt.compare(
+      loginByQrDto.password,
+      user.passwordHash,
+    );
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+    if (!user.isActive) {
+      throw new UnauthorizedException('Account is deactivated');
+    }
+
+    return this.generateTokens(user, {
+      nickname: member.nickname,
+      lastName: member.lastName,
+      firstName: member.firstName,
+      communityId: member.communityId,
+    });
   }
 
   async refreshToken(refreshTokenDto: RefreshTokenDto): Promise<AuthResult> {

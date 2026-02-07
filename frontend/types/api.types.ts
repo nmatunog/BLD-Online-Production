@@ -28,6 +28,11 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface LoginByQrRequest {
+  communityId: string;
+  password: string;
+}
+
 export interface RegisterRequest {
   email?: string;
   phone?: string;

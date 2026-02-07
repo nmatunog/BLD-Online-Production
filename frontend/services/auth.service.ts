@@ -3,6 +3,7 @@ import type {
   ApiResponse,
   AuthResult,
   LoginRequest,
+  LoginByQrRequest,
   RegisterRequest,
   RefreshTokenRequest,
   RequestPasswordResetRequest,
@@ -20,22 +21,45 @@ export class AuthService {
       if (response.data.success && response.data.data) {
         apiClient.setToken(response.data.data.accessToken);
         apiClient.setRefreshToken(response.data.data.refreshToken);
-        
-        // Store auth data in localStorage for dashboard access
+
         if (typeof window !== 'undefined') {
           const authDataToStore = {
             user: response.data.data.user,
             member: response.data.data.member || null,
           };
-          console.log('Storing auth data:', authDataToStore); // Debug log
           localStorage.setItem('authData', JSON.stringify(authDataToStore));
         }
-        
+
         return response.data.data;
       }
       throw new Error(response.data.error || 'Login failed');
     } catch (error) {
-      // Re-throw with original error for better error parsing
+      throw error;
+    }
+  }
+
+  async loginByQr(data: LoginByQrRequest): Promise<AuthResult> {
+    try {
+      const response = await apiClient.post<ApiResponse<AuthResult>>(
+        '/auth/login-by-qr',
+        data,
+      );
+      if (response.data.success && response.data.data) {
+        apiClient.setToken(response.data.data.accessToken);
+        apiClient.setRefreshToken(response.data.data.refreshToken);
+
+        if (typeof window !== 'undefined') {
+          const authDataToStore = {
+            user: response.data.data.user,
+            member: response.data.data.member || null,
+          };
+          localStorage.setItem('authData', JSON.stringify(authDataToStore));
+        }
+
+        return response.data.data;
+      }
+      throw new Error(response.data.error || 'Login failed');
+    } catch (error) {
       throw error;
     }
   }
