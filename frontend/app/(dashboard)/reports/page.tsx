@@ -425,7 +425,6 @@ export default function ReportsPage() {
 
       case PeriodType.MONTHLY:
         if (!selectedMonth || !selectedYear) {
-          const now = new Date();
           const start = new Date(now.getFullYear(), now.getMonth(), 1);
           const end = new Date(now.getFullYear(), now.getMonth() + 1, 0);
           return {
@@ -442,7 +441,6 @@ export default function ReportsPage() {
 
       case PeriodType.QUARTERLY:
         if (!selectedQuarter || !selectedYear) {
-          const now = new Date();
           const quarter = Math.floor(now.getMonth() / 3);
           const quarterStart = new Date(now.getFullYear(), quarter * 3, 1);
           const quarterEnd = new Date(now.getFullYear(), (quarter + 1) * 3, 0);
@@ -461,7 +459,6 @@ export default function ReportsPage() {
 
       case PeriodType.YTD:
         const ytdStart = new Date(currentYear, 0, 1);
-        const now = new Date();
         const ytdEnd = currentYear < now.getFullYear()
           ? new Date(currentYear, 11, 31)
           : new Date();
@@ -472,7 +469,6 @@ export default function ReportsPage() {
 
       case PeriodType.ANNUAL:
         if (!selectedYear) {
-          const now = new Date();
           const yearStart = new Date(now.getFullYear(), 0, 1);
           const yearEnd = new Date(now.getFullYear(), 11, 31);
           return {
