@@ -3059,7 +3059,113 @@ export default function ReportsPage() {
                 );
               })()}
 
-              {/* Charts (only for Ministry/Individual, not Community) */}
+              {/* Member Attendance Table (Ministry/Individual only): always show table array first; rows or "No data" */}
+              {recurringReportConfig.reportType !== RecurringReportType.COMMUNITY && (() => {
+                const data = Array.isArray(recurringReportData.data) ? recurringReportData.data : [];
+                const isMemberData = data.length > 0 && (data[0] as any)?.communityId != null;
+                const dataRows = isMemberData ? (data as Array<{
+                  id: string;
+                  communityId: string;
+                  firstName: string;
+                  lastName: string;
+                  middleInitial?: string;
+                  middleName?: string;
+                  meClass?: string;
+                  corporateWorshipAttended: number;
+                  wordSharingCirclesAttended: number;
+                  totalCwInPeriod?: number;
+                  totalWscInPeriod?: number;
+                  corporateWorshipPercentage: number;
+                  wordSharingCirclesPercentage: number;
+                  totalAttended?: number;
+                  percentage?: number;
+                }>) : [];
+                const ministry = recurringReportConfig.ministry || '';
+                const groupByMeClass = ['Post-LSS Group (PLSG)', 'Service Ministry', 'Intercessory Ministry'].includes(ministry);
+                const byMeClass = groupByMeClass && dataRows.length > 0
+                  ? dataRows.reduce<Record<string, typeof dataRows>>((acc, m) => {
+                      const key = m.meClass || 'Other';
+                      if (!acc[key]) acc[key] = [];
+                      acc[key].push(m);
+                      return acc;
+                    }, {})
+                  : { '': dataRows };
+                const meClassOrder = Object.keys(byMeClass).filter(Boolean).sort((a, b) => {
+                  const aMatch = a.match(/^([A-Z]+)(\d+)$/);
+                  const bMatch = b.match(/^([A-Z]+)(\d+)$/);
+                  if (aMatch && bMatch) {
+                    if (aMatch[1] !== bMatch[1]) return aMatch[1].localeCompare(bMatch[1]);
+                    return parseInt(aMatch[2], 10) - parseInt(bMatch[2], 10);
+                  }
+                  return a.localeCompare(b);
+                });
+                if (!groupByMeClass) meClassOrder.push('');
+
+                return (
+                  <div className="space-y-2">
+                    <h5 className="font-semibold text-gray-800">Member attendance (table array)</h5>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Name</TableHead>
+                            <TableHead className="font-mono text-xs">Community ID</TableHead>
+                            <TableHead className="text-center">CW present</TableHead>
+                            <TableHead className="text-center">Total CW</TableHead>
+                            <TableHead className="text-center">CW %</TableHead>
+                            <TableHead className="text-center">WSC present</TableHead>
+                            <TableHead className="text-center">Total WSC</TableHead>
+                            <TableHead className="text-center">WSC %</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {dataRows.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={8} className="text-center py-8 text-slate-500">
+                                No members found for this period/ministry. Check date range and ministry selection, or add members/attendance data.
+                              </TableCell>
+                            </TableRow>
+                          ) : (
+                            meClassOrder.map((meClass) => {
+                              const rows = byMeClass[meClass] || [];
+                              return (
+                                <Fragment key={meClass || 'all'}>
+                                  {groupByMeClass && meClass && (
+                                    <TableRow className="bg-slate-100 border-t-2 border-slate-300">
+                                      <TableCell colSpan={8} className="font-semibold text-slate-700 py-2">
+                                        ME Class {meClass}
+                                      </TableCell>
+                                    </TableRow>
+                                  )}
+                                  {rows.map((member, idx) => {
+                                    const middleInitial = member.middleInitial ||
+                                      (member.middleName ? member.middleName.charAt(0).toUpperCase() : '');
+                                    const name = [member.lastName, member.firstName].filter(Boolean).join(', ') + (middleInitial ? ` ${middleInitial}.` : '');
+                                    return (
+                                      <TableRow key={member.id || `${meClass}-${idx}`} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                        <TableCell className="font-medium">{name}</TableCell>
+                                        <TableCell className="font-mono text-sm">{member.communityId}</TableCell>
+                                        <TableCell className="text-center">{member.corporateWorshipAttended ?? 0}</TableCell>
+                                        <TableCell className="text-center text-slate-600">{member.totalCwInPeriod ?? recurringReportData.statistics?.totalInstances?.corporateWorship ?? '-'}</TableCell>
+                                        <TableCell className="text-center font-medium text-purple-600">{member.corporateWorshipPercentage ?? 0}%</TableCell>
+                                        <TableCell className="text-center">{member.wordSharingCirclesAttended ?? 0}</TableCell>
+                                        <TableCell className="text-center text-slate-600">{member.totalWscInPeriod ?? recurringReportData.statistics?.totalInstances?.wordSharingCircles ?? '-'}</TableCell>
+                                        <TableCell className="text-center font-medium text-green-600">{member.wordSharingCirclesPercentage ?? 0}%</TableCell>
+                                      </TableRow>
+                                    );
+                                  })}
+                                </Fragment>
+                              );
+                            })
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Charts (Ministry/Individual only, below table) */}
               {recurringReportConfig.reportType !== RecurringReportType.COMMUNITY && chartData && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Card>
@@ -3080,102 +3186,6 @@ export default function ReportsPage() {
                   </Card>
                 </div>
               )}
-
-              {/* Member Attendance Table (Ministry/Individual only): Name, Community ID, CW present, Total CW, CW %, WSC present, Total WSC, WSC %. */}
-              {recurringReportConfig.reportType !== RecurringReportType.COMMUNITY &&
-               Array.isArray(recurringReportData.data) &&
-               recurringReportData.data.length > 0 &&
-               (recurringReportData.data[0] as any).communityId != null && (() => {
-                const data = recurringReportData.data as Array<{
-                  id: string;
-                  communityId: string;
-                  firstName: string;
-                  lastName: string;
-                  middleInitial?: string;
-                  middleName?: string;
-                  meClass?: string;
-                  corporateWorshipAttended: number;
-                  wordSharingCirclesAttended: number;
-                  totalCwInPeriod?: number;
-                  totalWscInPeriod?: number;
-                  corporateWorshipPercentage: number;
-                  wordSharingCirclesPercentage: number;
-                  totalAttended?: number;
-                  percentage?: number;
-                }>;
-                const ministry = recurringReportConfig.ministry || '';
-                const groupByMeClass = ['Post-LSS Group (PLSG)', 'Service Ministry', 'Intercessory Ministry'].includes(ministry);
-                const byMeClass = groupByMeClass
-                  ? data.reduce<Record<string, typeof data>>((acc, m) => {
-                      const key = m.meClass || 'Other';
-                      if (!acc[key]) acc[key] = [];
-                      acc[key].push(m);
-                      return acc;
-                    }, {})
-                  : { '': data };
-                const meClassOrder = Object.keys(byMeClass).filter(Boolean).sort((a, b) => {
-                  const aMatch = a.match(/^([A-Z]+)(\d+)$/);
-                  const bMatch = b.match(/^([A-Z]+)(\d+)$/);
-                  if (aMatch && bMatch) {
-                    if (aMatch[1] !== bMatch[1]) return aMatch[1].localeCompare(bMatch[1]);
-                    return parseInt(aMatch[2], 10) - parseInt(bMatch[2], 10);
-                  }
-                  return a.localeCompare(b);
-                });
-                if (!groupByMeClass) meClassOrder.push('');
-
-                return (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead className="font-mono text-xs">Community ID</TableHead>
-                          <TableHead className="text-center">CW present</TableHead>
-                          <TableHead className="text-center">Total CW</TableHead>
-                          <TableHead className="text-center">CW %</TableHead>
-                          <TableHead className="text-center">WSC present</TableHead>
-                          <TableHead className="text-center">Total WSC</TableHead>
-                          <TableHead className="text-center">WSC %</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {meClassOrder.map((meClass) => {
-                          const rows = byMeClass[meClass] || [];
-                          return (
-                            <Fragment key={meClass || 'all'}>
-                              {groupByMeClass && meClass && (
-                                <TableRow className="bg-slate-100 border-t-2 border-slate-300">
-                                  <TableCell colSpan={8} className="font-semibold text-slate-700 py-2">
-                                    ME Class {meClass}
-                                  </TableCell>
-                                </TableRow>
-                              )}
-                              {rows.map((member, idx) => {
-                                const middleInitial = member.middleInitial ||
-                                  (member.middleName ? member.middleName.charAt(0).toUpperCase() : '');
-                                const name = [member.lastName, member.firstName].filter(Boolean).join(', ') + (middleInitial ? ` ${middleInitial}.` : '');
-                                return (
-                                  <TableRow key={member.id || `${meClass}-${idx}`} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                                    <TableCell className="font-medium">{name}</TableCell>
-                                    <TableCell className="font-mono text-sm">{member.communityId}</TableCell>
-                                    <TableCell className="text-center">{member.corporateWorshipAttended ?? 0}</TableCell>
-                                    <TableCell className="text-center text-slate-600">{member.totalCwInPeriod ?? recurringReportData.statistics?.totalInstances?.corporateWorship ?? '-'}</TableCell>
-                                    <TableCell className="text-center font-medium text-purple-600">{member.corporateWorshipPercentage ?? 0}%</TableCell>
-                                    <TableCell className="text-center">{member.wordSharingCirclesAttended ?? 0}</TableCell>
-                                    <TableCell className="text-center text-slate-600">{member.totalWscInPeriod ?? recurringReportData.statistics?.totalInstances?.wordSharingCircles ?? '-'}</TableCell>
-                                    <TableCell className="text-center font-medium text-green-600">{member.wordSharingCirclesPercentage ?? 0}%</TableCell>
-                                  </TableRow>
-                                );
-                              })}
-                            </Fragment>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                );
-              })()}
 
               {/* Export Buttons */}
               <div className="flex flex-wrap justify-end gap-3">
