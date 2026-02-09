@@ -528,6 +528,33 @@ export class MembersService {
     return { message: 'Member deactivated successfully' };
   }
 
+  /**
+   * Permanently delete a member and their user account. Only allowed when the account is already deactivated.
+   */
+  async permanentDelete(id: string, currentUserId?: string) {
+    const member = await this.findOne(id);
+
+    if (currentUserId && member.userId === currentUserId) {
+      throw new ForbiddenException('You cannot permanently delete your own account.');
+    }
+
+    const user = member.user as { isActive?: boolean } | undefined;
+    if (user?.isActive !== false) {
+      throw new BadRequestException(
+        'Account must be deactivated before it can be permanently removed. Deactivate the member first, then remove permanently.',
+      );
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // Delete member first (cascades Attendance; EventRegistration.memberId set null by schema)
+      await tx.member.delete({ where: { id } });
+      // Then delete user (cascades Session, EventClassShepherd)
+      await tx.user.delete({ where: { id: member.userId } });
+    });
+
+    return { message: 'Member and account permanently removed.' };
+  }
+
   async regenerateQRCode(id: string) {
     const member = await this.findOne(id);
     const qrCodeUrl = await this.generateQRCode(member.id, member.communityId);

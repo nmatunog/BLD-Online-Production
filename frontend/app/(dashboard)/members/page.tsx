@@ -479,6 +479,39 @@ export default function MembersPage() {
     }
   };
 
+  // Permanently remove a deactivated member and account (hard delete)
+  const handlePermanentDelete = async (memberId: string) => {
+    const member = members.find((m) => m.id === memberId);
+    if (member && member.userId === currentUserId) {
+      toast.error('Cannot remove your own account', {
+        description: 'You cannot permanently remove the account you are logged in with.',
+      });
+      return;
+    }
+    if (member && member.user?.isActive) {
+      toast.error('Deactivate first', {
+        description: 'Deactivate the member first, then use "Remove permanently" to delete the account from the system.',
+      });
+      return;
+    }
+    if (!confirm('Permanently remove this member and their account? This cannot be undone. Attendance and registration links will be removed or unlinked.')) {
+      return;
+    }
+    try {
+      await membersService.deletePermanent(memberId);
+      toast.success('Account removed', {
+        description: 'The member and account have been permanently removed.',
+      });
+      loadMembers();
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string | string[] } }; message?: string };
+      const msg = Array.isArray(err.response?.data?.message)
+        ? err.response.data.message[0]
+        : err.response?.data?.message ?? (error instanceof Error ? error.message : 'Failed to remove member');
+      toast.error('Error', { description: msg });
+    }
+  };
+
   // Handle generate QR code
   const handleGenerateQR = async (member: Member) => {
     try {
@@ -867,7 +900,7 @@ export default function MembersPage() {
                                   Edit
                                 </Button>
                               )}
-                              {(userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR' || userRole === 'DCS') && (
+                              {(userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR' || userRole === 'DCS') && member.user?.isActive && (
                                 <Button 
                                   variant="ghost"
                                   size="sm"
@@ -877,6 +910,18 @@ export default function MembersPage() {
                                   className="text-gray-600 hover:text-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                   Delete
+                                </Button>
+                              )}
+                              {(userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR' || userRole === 'DCS') && !member.user?.isActive && (
+                                <Button 
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handlePermanentDelete(member.id)}
+                                  disabled={member.userId === currentUserId}
+                                  title={member.userId === currentUserId ? 'You cannot remove your own account' : 'Permanently remove member and account'}
+                                  className="text-red-600 hover:text-red-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  Remove permanently
                                 </Button>
                               )}
                             </div>

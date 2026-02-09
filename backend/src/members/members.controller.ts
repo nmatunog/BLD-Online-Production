@@ -329,6 +329,27 @@ export class MembersController {
     };
   }
 
+  @Delete(':id/permanent')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Permanently remove a deactivated member and account' })
+  @ApiResponse({ status: 200, description: 'Member and account permanently removed' })
+  @ApiResponse({ status: 400, description: 'Account must be deactivated first' })
+  @ApiResponse({ status: 403, description: 'Cannot permanently delete your own account' })
+  @ApiResponse({ status: 404, description: 'Member not found' })
+  async permanentDelete(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string },
+  ): Promise<ApiResponseDto<unknown>> {
+    const result = await this.membersService.permanentDelete(id, user.id);
+    return {
+      success: true,
+      data: result,
+      message: 'Member and account permanently removed.',
+    };
+  }
+
   @Delete(':id')
   @UseGuards(RolesGuard)
   @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)

@@ -153,6 +153,14 @@ class MembersService {
     }
   }
 
+  /** Permanently remove a deactivated member and account. Account must be deactivated first. */
+  async deletePermanent(id: string): Promise<void> {
+    const response = await apiClient.delete<ApiResponse<unknown>>(`/members/${id}/permanent`);
+    if (!response.data.success) {
+      throw new Error(response.data.error || 'Failed to permanently remove member');
+    }
+  }
+
   async regenerateQRCode(id: string): Promise<{ id: string; communityId: string; qrCodeUrl: string }> {
     const response = await apiClient.post<ApiResponse<{ id: string; communityId: string; qrCodeUrl: string }>>(
       `/members/${id}/qr-code/regenerate`,
