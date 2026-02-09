@@ -114,7 +114,7 @@ function CheckInContent() {
     const includeAll = includeAllOverride ?? includeAllMinistryEvents;
     const role = roleOverride ?? userRole;
     const canIncludeAll = role === 'SUPER_USER' || role === 'ADMINISTRATOR' || role === 'DCS';
-    const params = (status: string) => ({
+    const params = (status: 'UPCOMING' | 'ONGOING' | 'COMPLETED' | 'CANCELLED') => ({
       status,
       sortBy: 'startDate' as const,
       sortOrder: (status === 'COMPLETED' ? 'desc' : 'asc') as 'asc' | 'desc',
