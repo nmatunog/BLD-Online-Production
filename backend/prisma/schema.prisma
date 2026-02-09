@@ -136,6 +136,8 @@ model Event {
   // Encounter Event fields - for Encounter type events (ME, SE, SPE, FE, YE)
   encounterType     String? // e.g., "ME", "SE", "SPE", "FE", "YE"
   classNumber       Int? // e.g., 18 for ME Class 18, 101 for SE Class 101
+  // Ministry-specific events (e.g. Word Sharing Circles per ministry)
+  ministry          String? // null = general (all); set = only that ministry
   // Recurring event fields
   isRecurring       Boolean      @default(false)
   recurrencePattern String? // daily, weekly, monthly
@@ -157,6 +159,7 @@ model Event {
   @@index([encounterType, classNumber])
   @@index([startDate])
   @@index([eventType])
+  @@index([ministry])
 }
 
 model Attendance {

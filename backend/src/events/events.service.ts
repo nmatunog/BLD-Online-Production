@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateEventDto } from './dto/create-event.dto';
@@ -12,6 +13,7 @@ import { CancelEventDto } from './dto/cancel-event.dto';
 import { Prisma, EventStatus, UserRole } from '@prisma/client';
 import QRCode from 'qrcode';
 import { BunnyCDNService } from '../common/services/bunnycdn.service';
+import { MINISTRIES_BY_APOSTOLATE } from '../common/constants/organization.constants';
 
 @Injectable()
 export class EventsService {
@@ -50,6 +52,16 @@ export class EventsService {
     // Validate that end datetime is after start datetime
     if (actualStartDateTime >= actualEndDateTime) {
       throw new BadRequestException('End date/time must be after start date/time');
+    }
+
+    // Validate ministry if provided (must be a known ministry)
+    if (createEventDto.ministry?.trim()) {
+      const allMinistries = Object.values(MINISTRIES_BY_APOSTOLATE).flat();
+      if (!allMinistries.some((m) => m === createEventDto.ministry?.trim())) {
+        throw new BadRequestException(
+          `Ministry must be one of: ${allMinistries.slice(0, 5).join(', ')}...`,
+        );
+      }
     }
 
     // Validate recurring event configuration
@@ -94,6 +106,7 @@ export class EventsService {
         monthlyDayOfMonth: createEventDto.monthlyDayOfMonth || null,
         monthlyWeekOfMonth: createEventDto.monthlyWeekOfMonth || null,
         monthlyDayOfWeek: createEventDto.monthlyDayOfWeek || null,
+        ministry: createEventDto.ministry?.trim() || null,
       },
       include: {
         _count: {
@@ -113,7 +126,10 @@ export class EventsService {
     return event;
   }
 
-  async findAll(query: EventQueryDto) {
+  async findAll(
+    query: EventQueryDto,
+    user?: { role: string; ministry?: string },
+  ) {
     // Automatically update event statuses based on current date/time
     await this.updateEventStatuses();
 
@@ -128,12 +144,31 @@ export class EventsService {
       sortOrder = 'asc',
       page = 1,
       limit = 50,
+      includeAllMinistryEvents,
     } = query;
 
     const skip = (page - 1) * limit;
 
     // Build where clause
     const where: Prisma.EventWhereInput = {};
+
+    // Ministry visibility: default = general (ministry null) + user's ministry only. Admin/Super can include all.
+    const canSeeAllMinistryEvents =
+      user?.role === UserRole.SUPER_USER ||
+      user?.role === UserRole.ADMINISTRATOR ||
+      user?.role === UserRole.DCS;
+    if (!canSeeAllMinistryEvents || !includeAllMinistryEvents) {
+      // General events (no ministry) + events for user's ministry only
+      const ministryFilter: Prisma.EventWhereInput[] = [
+        { ministry: null },
+        { ministry: '' },
+      ];
+      if (user?.ministry) {
+        ministryFilter.push({ ministry: user.ministry });
+      }
+      where.AND = where.AND || [];
+      where.AND.push({ OR: ministryFilter });
+    }
 
     if (search) {
       where.OR = [
@@ -210,7 +245,7 @@ export class EventsService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, user?: { role: string; ministry?: string }) {
     // Automatically update event statuses based on current date/time
     await this.updateEventStatuses();
 
@@ -245,6 +280,17 @@ export class EventsService {
 
     if (!event) {
       throw new NotFoundException(`Event with ID ${id} not found`);
+    }
+
+    // Ministry-specific event: only visible to that ministry or Admin/Super/DCS
+    if (user && event.ministry) {
+      const canSeeAll =
+        user.role === UserRole.SUPER_USER ||
+        user.role === UserRole.ADMINISTRATOR ||
+        user.role === UserRole.DCS;
+      if (!canSeeAll && user.ministry !== event.ministry) {
+        throw new ForbiddenException('You do not have access to this ministry-specific event');
+      }
     }
 
     return event;
@@ -341,6 +387,14 @@ export class EventsService {
       }
     }
 
+    // Validate ministry if provided
+    if (updateEventDto.ministry !== undefined && updateEventDto.ministry?.trim()) {
+      const allMinistries = Object.values(MINISTRIES_BY_APOSTOLATE).flat();
+      if (!allMinistries.some((m) => m === updateEventDto.ministry?.trim())) {
+        throw new BadRequestException('Ministry must be one of the known ministries');
+      }
+    }
+
     const event = await this.prisma.event.update({
       where: { id },
       data: {
@@ -366,6 +420,7 @@ export class EventsService {
         ...(updateEventDto.monthlyDayOfMonth !== undefined && { monthlyDayOfMonth: updateEventDto.monthlyDayOfMonth || null }),
         ...(updateEventDto.monthlyWeekOfMonth !== undefined && { monthlyWeekOfMonth: updateEventDto.monthlyWeekOfMonth || null }),
         ...(updateEventDto.monthlyDayOfWeek !== undefined && { monthlyDayOfWeek: updateEventDto.monthlyDayOfWeek || null }),
+        ...(updateEventDto.ministry !== undefined && { ministry: updateEventDto.ministry?.trim() || null }),
       },
       include: {
         _count: {

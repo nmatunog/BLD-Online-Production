@@ -29,6 +29,7 @@ export interface Event {
   monthlyDayOfWeek: string | null;
   encounterType: string | null;
   classNumber: number | null;
+  ministry: string | null;
   createdAt: string;
   updatedAt: string;
   _count?: {
@@ -48,6 +49,8 @@ export interface EventQueryParams {
   sortOrder?: 'asc' | 'desc';
   page?: number;
   limit?: number;
+  /** Admin/Super User: include all ministry-specific events (e.g. all WSC). Default: general + user ministry only. */
+  includeAllMinistryEvents?: boolean;
 }
 
 export interface CreateEventRequest {
@@ -75,6 +78,7 @@ export interface CreateEventRequest {
   monthlyDayOfWeek?: string;
   encounterType?: string;
   classNumber?: number;
+  ministry?: string;
 }
 
 export interface UpdateEventRequest extends Partial<CreateEventRequest> {}

@@ -54,6 +54,11 @@ export class CreateEventDto {
   @IsOptional()
   venue?: string;
 
+  /** Ministry-specific event (e.g. Word Sharing Circle). Null = general (all members). */
+  @IsString()
+  @IsOptional()
+  ministry?: string;
+
   @IsEnum(EventStatus)
   @IsOptional()
   status?: EventStatus;

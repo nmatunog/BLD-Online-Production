@@ -53,12 +53,13 @@ export class EventsController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get all events with filters and pagination' })
+  @ApiOperation({ summary: 'Get all events with filters and pagination (ministry-filtered by default)' })
   @ApiResponse({ status: 200, description: 'Events retrieved successfully' })
   async findAll(
     @Query() query: EventQueryDto,
+    @CurrentUser() user: { id: string; role: string; ministry?: string },
   ): Promise<ApiResponseDto<unknown>> {
-    const result = await this.eventsService.findAll(query);
+    const result = await this.eventsService.findAll(query, user);
     return {
       success: true,
       data: result,
@@ -67,15 +68,20 @@ export class EventsController {
   }
 
   @Get('upcoming')
-  @ApiOperation({ summary: 'Get upcoming events' })
+  @ApiOperation({ summary: 'Get upcoming events (general + user ministry by default)' })
   @ApiResponse({ status: 200, description: 'Upcoming events retrieved successfully' })
-  async findUpcoming(): Promise<ApiResponseDto<unknown>> {
-    const result = await this.eventsService.findAll({
-      status: 'UPCOMING' as any,
-      sortBy: 'startDate',
-      sortOrder: 'asc',
-      limit: 20,
-    });
+  async findUpcoming(
+    @CurrentUser() user: { id: string; role: string; ministry?: string },
+  ): Promise<ApiResponseDto<unknown>> {
+    const result = await this.eventsService.findAll(
+      {
+        status: 'UPCOMING' as any,
+        sortBy: 'startDate',
+        sortOrder: 'asc',
+        limit: 20,
+      },
+      user,
+    );
     return {
       success: true,
       data: result.data,
@@ -113,11 +119,15 @@ export class EventsController {
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get an event by ID' })
+  @ApiOperation({ summary: 'Get an event by ID (ministry visibility enforced)' })
   @ApiResponse({ status: 200, description: 'Event retrieved successfully' })
+  @ApiResponse({ status: 403, description: 'Access denied to ministry-specific event' })
   @ApiResponse({ status: 404, description: 'Event not found' })
-  async findOne(@Param('id') id: string): Promise<ApiResponseDto<unknown>> {
-    const event = await this.eventsService.findOne(id);
+  async findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string; role: string; ministry?: string },
+  ): Promise<ApiResponseDto<unknown>> {
+    const event = await this.eventsService.findOne(id, user);
     return {
       success: true,
       data: event,

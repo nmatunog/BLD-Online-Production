@@ -5,11 +5,18 @@ import {
   IsInt,
   Min,
   IsDateString,
+  IsBoolean,
 } from 'class-validator';
 import { EventStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 
 export class EventQueryDto {
+  /** Admin/Super User: include all ministry-specific events (e.g. all WSC). Default: general + user's ministry only. */
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  includeAllMinistryEvents?: boolean;
+
   @IsOptional()
   @IsString()
   search?: string;

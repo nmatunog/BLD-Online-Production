@@ -21,6 +21,7 @@ import EventChatbot from '@/components/events/EventChatbot';
 import EventCard from '@/components/events/EventCard';
 import ClassShepherdAssignment from '@/components/events/ClassShepherdAssignment';
 import { eventChatbotService } from '@/services/event-chatbot-service';
+import { MINISTRIES_BY_APOSTOLATE } from '@/lib/member-constants';
 
 export default function EventsPage() {
   const router = useRouter();
@@ -46,6 +47,8 @@ export default function EventsPage() {
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [selectedEventForCancel, setSelectedEventForCancel] = useState<Event | null>(null);
   const [cancellationReason, setCancellationReason] = useState('');
+  /** Admin/Super User: include all ministry-specific events (e.g. all WSC). Default: general + my ministry only. */
+  const [includeAllMinistryEvents, setIncludeAllMinistryEvents] = useState(false);
   // Event categories from old system
   const eventCategories = [
     'Community Worship',
@@ -125,6 +128,7 @@ export default function EventsPage() {
     monthlyDayOfMonth: '',
     monthlyWeekOfMonth: '',
     monthlyDayOfWeek: '',
+    ministry: '',
   });
 
   // Check authentication and permissions
@@ -180,6 +184,7 @@ export default function EventsPage() {
         sortOrder,
         page: 1,
         limit: 100,
+        includeAllMinistryEvents: (userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR' || userRole === 'DCS') ? includeAllMinistryEvents : undefined,
       };
 
       const result = await eventsService.getAll(params);
@@ -202,7 +207,7 @@ export default function EventsPage() {
     }, 300); // Debounce search
 
     return () => clearTimeout(timeoutId);
-  }, [searchTerm, filterStatus, filterType]);
+  }, [searchTerm, filterStatus, filterType, includeAllMinistryEvents, userRole]);
 
   // Get unique values for filters (normalize legacy Corporate Worship → Community Worship)
   const uniqueTypes = useMemo(() => {
@@ -610,6 +615,7 @@ export default function EventsPage() {
       monthlyDayOfMonth: '',
       monthlyWeekOfMonth: '',
       monthlyDayOfWeek: '',
+      ministry: '',
     });
   };
 
@@ -643,6 +649,7 @@ export default function EventsPage() {
       monthlyDayOfMonth: event.monthlyDayOfMonth ? event.monthlyDayOfMonth.toString() : '',
       monthlyWeekOfMonth: event.monthlyWeekOfMonth ? event.monthlyWeekOfMonth.toString() : '',
       monthlyDayOfWeek: event.monthlyDayOfWeek || '',
+      ministry: event.ministry || '',
     });
   };
 
@@ -754,6 +761,7 @@ export default function EventsPage() {
         venue: createForm.venue?.trim() || undefined,
         status: createForm.status,
         hasRegistration: createForm.hasRegistration,
+        ministry: createForm.ministry?.trim() || undefined,
       };
 
       // Add Encounter Event fields if applicable
@@ -1033,6 +1041,22 @@ export default function EventsPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Admin/Super User: Include all ministry-specific events (e.g. all WSC) */}
+            {(userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR' || userRole === 'DCS') && (
+              <div className="sm:col-span-2 lg:col-span-3 flex items-center gap-2">
+                <label className="inline-flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeAllMinistryEvents}
+                    onChange={(e) => setIncludeAllMinistryEvents(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                  />
+                  <span className="text-sm font-medium text-gray-700">View ministry-specific events (e.g. all WSC)</span>
+                </label>
+                <span className="text-xs text-gray-500">Default: general + your ministry only</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -1278,6 +1302,24 @@ export default function EventsPage() {
                         : 'No non-recurring categories available. Please select "Recurring" event type for recurring categories.'}
                     </p>
                   )}
+                </div>
+                <div className="space-y-3">
+                  <Label htmlFor="create-ministry" className="text-2xl font-bold text-gray-700">Ministry (optional)</Label>
+                  <p className="text-sm text-gray-500">For ministry-specific events (e.g. Word Sharing Circle). Leave empty for general events.</p>
+                  <Select
+                    value={createForm.ministry || 'NONE'}
+                    onValueChange={(v) => setCreateForm({ ...createForm, ministry: v === 'NONE' ? '' : v })}
+                  >
+                    <SelectTrigger className="h-12 text-lg border border-gray-300 bg-white focus:ring-2 focus:ring-red-500 focus:border-red-500">
+                      <SelectValue placeholder="General (all members)" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white border border-gray-300 z-[100] shadow-lg max-h-[300px]">
+                      <SelectItem value="NONE">General (all members)</SelectItem>
+                      {Object.values(MINISTRIES_BY_APOSTOLATE).flat().map((ministry) => (
+                        <SelectItem key={ministry} value={ministry}>{ministry}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-3">
                   <Label htmlFor="create-status" className="text-2xl font-bold text-gray-700">Status</Label>
@@ -1662,6 +1704,24 @@ export default function EventsPage() {
                           {category}
                           {recurringCategories.includes(category) && ' (Weekly Recurring)'}
                         </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-3">
+                  <Label htmlFor="edit-ministry" className="text-base font-semibold text-gray-700">Ministry (optional)</Label>
+                  <p className="text-xs text-gray-500">Ministry-specific events (e.g. WSC). Leave empty for general.</p>
+                  <Select
+                    value={createForm.ministry || 'NONE'}
+                    onValueChange={(v) => setCreateForm({ ...createForm, ministry: v === 'NONE' ? '' : v })}
+                  >
+                    <SelectTrigger className="h-12 text-lg border border-gray-300 bg-white focus:ring-2 focus:ring-red-500 focus:border-red-500">
+                      <SelectValue placeholder="General (all members)" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white border border-gray-300 z-[100] shadow-lg max-h-[300px]">
+                      <SelectItem value="NONE">General (all members)</SelectItem>
+                      {Object.values(MINISTRIES_BY_APOSTOLATE).flat().map((ministry) => (
+                        <SelectItem key={ministry} value={ministry}>{ministry}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

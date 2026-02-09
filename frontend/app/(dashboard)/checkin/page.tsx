@@ -59,6 +59,8 @@ function CheckInContent() {
   const [continuousMode, setContinuousMode] = useState(true);
   const [torchEnabled, setTorchEnabled] = useState(false);
   const [availableCameras, setAvailableCameras] = useState<Array<{ deviceId: string; label: string; kind: string }>>([]);
+  /** Admin/Super User: include all ministry-specific events (e.g. all WSC). Default: general + my ministry only. */
+  const [includeAllMinistryEvents, setIncludeAllMinistryEvents] = useState(false);
 
   // Check authentication
   useEffect(() => {
@@ -68,16 +70,18 @@ function CheckInContent() {
     }
 
     const authData = localStorage.getItem('authData');
+    let role = '';
     if (authData) {
       try {
         const parsed = JSON.parse(authData);
-        setUserRole(parsed.user?.role || '');
+        role = parsed.user?.role || '';
+        setUserRole(role);
       } catch (error) {
         console.error('Error parsing auth data:', error);
       }
     }
 
-    loadEvents();
+    loadEvents(includeAllMinistryEvents, role);
     checkCameraAvailability();
     loadRecentCheckIns();
 
@@ -105,29 +109,24 @@ function CheckInContent() {
     }
   };
 
-  const loadEvents = async () => {
+  const loadEvents = async (includeAllOverride?: boolean, roleOverride?: string) => {
     setLoading(true);
+    const includeAll = includeAllOverride ?? includeAllMinistryEvents;
+    const role = roleOverride ?? userRole;
+    const canIncludeAll = role === 'SUPER_USER' || role === 'ADMINISTRATOR' || role === 'DCS';
+    const params = (status: string) => ({
+      status,
+      sortBy: 'startDate' as const,
+      sortOrder: (status === 'COMPLETED' ? 'desc' : 'asc') as 'asc' | 'desc',
+      limit: 50,
+      includeAllMinistryEvents: canIncludeAll ? includeAll : undefined,
+    });
     try {
-      // Fetch UPCOMING, ONGOING, and COMPLETED (recurring only) so check-in shows events open for check-in
+      // Fetch UPCOMING, ONGOING, and COMPLETED (recurring only). Default: general + my ministry only.
       const [upcomingResult, ongoingResult, completedResult] = await Promise.all([
-        eventsService.getAll({
-          status: 'UPCOMING',
-          sortBy: 'startDate',
-          sortOrder: 'asc',
-          limit: 50,
-        }),
-        eventsService.getAll({
-          status: 'ONGOING',
-          sortBy: 'startDate',
-          sortOrder: 'asc',
-          limit: 50,
-        }),
-        eventsService.getAll({
-          status: 'COMPLETED',
-          sortBy: 'startDate',
-          sortOrder: 'desc',
-          limit: 50,
-        }),
+        eventsService.getAll(params('UPCOMING')),
+        eventsService.getAll(params('ONGOING')),
+        eventsService.getAll(params('COMPLETED')),
       ]);
 
       const upcomingList = upcomingResult.success && upcomingResult.data?.data
@@ -611,12 +610,29 @@ function CheckInContent() {
 
         {/* Event Selection - Highlighted */}
         <div className="bg-gradient-to-br from-red-50 via-white to-red-50 p-6 md:p-7 rounded-xl shadow-lg border-2 border-red-300 ring-4 ring-red-100/50">
-          <label className="block text-lg font-bold text-gray-900 mb-4 flex items-center">
-            <div className="p-2 bg-red-100 rounded-lg mr-3">
-              <Calendar className="w-6 h-6 text-red-600" />
-            </div>
-            Select Event
-          </label>
+          <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+            <label className="block text-lg font-bold text-gray-900 flex items-center">
+              <div className="p-2 bg-red-100 rounded-lg mr-3">
+                <Calendar className="w-6 h-6 text-red-600" />
+              </div>
+              Select Event
+            </label>
+            {(userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR' || userRole === 'DCS') && (
+              <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={includeAllMinistryEvents}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setIncludeAllMinistryEvents(checked);
+                    loadEvents(checked);
+                  }}
+                  className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
+                />
+                <span>View ministry-specific events (e.g. all WSC)</span>
+              </label>
+            )}
+          </div>
           {loading && events.length === 0 ? (
             <div className="text-center py-12">
               <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-red-500" />

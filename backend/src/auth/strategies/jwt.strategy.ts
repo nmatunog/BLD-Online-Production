@@ -31,18 +31,22 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }> {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
+      include: { member: { select: { ministry: true } } },
     });
 
     if (!user || !user.isActive) {
       throw new UnauthorizedException('User not found or inactive');
     }
 
+    // Ministry: MINISTRY_COORDINATOR uses user.ministry; members use member.ministry for event visibility
+    const ministry = user.ministry || user.member?.ministry || undefined;
+
     return {
       id: user.id,
       email: user.email,
       phone: user.phone,
       role: user.role,
-      ministry: user.ministry || undefined,
+      ministry,
       shepherdEncounterType: user.shepherdEncounterType || undefined,
       shepherdClassNumber: user.shepherdClassNumber || undefined,
     };

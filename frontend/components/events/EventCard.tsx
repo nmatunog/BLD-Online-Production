@@ -88,6 +88,11 @@ export default function EventCard({
                   ✨ Instance
                 </span>
               )}
+              {event.ministry && (
+                <span className="px-2.5 py-1 text-xs font-semibold bg-purple-100 text-purple-800 rounded-full border border-purple-200" title="Ministry-specific event">
+                  {event.ministry}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex flex-col items-end ml-3">
