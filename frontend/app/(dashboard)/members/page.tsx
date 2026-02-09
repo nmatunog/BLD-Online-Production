@@ -75,6 +75,7 @@ export default function MembersPage() {
   const [sortAlphabetically, setSortAlphabetically] = useState(false);
   const [userRole, setUserRole] = useState<string>('');
   const [userMinistry, setUserMinistry] = useState<string>('');
+  const [currentUserId, setCurrentUserId] = useState<string>('');
   const [authLoading, setAuthLoading] = useState(true);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
@@ -133,6 +134,7 @@ export default function MembersPage() {
           const parsed = JSON.parse(authData);
           setUserRole(parsed.user?.role || '');
           setUserMinistry(parsed.user?.ministry || '');
+          setCurrentUserId(parsed.user?.id || '');
         } catch (error) {
           console.error('Error parsing auth data:', error);
         }
@@ -449,8 +451,15 @@ export default function MembersPage() {
     }
   };
 
-  // Handle delete member
+  // Handle delete member (backend also blocks deleting self)
   const handleDeleteMember = async (memberId: string) => {
+    const member = members.find((m) => m.id === memberId);
+    if (member && member.userId === currentUserId) {
+      toast.error('Cannot deactivate your own account', {
+        description: 'You cannot deactivate the account you are currently logged in with.',
+      });
+      return;
+    }
     if (!confirm('Are you sure you want to deactivate this member?')) {
       return;
     }
@@ -461,9 +470,12 @@ export default function MembersPage() {
         description: 'The member has been deactivated successfully.',
       });
       loadMembers();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to deactivate member';
-      toast.error('Error', { description: errorMessage });
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string | string[] } }; message?: string };
+      const msg = Array.isArray(err.response?.data?.message)
+        ? err.response.data.message[0]
+        : err.response?.data?.message ?? (error instanceof Error ? error.message : 'Failed to deactivate member');
+      toast.error('Error', { description: msg });
     }
   };
 
@@ -860,7 +872,9 @@ export default function MembersPage() {
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => handleDeleteMember(member.id)}
-                                  className="text-gray-600 hover:text-gray-800"
+                                  disabled={member.userId === currentUserId}
+                                  title={member.userId === currentUserId ? 'You cannot deactivate your own account' : 'Deactivate member'}
+                                  className="text-gray-600 hover:text-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                   Delete
                                 </Button>

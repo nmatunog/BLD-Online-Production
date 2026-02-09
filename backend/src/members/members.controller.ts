@@ -335,9 +335,13 @@ export class MembersController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Deactivate a member (soft delete)' })
   @ApiResponse({ status: 200, description: 'Member deactivated successfully' })
+  @ApiResponse({ status: 403, description: 'Cannot deactivate your own account' })
   @ApiResponse({ status: 404, description: 'Member not found' })
-  async remove(@Param('id') id: string): Promise<ApiResponseDto<unknown>> {
-    const result = await this.membersService.remove(id);
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string },
+  ): Promise<ApiResponseDto<unknown>> {
+    const result = await this.membersService.remove(id, user.id);
     return {
       success: true,
       data: result,

@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateMemberDto } from './dto/create-member.dto';
@@ -511,8 +512,12 @@ export class MembersService {
     }
   }
 
-  async remove(id: string) {
+  async remove(id: string, currentUserId?: string) {
     const member = await this.findOne(id);
+
+    if (currentUserId && member.userId === currentUserId) {
+      throw new ForbiddenException('You cannot deactivate your own account.');
+    }
 
     // Soft delete by deactivating the user
     await this.prisma.user.update({
