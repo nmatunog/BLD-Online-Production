@@ -117,6 +117,7 @@ export default function EventChatbot({ onClose, onSuccess }: EventChatbotProps) 
     title: string;
     eventType: string;
     category: string;
+    ministry?: string;
     description?: string;
     startDate: string;
     endDate: string;
@@ -154,6 +155,7 @@ export default function EventChatbot({ onClose, onSuccess }: EventChatbotProps) 
       };
 
       // Add optional fields only if they exist
+      if (eventData.ministry?.trim()) cleanData.ministry = eventData.ministry.trim();
       if (eventData.description) cleanData.description = eventData.description;
       if (eventData.startTime) cleanData.startTime = eventData.startTime;
       if (eventData.endTime) cleanData.endTime = eventData.endTime;

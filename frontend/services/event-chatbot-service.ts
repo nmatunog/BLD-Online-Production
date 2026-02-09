@@ -1,6 +1,10 @@
 // Event Chatbot Service for Event Creation
 // Handles conversation flow for creating events via chatbot
 
+import { MINISTRIES_BY_APOSTOLATE } from '@/lib/member-constants';
+
+const MINISTRY_OPTIONS = Object.values(MINISTRIES_BY_APOSTOLATE).flat();
+
 // Event categories (Community Worship, etc.)
 const EVENT_CATEGORIES = [
   'Community Worship',
@@ -38,6 +42,7 @@ interface EventChatbotState {
     title: string | null;
     eventType: 'RECURRING' | 'NON_RECURRING' | null;
     category: string | null;
+    ministry: string | null;
     description: string | null;
     startDate: string | null;
     endDate: string | null;
@@ -75,6 +80,7 @@ interface EventCreationData {
   title: string;
   eventType: string;
   category: string;
+  ministry?: string;
   description?: string;
   startDate: string;
   endDate: string;
@@ -103,6 +109,7 @@ class EventChatbotService {
         title: null,
         eventType: null,
         category: null,
+        ministry: null,
         description: null,
         startDate: null,
         endDate: null,
@@ -158,6 +165,9 @@ class EventChatbotService {
       case 'collectingCategory':
         response = this.handleCategory(normalizedInput);
         break;
+      case 'collectingMinistry':
+        response = this.handleMinistry(normalizedInput);
+        break;
       case 'collectingRecurrenceDays':
         response = this.handleRecurrenceDays(normalizedInput);
         break;
@@ -212,6 +222,7 @@ class EventChatbotService {
       greeting: () => {
         d.title = null;
         d.category = null;
+        d.ministry = null;
         d.eventType = null;
         d.description = null;
         d.startDate = null;
@@ -233,6 +244,7 @@ class EventChatbotService {
       collectingTitle: () => {
         d.title = null;
         d.category = null;
+        d.ministry = null;
         d.eventType = null;
         d.description = null;
         d.startDate = null;
@@ -253,6 +265,7 @@ class EventChatbotService {
       },
       collectingCategory: () => {
         d.category = null;
+        d.ministry = null;
         d.eventType = null;
         d.isRecurring = false;
         d.recurrencePattern = null;
@@ -269,6 +282,21 @@ class EventChatbotService {
         d.hasRegistration = false;
         d.registrationFee = null;
         d.maxParticipants = null;
+      },
+      collectingMinistry: () => {
+        d.ministry = null;
+        d.startDate = null;
+        d.endDate = null;
+        d.startTime = null;
+        d.endTime = null;
+        d.location = null;
+        d.venue = null;
+        d.description = null;
+        d.hasRegistration = false;
+        d.registrationFee = null;
+        d.maxParticipants = null;
+        d.recurrenceDays = [];
+        d.recurrenceEndDate = null;
       },
       collectingRecurrenceDays: () => {
         d.recurrenceDays = [];
@@ -424,6 +452,17 @@ class EventChatbotService {
     this.state.data.category = matchedCategory;
     this.state.data.eventType = isRecurringCategory ? 'RECURRING' : 'NON_RECURRING';
     this.state.data.isRecurring = isRecurringCategory;
+
+    // Word Sharing Circle is ministry-specific: ask for ministry
+    if (matchedCategory === 'Word Sharing Circle') {
+      this.state.step = 'collectingMinistry';
+      const ministryList = MINISTRY_OPTIONS.map((m, idx) => `${idx + 1}. ${m}`).join('\n');
+      return {
+        role: 'bot',
+        content: `Perfect! Category: "${matchedCategory}"\n\nWord Sharing Circle events are per ministry. Which ministry is this WSC for?\n\nPlease choose from:\n\n${ministryList}\n\n(You can type the ministry name or number)`,
+        timestamp: new Date(),
+      };
+    }
     
     if (isRecurringCategory) {
       this.state.data.recurrencePattern = 'weekly';
@@ -440,6 +479,53 @@ class EventChatbotService {
     return {
       role: 'bot',
       content: `Got it! Category: "${matchedCategory}"\n\nWhen does this event start? (Please provide the date in YYYY-MM-DD format, e.g., 2024-12-25)`,
+      timestamp: new Date(),
+    };
+  }
+
+  private handleMinistry(input: string): EventChatMessage {
+    const numMatch = input.match(/\d+/);
+    let matchedMinistry: string | null = null;
+
+    if (numMatch) {
+      const index = parseInt(numMatch[0], 10) - 1;
+      if (index >= 0 && index < MINISTRY_OPTIONS.length) {
+        matchedMinistry = MINISTRY_OPTIONS[index];
+      }
+    }
+    if (!matchedMinistry) {
+      const lowerInput = input.toLowerCase();
+      matchedMinistry = MINISTRY_OPTIONS.find(
+        (m) => m.toLowerCase().includes(lowerInput) || lowerInput.includes(m.toLowerCase())
+      ) || null;
+    }
+
+    if (!matchedMinistry) {
+      return {
+        role: 'bot',
+        content: `I couldn't find that ministry. Please choose from:\n\n${MINISTRY_OPTIONS.map((m, idx) => `${idx + 1}. ${m}`).join('\n')}\n\n(You can type the ministry name or number)`,
+        timestamp: new Date(),
+      };
+    }
+
+    this.state.data.ministry = matchedMinistry;
+    const isRecurring = this.state.data.isRecurring;
+
+    if (isRecurring) {
+      this.state.data.recurrencePattern = 'weekly';
+      this.state.data.recurrenceInterval = 1;
+      this.state.step = 'collectingRecurrenceDays';
+      return {
+        role: 'bot',
+        content: `Great! Ministry: "${matchedMinistry}"\n\nSince this is a weekly recurring WSC, which days of the week does it occur?\n\nPlease list the days (e.g., "Monday, Wednesday, Friday" or "Sunday" or "all weekdays"):`,
+        timestamp: new Date(),
+      };
+    }
+
+    this.state.step = 'collectingStartDate';
+    return {
+      role: 'bot',
+      content: `Great! Ministry: "${matchedMinistry}"\n\nWhen does this event start? (Please provide the date in YYYY-MM-DD format, e.g., 2024-12-25)`,
       timestamp: new Date(),
     };
   }
@@ -763,10 +849,12 @@ class EventChatbotService {
         `**Recurrence End:** ${this.state.data.recurrenceEndDate || 'Ongoing'}`
       : '';
 
+    const ministryLine = this.state.data.ministry ? `**Ministry:** ${this.state.data.ministry}\n` : '';
     const summary = `📋 **Event Summary**\n\n` +
       `**Title:** ${this.state.data.title || 'Not provided'}\n` +
       `**Type:** ${this.state.data.eventType === 'RECURRING' ? 'Recurring' : 'Non-Recurring'}\n` +
       `**Category:** ${this.state.data.category || 'Not provided'}\n` +
+      ministryLine +
       `**Start Date:** ${this.state.data.startDate || 'Not provided'}\n` +
       `**End Date:** ${this.state.data.endDate || 'Not provided'}\n` +
       `**Start Time:** ${this.state.data.startTime || 'Not set'}\n` +
@@ -794,6 +882,10 @@ class EventChatbotService {
   }
 
   private hasAllRequiredData(): boolean {
+    // WSC requires ministry
+    if (this.state.data.category === 'Word Sharing Circle' && !this.state.data.ministry?.trim()) {
+      return false;
+    }
     const hasBasicData = !!(
       this.state.data.title &&
       this.state.data.eventType &&
@@ -824,6 +916,7 @@ class EventChatbotService {
       title: this.state.data.title,
       eventType: this.state.data.eventType || 'NON_RECURRING',
       category: this.state.data.category,
+      ministry: this.state.data.ministry?.trim() || undefined,
       description: this.state.data.description || undefined,
       startDate: this.state.data.startDate,
       endDate: this.state.data.endDate,

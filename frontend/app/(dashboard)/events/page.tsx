@@ -1303,15 +1303,21 @@ export default function EventsPage() {
                     </p>
                   )}
                 </div>
-                <div className="space-y-3">
-                  <Label htmlFor="create-ministry" className="text-2xl font-bold text-gray-700">Ministry (optional)</Label>
-                  <p className="text-sm text-gray-500">For ministry-specific events (e.g. Word Sharing Circle). Leave empty for general events.</p>
+                <div className={`space-y-3 ${createForm.category === 'Word Sharing Circle' ? 'md:col-span-2 p-3 rounded-lg bg-purple-50 border border-purple-200' : ''}`}>
+                  <Label htmlFor="create-ministry" className={`font-bold text-gray-700 ${createForm.category === 'Word Sharing Circle' ? 'text-lg text-purple-800' : 'text-2xl'}`}>
+                    {createForm.category === 'Word Sharing Circle' ? 'Ministry (required for WSC)' : 'Ministry (optional)'}
+                  </Label>
+                  <p className="text-sm text-gray-500">
+                    {createForm.category === 'Word Sharing Circle'
+                      ? 'Word Sharing Circle events are per ministry. Select the ministry for this WSC.'
+                      : 'For ministry-specific events (e.g. Word Sharing Circle). Leave empty for general events.'}
+                  </p>
                   <Select
                     value={createForm.ministry || 'NONE'}
                     onValueChange={(v) => setCreateForm({ ...createForm, ministry: v === 'NONE' ? '' : v })}
                   >
                     <SelectTrigger className="h-12 text-lg border border-gray-300 bg-white focus:ring-2 focus:ring-red-500 focus:border-red-500">
-                      <SelectValue placeholder="General (all members)" />
+                      <SelectValue placeholder={createForm.category === 'Word Sharing Circle' ? 'Select ministry...' : 'General (all members)'} />
                     </SelectTrigger>
                     <SelectContent className="bg-white border border-gray-300 z-[100] shadow-lg max-h-[300px]">
                       <SelectItem value="NONE">General (all members)</SelectItem>
