@@ -166,8 +166,13 @@ export class EventsService {
       if (user?.ministry) {
         ministryFilter.push({ ministry: user.ministry });
       }
-      where.AND = where.AND || [];
-      where.AND.push({ OR: ministryFilter });
+      const andClauses: Prisma.EventWhereInput[] = Array.isArray(where.AND)
+        ? [...where.AND]
+        : where.AND
+          ? [where.AND]
+          : [];
+      andClauses.push({ OR: ministryFilter });
+      where.AND = andClauses;
     }
 
     if (search) {
