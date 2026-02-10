@@ -206,9 +206,22 @@ export default function LoginPage() {
         <ThemeToggle />
       </div>
 
-      <div className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/60 overflow-y-auto max-h-[98vh] border border-slate-100 flex flex-col">
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-xl shadow-slate-200/60 overflow-y-auto max-h-[98vh] border border-slate-100 flex flex-col relative">
+        {/* Watermark logo - background for sign-in card */}
+        <div
+          className="absolute inset-0 rounded-3xl pointer-events-none z-0 overflow-hidden"
+          aria-hidden="true"
+        >
+          <div
+            className="absolute inset-0 bg-no-repeat bg-center opacity-[0.08] dark:opacity-[0.06]"
+            style={{
+              backgroundImage: 'url(/logo-watermark.png)',
+              backgroundSize: 'min(72%, 260px)',
+            }}
+          />
+        </div>
         {/* Compact Header */}
-        <div className="pt-8 pb-6 px-6 text-center flex-shrink-0">
+        <div className="relative z-10 pt-8 pb-6 px-6 text-center flex-shrink-0">
           <div className="inline-flex items-center justify-center w-14 h-14 bg-red-50 rounded-2xl mb-4 text-red-600 shadow-sm border border-red-100">
             <LogIn size={28} strokeWidth={2.5} />
           </div>
@@ -219,7 +232,7 @@ export default function LoginPage() {
           <p className="text-slate-500 text-sm mt-2">Connecting our community, simply.</p>
         </div>
 
-        <div className="px-6 pb-8">
+        <div className="relative z-10 px-6 pb-8">
           {/* PRIMARY ACTION: Assistant */}
           <button
             type="button"
