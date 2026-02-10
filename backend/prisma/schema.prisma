@@ -100,9 +100,19 @@ model Member {
   classNumber     Int
   apostolate      String?
   ministry        String?
-  serviceArea      String?
+  serviceArea     String?
   photoUrl        String? // BunnyCDN URL
   qrCodeUrl       String? // BunnyCDN URL
+  // Personal / family (optional)
+  gender          String?
+  profession      String?
+  civilStatus     String?
+  dateOfBirth     String?
+  spouseName      String?
+  dateOfMarriage  String?
+  numberOfChildren Int?
+  children        Json?    // Array of { name, gender, dateOfBirth }
+  dateOfEncounter String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

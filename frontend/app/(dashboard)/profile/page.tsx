@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Save, QrCode, Download, X } from 'lucide-react';
-import { membersService, type Member } from '@/services/members.service';
+import { membersService, type Member, type UpdateMemberRequest } from '@/services/members.service';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -81,6 +81,13 @@ export default function ProfilePage() {
         }
         const profile = await membersService.getMe();
         setMember(profile);
+        const childrenArray = Array.isArray(profile.children)
+          ? (profile.children as Array<{ name?: string; gender?: string; dateOfBirth?: string }>).map((c) => ({
+              name: c?.name ?? '',
+              gender: c?.gender ?? '',
+              dateOfBirth: c?.dateOfBirth ?? '',
+            }))
+          : [];
         setEditForm({
           firstName: profile.firstName || '',
           lastName: profile.lastName || '',
@@ -96,15 +103,15 @@ export default function ProfilePage() {
           encounterType: getEncounterTypeDisplay(profile.encounterType),
           classNumber: profile.classNumber.toString(),
           serviceArea: profile.serviceArea || '',
-          gender: '',
-          profession: '',
-          civilStatus: '',
-          dateOfBirth: '',
-          spouseName: '',
-          dateOfMarriage: '',
-          numberOfChildren: 0,
-          children: [],
-          dateOfEncounter: '',
+          gender: profile.gender ?? '',
+          profession: profile.profession ?? '',
+          civilStatus: profile.civilStatus ?? '',
+          dateOfBirth: profile.dateOfBirth ?? '',
+          spouseName: profile.spouseName ?? '',
+          dateOfMarriage: profile.dateOfMarriage ?? '',
+          numberOfChildren: typeof profile.numberOfChildren === 'number' ? profile.numberOfChildren : 0,
+          children: childrenArray,
+          dateOfEncounter: profile.dateOfEncounter ?? '',
         });
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Failed to load profile';
@@ -143,7 +150,7 @@ export default function ProfilePage() {
     setSaving(true);
     try {
       // Only send fields that are actually part of the member/user update (match Members management)
-      const updateData: Record<string, string | null> = {
+      const updateData: Record<string, string | number | string[] | Array<{ name: string; gender: string; dateOfBirth: string }> | null> = {
         firstName: editForm.firstName,
         lastName: editForm.lastName,
         middleName: editForm.middleName || null,
@@ -157,6 +164,15 @@ export default function ProfilePage() {
         apostolate: editForm.apostolate?.trim() || null,
         ministry: editForm.ministry?.trim() || null,
         serviceArea: editForm.serviceArea || null,
+        gender: editForm.gender?.trim() || null,
+        profession: editForm.profession?.trim() || null,
+        civilStatus: editForm.civilStatus?.trim() || null,
+        dateOfBirth: editForm.dateOfBirth?.trim() || null,
+        spouseName: editForm.spouseName?.trim() || null,
+        dateOfMarriage: editForm.dateOfMarriage?.trim() || null,
+        numberOfChildren: editForm.numberOfChildren,
+        children: editForm.children,
+        dateOfEncounter: editForm.dateOfEncounter?.trim() || null,
       };
       if (userRole === 'SUPER_USER' && editForm.communityId?.trim()) {
         updateData.communityId = editForm.communityId.trim();
@@ -168,8 +184,8 @@ export default function ProfilePage() {
           delete updateData[key];
         }
       });
-      
-      await membersService.updateMe(updateData);
+
+      await membersService.updateMe(updateData as UpdateMemberRequest);
       toast.success('Profile Updated', {
         description: 'Your profile has been updated successfully.',
       });
@@ -289,6 +305,13 @@ export default function ProfilePage() {
                     onClick={() => {
                       setIsEditing(false);
                       // Reset form to original values
+                      const childrenArray = Array.isArray(member.children)
+                        ? (member.children as Array<{ name?: string; gender?: string; dateOfBirth?: string }>).map((c) => ({
+                            name: c?.name ?? '',
+                            gender: c?.gender ?? '',
+                            dateOfBirth: c?.dateOfBirth ?? '',
+                          }))
+                        : [];
                       setEditForm({
                         firstName: member.firstName || '',
                         lastName: member.lastName || '',
@@ -304,15 +327,15 @@ export default function ProfilePage() {
                         encounterType: getEncounterTypeDisplay(member.encounterType),
                         classNumber: member.classNumber.toString(),
                         serviceArea: member.serviceArea || '',
-                        gender: '',
-                        profession: '',
-                        civilStatus: '',
-                        dateOfBirth: '',
-                        spouseName: '',
-                        dateOfMarriage: '',
-                        numberOfChildren: 0,
-                        children: [],
-                        dateOfEncounter: '',
+                        gender: member.gender ?? '',
+                        profession: member.profession ?? '',
+                        civilStatus: member.civilStatus ?? '',
+                        dateOfBirth: member.dateOfBirth ?? '',
+                        spouseName: member.spouseName ?? '',
+                        dateOfMarriage: member.dateOfMarriage ?? '',
+                        numberOfChildren: typeof member.numberOfChildren === 'number' ? member.numberOfChildren : 0,
+                        children: childrenArray,
+                        dateOfEncounter: member.dateOfEncounter ?? '',
                       });
                     }}
                     variant="outline"
@@ -436,6 +459,131 @@ export default function ProfilePage() {
                       />
                     ) : (
                       <p className="mt-2 text-lg text-gray-800">{member.user.phone || '-'}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Personal Information */}
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">Personal Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-base font-semibold text-gray-700">Gender</Label>
+                    {isEditing ? (
+                      <Select
+                        value={editForm.gender || undefined}
+                        onValueChange={(value) => setEditForm({ ...editForm, gender: value })}
+                      >
+                        <SelectTrigger className="mt-2 h-12 text-lg">
+                          <SelectValue placeholder="Select gender" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {GENDERS.map((g) => (
+                            <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="mt-2 text-lg text-gray-800">{member.gender || '-'}</p>
+                    )}
+                  </div>
+                  <div>
+                    <Label className="text-base font-semibold text-gray-700">Civil Status</Label>
+                    {isEditing ? (
+                      <Select
+                        value={editForm.civilStatus || undefined}
+                        onValueChange={(value) => setEditForm({ ...editForm, civilStatus: value })}
+                      >
+                        <SelectTrigger className="mt-2 h-12 text-lg">
+                          <SelectValue placeholder="Select civil status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CIVIL_STATUSES.map((s) => (
+                            <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="mt-2 text-lg text-gray-800">{member.civilStatus || '-'}</p>
+                    )}
+                  </div>
+                  <div>
+                    <Label className="text-base font-semibold text-gray-700">Profession</Label>
+                    {isEditing ? (
+                      <Input
+                        value={editForm.profession}
+                        onChange={(e) => setEditForm({ ...editForm, profession: e.target.value })}
+                        className="mt-2 h-12 text-lg"
+                        placeholder="e.g. Engineer, Teacher"
+                      />
+                    ) : (
+                      <p className="mt-2 text-lg text-gray-800">{member.profession || '-'}</p>
+                    )}
+                  </div>
+                  <div>
+                    <Label className="text-base font-semibold text-gray-700">Date of Birth</Label>
+                    {isEditing ? (
+                      <Input
+                        type="date"
+                        value={editForm.dateOfBirth}
+                        onChange={(e) => setEditForm({ ...editForm, dateOfBirth: e.target.value })}
+                        className="mt-2 h-12 text-lg"
+                      />
+                    ) : (
+                      <p className="mt-2 text-lg text-gray-800">{member.dateOfBirth || '-'}</p>
+                    )}
+                  </div>
+                  <div>
+                    <Label className="text-base font-semibold text-gray-700">Date of Encounter</Label>
+                    {isEditing ? (
+                      <Input
+                        type="date"
+                        value={editForm.dateOfEncounter}
+                        onChange={(e) => setEditForm({ ...editForm, dateOfEncounter: e.target.value })}
+                        className="mt-2 h-12 text-lg"
+                      />
+                    ) : (
+                      <p className="mt-2 text-lg text-gray-800">{member.dateOfEncounter || '-'}</p>
+                    )}
+                  </div>
+                  <div>
+                    <Label className="text-base font-semibold text-gray-700">Spouse Name</Label>
+                    {isEditing ? (
+                      <Input
+                        value={editForm.spouseName}
+                        onChange={(e) => setEditForm({ ...editForm, spouseName: e.target.value })}
+                        className="mt-2 h-12 text-lg"
+                      />
+                    ) : (
+                      <p className="mt-2 text-lg text-gray-800">{member.spouseName || '-'}</p>
+                    )}
+                  </div>
+                  <div>
+                    <Label className="text-base font-semibold text-gray-700">Date of Marriage</Label>
+                    {isEditing ? (
+                      <Input
+                        type="date"
+                        value={editForm.dateOfMarriage}
+                        onChange={(e) => setEditForm({ ...editForm, dateOfMarriage: e.target.value })}
+                        className="mt-2 h-12 text-lg"
+                      />
+                    ) : (
+                      <p className="mt-2 text-lg text-gray-800">{member.dateOfMarriage || '-'}</p>
+                    )}
+                  </div>
+                  <div>
+                    <Label className="text-base font-semibold text-gray-700">Number of Children</Label>
+                    {isEditing ? (
+                      <Input
+                        type="number"
+                        min={0}
+                        value={editForm.numberOfChildren}
+                        onChange={(e) => setEditForm({ ...editForm, numberOfChildren: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                        className="mt-2 h-12 text-lg"
+                      />
+                    ) : (
+                      <p className="mt-2 text-lg text-gray-800">{member.numberOfChildren ?? '-'}</p>
                     )}
                   </div>
                 </div>

@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Search, Users, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Loader2, RefreshCw, Download, Save } from 'lucide-react';
-import { membersService, type Member, type MemberQueryParams } from '@/services/members.service';
+import { membersService, type Member, type MemberQueryParams, type UpdateMemberRequest } from '@/services/members.service';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -550,15 +550,15 @@ export default function MembersPage() {
       classNumber: member.classNumber.toString(),
       communityId: member.communityId || '',
       serviceArea: member.serviceArea || '',
-      gender: '',
-      profession: '',
-      civilStatus: '',
-      dateOfBirth: '',
-      spouseName: '',
-      dateOfMarriage: '',
-      numberOfChildren: 0,
-      children: [],
-      dateOfEncounter: '',
+      gender: member.gender || '',
+      profession: member.profession || '',
+      civilStatus: member.civilStatus || '',
+      dateOfBirth: member.dateOfBirth || '',
+      spouseName: member.spouseName || '',
+      dateOfMarriage: member.dateOfMarriage || '',
+      numberOfChildren: member.numberOfChildren ?? 0,
+      children: Array.isArray(member.children) ? member.children.map((c: { name?: string; gender?: string; dateOfBirth?: string }) => ({ name: c?.name || '', gender: c?.gender || '', dateOfBirth: c?.dateOfBirth || '' })) : [],
+      dateOfEncounter: member.dateOfEncounter || '',
     });
     setShowEditDialog(true);
   };
@@ -574,7 +574,7 @@ export default function MembersPage() {
     const apostolate = (editForm.apostolate || '').trim() || null;
     const ministry = (editForm.ministry || '').trim() || null;
 
-    const updateData: Record<string, string | null> = {
+    const updateData: Record<string, string | number | null | Array<{ name?: string; gender?: string; dateOfBirth?: string }>> = {
       firstName: editForm.firstName,
       lastName: editForm.lastName,
       middleName: editForm.middleName || null,
@@ -588,6 +588,15 @@ export default function MembersPage() {
       apostolate,
       ministry,
       serviceArea: editForm.serviceArea || null,
+      gender: editForm.gender?.trim() || null,
+      profession: editForm.profession?.trim() || null,
+      civilStatus: editForm.civilStatus?.trim() || null,
+      dateOfBirth: editForm.dateOfBirth?.trim() || null,
+      spouseName: editForm.spouseName?.trim() || null,
+      dateOfMarriage: editForm.dateOfMarriage?.trim() || null,
+      numberOfChildren: editForm.numberOfChildren,
+      children: editForm.children?.length ? editForm.children : [],
+      dateOfEncounter: editForm.dateOfEncounter?.trim() || null,
     };
     if (userRole === 'SUPER_USER' && editForm.communityId?.trim()) {
       updateData.communityId = editForm.communityId.trim();
@@ -599,18 +608,21 @@ export default function MembersPage() {
         delete updateData[key];
       }
     });
-    
+
     try {
-      await membersService.update(editingMember.id, updateData);
+      await membersService.update(editingMember.id, updateData as UpdateMemberRequest);
       toast.success('Member Updated', {
         description: 'The member has been updated successfully.',
       });
       setShowEditDialog(false);
       setEditingMember(null);
       loadMembers();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to update member';
-      toast.error('Error', { description: errorMessage });
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string | string[] } }; message?: string };
+      const msg = Array.isArray(err.response?.data?.message)
+        ? err.response.data.message[0]
+        : err.response?.data?.message ?? (error instanceof Error ? error.message : 'Failed to update member');
+      toast.error('Update failed', { description: msg });
     }
   };
 

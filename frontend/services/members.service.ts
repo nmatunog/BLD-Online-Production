@@ -18,6 +18,15 @@ export interface Member {
   serviceArea?: string | null;
   photoUrl?: string | null;
   qrCodeUrl?: string | null;
+  gender?: string | null;
+  profession?: string | null;
+  civilStatus?: string | null;
+  dateOfBirth?: string | null;
+  spouseName?: string | null;
+  dateOfMarriage?: string | null;
+  numberOfChildren?: number | null;
+  children?: Array<{ name?: string; gender?: string; dateOfBirth?: string }> | null;
+  dateOfEncounter?: string | null;
   createdAt: string;
   updatedAt: string;
   user: {
@@ -84,6 +93,15 @@ export interface UpdateMemberRequest {
   ministry?: string;
   serviceArea?: string;
   photoUrl?: string;
+  gender?: string;
+  profession?: string;
+  civilStatus?: string;
+  dateOfBirth?: string;
+  spouseName?: string;
+  dateOfMarriage?: string;
+  numberOfChildren?: number;
+  children?: Array<{ name?: string; gender?: string; dateOfBirth?: string }>;
+  dateOfEncounter?: string;
 }
 
 class MembersService {

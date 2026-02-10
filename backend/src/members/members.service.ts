@@ -436,6 +436,34 @@ export class MembersService {
     if (updateMemberDto.photoUrl !== undefined) {
       updateData.photoUrl = updateMemberDto.photoUrl || null;
     }
+    if (updateMemberDto.gender !== undefined) {
+      updateData.gender = updateMemberDto.gender ? String(updateMemberDto.gender).trim() || null : null;
+    }
+    if (updateMemberDto.profession !== undefined) {
+      updateData.profession = updateMemberDto.profession ? String(updateMemberDto.profession).trim() || null : null;
+    }
+    if (updateMemberDto.civilStatus !== undefined) {
+      updateData.civilStatus = updateMemberDto.civilStatus ? String(updateMemberDto.civilStatus).trim() || null : null;
+    }
+    if (updateMemberDto.dateOfBirth !== undefined) {
+      updateData.dateOfBirth = updateMemberDto.dateOfBirth ? String(updateMemberDto.dateOfBirth).trim() || null : null;
+    }
+    if (updateMemberDto.spouseName !== undefined) {
+      updateData.spouseName = updateMemberDto.spouseName ? String(updateMemberDto.spouseName).trim() || null : null;
+    }
+    if (updateMemberDto.dateOfMarriage !== undefined) {
+      updateData.dateOfMarriage = updateMemberDto.dateOfMarriage ? String(updateMemberDto.dateOfMarriage).trim() || null : null;
+    }
+    if (updateMemberDto.numberOfChildren !== undefined) {
+      const n = Number(updateMemberDto.numberOfChildren);
+      updateData.numberOfChildren = Number.isInteger(n) && n >= 0 ? n : null;
+    }
+    if (updateMemberDto.children !== undefined) {
+      updateData.children = Array.isArray(updateMemberDto.children) ? updateMemberDto.children : null;
+    }
+    if (updateMemberDto.dateOfEncounter !== undefined) {
+      updateData.dateOfEncounter = updateMemberDto.dateOfEncounter ? String(updateMemberDto.dateOfEncounter).trim() || null : null;
+    }
 
     // Update user fields (email and phone); normalize email to lowercase for consistent uniqueness
     if (updateMemberDto.email !== undefined) {
