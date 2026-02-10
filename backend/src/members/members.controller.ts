@@ -152,11 +152,8 @@ export class MembersController {
   ): Promise<ApiResponseDto<unknown>> {
     try {
       const member = await this.membersService.findMe(user.id);
-      const dto = { ...updateMemberDto };
-      if (user.role !== UserRole.SUPER_USER && dto.communityId !== undefined) {
-        delete dto.communityId;
-      }
-      const updatedMember = await this.membersService.update(member.id, dto);
+      const allowCommunityId = user.role === UserRole.SUPER_USER;
+      const updatedMember = await this.membersService.update(member.id, updateMemberDto, { allowCommunityId });
       return {
         success: true,
         data: updatedMember,
@@ -325,11 +322,8 @@ export class MembersController {
       }
     }
 
-    const dto = { ...updateMemberDto };
-    if (user.role !== UserRole.SUPER_USER && dto.communityId !== undefined) {
-      delete dto.communityId;
-    }
-    const updatedMember = await this.membersService.update(id, dto);
+    const allowCommunityId = user.role === UserRole.SUPER_USER;
+    const updatedMember = await this.membersService.update(id, updateMemberDto, { allowCommunityId });
     return {
       success: true,
       data: updatedMember,

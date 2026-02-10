@@ -346,7 +346,11 @@ export class MembersService {
     return member;
   }
 
-  async update(id: string, updateMemberDto: UpdateMemberDto) {
+  async update(
+    id: string,
+    updateMemberDto: UpdateMemberDto,
+    options?: { allowCommunityId?: boolean },
+  ) {
     const member = await this.findOne(id); // Verify member exists
 
     // Normalize apostolate/ministry to canonical form (case-insensitive, trim) so production always matches
@@ -388,7 +392,7 @@ export class MembersService {
     if (updateMemberDto.nickname !== undefined) {
       updateData.nickname = updateMemberDto.nickname || null;
     }
-    if (updateMemberDto.communityId !== undefined) {
+    if (options?.allowCommunityId && updateMemberDto.communityId !== undefined) {
       const raw = updateMemberDto.communityId != null ? String(updateMemberDto.communityId).trim() : '';
       if (raw) {
         const existing = await this.prisma.member.findFirst({
@@ -517,6 +521,9 @@ export class MembersService {
         }
         if (target?.includes('phone')) {
           throw new ConflictException('This phone number is already in use by another account.');
+        }
+        if (target?.includes('communityId')) {
+          throw new BadRequestException('This Community ID is already in use by another member.');
         }
       }
       // Any other Prisma or runtime error → 400 with safe message (never 500)
