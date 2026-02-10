@@ -147,12 +147,16 @@ export class MembersController {
   @ApiResponse({ status: 400, description: 'Invalid data or update failed' })
   @ApiResponse({ status: 404, description: 'Member profile not found' })
   async updateMe(
-    @CurrentUser() user: { id: string },
+    @CurrentUser() user: { id: string; role: string },
     @Body() updateMemberDto: UpdateMemberDto,
   ): Promise<ApiResponseDto<unknown>> {
     try {
       const member = await this.membersService.findMe(user.id);
-      const updatedMember = await this.membersService.update(member.id, updateMemberDto);
+      const dto = { ...updateMemberDto };
+      if (user.role !== UserRole.SUPER_USER && dto.communityId !== undefined) {
+        delete dto.communityId;
+      }
+      const updatedMember = await this.membersService.update(member.id, dto);
       return {
         success: true,
         data: updatedMember,
@@ -321,7 +325,11 @@ export class MembersController {
       }
     }
 
-    const updatedMember = await this.membersService.update(id, updateMemberDto);
+    const dto = { ...updateMemberDto };
+    if (user.role !== UserRole.SUPER_USER && dto.communityId !== undefined) {
+      delete dto.communityId;
+    }
+    const updatedMember = await this.membersService.update(id, dto);
     return {
       success: true,
       data: updatedMember,

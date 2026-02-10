@@ -388,6 +388,20 @@ export class MembersService {
     if (updateMemberDto.nickname !== undefined) {
       updateData.nickname = updateMemberDto.nickname || null;
     }
+    if (updateMemberDto.communityId !== undefined) {
+      const raw = updateMemberDto.communityId != null ? String(updateMemberDto.communityId).trim() : '';
+      if (raw) {
+        const existing = await this.prisma.member.findFirst({
+          where: { communityId: raw, id: { not: id } },
+        });
+        if (existing) {
+          throw new BadRequestException(
+            `Community ID "${raw}" is already in use by another member.`,
+          );
+        }
+        updateData.communityId = raw;
+      }
+    }
     if (updateMemberDto.city !== undefined) {
       const cityVal = updateMemberDto.city != null ? String(updateMemberDto.city).trim() : '';
       updateData.city = cityVal ? cityVal.toUpperCase() : member.city;

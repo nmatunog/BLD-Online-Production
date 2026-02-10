@@ -34,6 +34,7 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [showQRCode, setShowQRCode] = useState<string | null>(null);
+  const [userRole, setUserRole] = useState<string>('');
   const [editForm, setEditForm] = useState({
     firstName: '',
     lastName: '',
@@ -44,6 +45,7 @@ export default function ProfilePage() {
     phone: '',
     apostolate: '',
     ministry: '',
+    communityId: '',
     city: '',
     encounterType: '',
     classNumber: '',
@@ -68,6 +70,15 @@ export default function ProfilePage() {
 
       setLoading(true);
       try {
+        const authData = typeof window !== 'undefined' ? localStorage.getItem('authData') : null;
+        if (authData) {
+          try {
+            const parsed = JSON.parse(authData);
+            setUserRole(parsed.user?.role || '');
+          } catch {
+            // ignore
+          }
+        }
         const profile = await membersService.getMe();
         setMember(profile);
         setEditForm({
@@ -80,6 +91,7 @@ export default function ProfilePage() {
           phone: profile.user?.phone || '',
           apostolate: profile.apostolate || '',
           ministry: profile.ministry || '',
+          communityId: profile.communityId || '',
           city: profile.city || '',
           encounterType: getEncounterTypeDisplay(profile.encounterType),
           classNumber: profile.classNumber.toString(),
@@ -130,8 +142,7 @@ export default function ProfilePage() {
 
     setSaving(true);
     try {
-      // Only send fields that are actually part of the member/user update
-      // Remove fields that aren't in the DTO (like gender, profession, etc.)
+      // Only send fields that are actually part of the member/user update (match Members management)
       const updateData: Record<string, string | null> = {
         firstName: editForm.firstName,
         lastName: editForm.lastName,
@@ -147,7 +158,10 @@ export default function ProfilePage() {
         ministry: editForm.ministry?.trim() || null,
         serviceArea: editForm.serviceArea || null,
       };
-      
+      if (userRole === 'SUPER_USER' && editForm.communityId?.trim()) {
+        updateData.communityId = editForm.communityId.trim();
+      }
+
       // Remove undefined values
       Object.keys(updateData).forEach(key => {
         if (updateData[key] === undefined) {
@@ -285,6 +299,7 @@ export default function ProfilePage() {
                         phone: member.user.phone || '',
                         apostolate: member.apostolate || '',
                         ministry: member.ministry || '',
+                        communityId: member.communityId || '',
                         city: member.city || '',
                         encounterType: getEncounterTypeDisplay(member.encounterType),
                         classNumber: member.classNumber.toString(),
@@ -373,6 +388,19 @@ export default function ProfilePage() {
                     )}
                   </div>
                   <div>
+                    <Label className="text-base font-semibold text-gray-700">Suffix</Label>
+                    {isEditing ? (
+                      <Input
+                        value={editForm.suffix}
+                        onChange={(e) => setEditForm({...editForm, suffix: e.target.value})}
+                        placeholder="e.g. Jr., Sr., III"
+                        className="mt-2 h-12 text-lg"
+                      />
+                    ) : (
+                      <p className="mt-2 text-lg text-gray-800">{member.suffix || '-'}</p>
+                    )}
+                  </div>
+                  <div>
                     <Label className="text-base font-semibold text-gray-700">Nickname</Label>
                     {isEditing ? (
                       <Input
@@ -413,31 +441,47 @@ export default function ProfilePage() {
                 </div>
               </div>
 
-              {/* Community Information */}
+              {/* Community Information (align with Members management: Super User can edit Community ID, City, Encounter) */}
               <div>
                 <h3 className="text-lg font-semibold text-gray-800 mb-4">Community Information</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label className="text-base font-semibold text-gray-700">Community ID</Label>
-                    <p className="mt-2 text-lg font-mono text-gray-800 bg-gray-100 px-3 py-2 rounded">
-                      {member.communityId}
-                    </p>
+                    <Label className="text-base font-semibold text-gray-700">
+                      Community ID
+                      {userRole === 'SUPER_USER' && isEditing && (
+                        <span className="ml-2 text-xs font-normal text-blue-600">(Editable for Super User)</span>
+                      )}
+                    </Label>
+                    {isEditing && userRole === 'SUPER_USER' ? (
+                      <Input
+                        value={editForm.communityId}
+                        onChange={(e) => setEditForm({...editForm, communityId: e.target.value.toUpperCase()})}
+                        className="mt-2 h-12 text-lg font-mono"
+                        placeholder="e.g. CEB-ME-1801"
+                      />
+                    ) : (
+                      <p className="mt-2 text-lg font-mono text-gray-800 bg-gray-100 px-3 py-2 rounded">
+                        {member.communityId}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <Label className="text-base font-semibold text-gray-700">City</Label>
-                    {isEditing ? (
+                    {isEditing && userRole === 'SUPER_USER' ? (
                       <Input
                         value={editForm.city}
                         onChange={(e) => handleInputChange('city', e.target.value)}
                         className="mt-2 h-12 text-lg"
                       />
+                    ) : isEditing ? (
+                      <p className="mt-2 text-lg text-gray-800 bg-gray-100 px-3 py-2 rounded">{member.city}</p>
                     ) : (
                       <p className="mt-2 text-lg text-gray-800">{member.city}</p>
                     )}
                   </div>
                   <div>
                     <Label className="text-base font-semibold text-gray-700">Encounter Type</Label>
-                    {isEditing ? (
+                    {isEditing && userRole === 'SUPER_USER' ? (
                       <Select
                         value={editForm.encounterType || undefined}
                         onValueChange={(value) => setEditForm({...editForm, encounterType: value})}
@@ -451,19 +495,23 @@ export default function ProfilePage() {
                           ))}
                         </SelectContent>
                       </Select>
+                    ) : isEditing ? (
+                      <p className="mt-2 text-lg text-gray-800 bg-gray-100 px-3 py-2 rounded">{getEncounterTypeDisplay(member.encounterType)}</p>
                     ) : (
                       <p className="mt-2 text-lg text-gray-800">{getEncounterTypeDisplay(member.encounterType)}</p>
                     )}
                   </div>
                   <div>
                     <Label className="text-base font-semibold text-gray-700">Class Number</Label>
-                    {isEditing ? (
+                    {isEditing && userRole === 'SUPER_USER' ? (
                       <Input
                         type="text"
                         value={editForm.classNumber}
                         onChange={(e) => setEditForm({...editForm, classNumber: e.target.value})}
                         className="mt-2 h-12 text-lg"
                       />
+                    ) : isEditing ? (
+                      <p className="mt-2 text-lg text-gray-800 bg-gray-100 px-3 py-2 rounded">{member.classNumber}</p>
                     ) : (
                       <p className="mt-2 text-lg text-gray-800">{member.classNumber}</p>
                     )}

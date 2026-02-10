@@ -28,6 +28,10 @@ export class UpdateMemberDto {
 
   @IsString()
   @IsOptional()
+  communityId?: string;
+
+  @IsString()
+  @IsOptional()
   city?: string;
 
   @IsString()

@@ -589,6 +589,9 @@ export default function MembersPage() {
       ministry,
       serviceArea: editForm.serviceArea || null,
     };
+    if (userRole === 'SUPER_USER' && editForm.communityId?.trim()) {
+      updateData.communityId = editForm.communityId.trim();
+    }
 
     // Remove undefined values
     Object.keys(updateData).forEach(key => {

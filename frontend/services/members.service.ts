@@ -76,6 +76,7 @@ export interface UpdateMemberRequest {
   middleName?: string;
   suffix?: string;
   nickname?: string;
+  communityId?: string;
   city?: string;
   encounterType?: string;
   classNumber?: string;
