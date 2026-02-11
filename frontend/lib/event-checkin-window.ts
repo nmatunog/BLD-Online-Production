@@ -43,10 +43,22 @@ export function getEventEnd(event: EventWithDates): Date {
   return parseTime(event.endDate, event.endTime ?? event.startTime);
 }
 
+/**
+ * End of this occurrence for display. Recurring events often have a far-future series endDate;
+ * use startDate + endTime for same-day occurrences so "Ongoing" stops after the occurrence ends.
+ */
+function getDisplayEventEnd(event: EventWithDates): Date {
+  const sameDay = event.startDate === event.endDate;
+  if (event.isRecurring && sameDay) {
+    return parseTime(event.startDate, event.endTime ?? event.startTime);
+  }
+  return getEventEnd(event);
+}
+
 /** True if event should be displayed as "Ongoing" (within check-in window but not past event end). Stops showing Ongoing once event end time has passed. */
 export function isOngoingForDisplay(event: EventWithDates, now: Date = new Date()): boolean {
   const windowStart = getEventWindowStart(event);
-  const eventEnd = getEventEnd(event);
+  const eventEnd = getDisplayEventEnd(event);
   return now >= windowStart && now <= eventEnd;
 }
 

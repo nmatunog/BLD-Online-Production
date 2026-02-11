@@ -58,12 +58,12 @@ export default function EventsPage() {
   /** Admin/Super User: include all ministry-specific events (e.g. all WSC). Default: general + my ministry only. */
   const [includeAllMinistryEvents, setIncludeAllMinistryEvents] = useState(false);
   /** Current user's check-ins: set of event IDs (for "You are already Checked In" on cards) */
-  const [myCheckInEventIds, setMyCheckInEventIds] = useState<Set<string>>(new Set());
+  const [myCheckInEventIds, setMyCheckInEventIds] = useState<Set<string>>(new Set<string>());
   const [pastEvents, setPastEvents] = useState<Event[]>([]);
   const [pastEventsLoaded, setPastEventsLoaded] = useState(false);
   const [pastSelectValue, setPastSelectValue] = useState('');
   /** Past events user added via dropdown (so we show them in completed section even after 7 days) */
-  const [addedPastEventIds, setAddedPastEventIds] = useState<Set<string>>(new Set());
+  const [addedPastEventIds, setAddedPastEventIds] = useState<Set<string>>(new Set<string>());
   // Event categories from old system
   const eventCategories = [
     'Community Worship',
