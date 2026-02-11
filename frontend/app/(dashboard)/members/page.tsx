@@ -1319,7 +1319,7 @@ export default function MembersPage() {
                           )}
                         </>
                       ) : (
-                        <p className="text-gray-700">{getCityLabel(member.city) || member.city || '-'}</p>
+                        <p className="text-gray-700">{editingMember ? (getCityLabel(editingMember.city) || editingMember.city || '-') : '-'}</p>
                       )}
                     </div>
                     <div>
