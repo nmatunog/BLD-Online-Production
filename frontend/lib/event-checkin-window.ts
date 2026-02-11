@@ -44,12 +44,11 @@ export function getEventEnd(event: EventWithDates): Date {
 }
 
 /**
- * End of this occurrence for display. Recurring events often have a far-future series endDate;
- * use startDate + endTime for same-day occurrences so "Ongoing" stops after the occurrence ends.
+ * End of this occurrence for display. Recurring events use startDate for the occurrence;
+ * we never use endDate here so "Ongoing" is correct even if endDate was wrong or stale (e.g. edited later).
  */
 function getDisplayEventEnd(event: EventWithDates): Date {
-  const sameDay = event.startDate === event.endDate;
-  if (event.isRecurring && sameDay) {
+  if (event.isRecurring) {
     return parseTime(event.startDate, event.endTime ?? event.startTime);
   }
   return getEventEnd(event);
