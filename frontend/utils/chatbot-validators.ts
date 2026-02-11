@@ -17,6 +17,9 @@ export const validateName = (name: string): ValidationResult => {
   return { valid: true, normalized: name.trim() };
 };
 
+/** Inputs that map to Cebu (Community ID CEB) */
+const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
+
 export const validateLocation = (location: string): ValidationResult => {
   if (!location || !location.trim()) {
     return {
@@ -25,9 +28,14 @@ export const validateLocation = (location: string): ValidationResult => {
     };
   }
 
-  const normalized = location.trim();
+  const raw = location.trim();
+  const lower = raw.toLowerCase();
+  // Normalize Cebu aliases to "Cebu" so Community ID is CEB-...
+  if (CEBU_ALIASES.some((alias) => lower.includes(alias))) {
+    return { valid: true, normalized: 'Cebu' };
+  }
 
-  const titleCased = normalized
+  const titleCased = raw
     .split(/\s+/)
     .map((word) => {
       if (!word.length) return word;

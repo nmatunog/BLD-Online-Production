@@ -464,7 +464,7 @@ class ChatbotService {
       this.state.step = 'collectingLocation';
       return {
         role: 'bot',
-        content: `Perfect, ${nickname}! You attended ${mappedType}. Which BLD District or location (Outreach/ DIP) did you have your ${mappedType}?`,
+        content: `Perfect, ${nickname}! You attended ${mappedType}. Which BLD District or location (Outreach/ DIP) did you have your ${mappedType}?\n\nYou can type one of: **Cebu**, **Balamban**, **Danao-Compostela**, **Dumaguete**, **Ormoc**, **Manila**, or **Others** (then specify). Talisay, Don Bosco, Holy Family, and Schoenstatt are counted as Cebu.`,
         timestamp: new Date(),
       };
     }
@@ -488,7 +488,7 @@ class ChatbotService {
     this.state.step = 'collectingLocation';
     return {
       role: 'bot',
-      content: `Perfect, ${nickname}! You attended ${validation.normalized}. Which BLD District or location (Outreach/ DIP) did you have your ${validation.normalized}?`,
+      content: `Perfect, ${nickname}! You attended ${validation.normalized}. Which BLD District or location (Outreach/ DIP) did you have your ${validation.normalized}?\n\nYou can type one of: **Cebu**, **Balamban**, **Danao-Compostela**, **Dumaguete**, **Ormoc**, **Manila**, or **Others** (then specify). Talisay, Don Bosco, Holy Family, and Schoenstatt are counted as Cebu.`,
       timestamp: new Date(),
     };
   }
@@ -898,7 +898,7 @@ class ChatbotService {
       this.state.step = 'collectingLocation';
       return {
         role: 'bot',
-        content: `Which BLD District or location (Outreach/ DIP) did you have your ${this.state.data.encounterType}?`,
+        content: `Which BLD District or location (Outreach/ DIP) did you have your ${this.state.data.encounterType}?\n\nYou can type one of: **Cebu**, **Balamban**, **Danao-Compostela**, **Dumaguete**, **Ormoc**, **Manila**, or **Others** (then specify). Talisay, Don Bosco, Holy Family, and Schoenstatt are counted as Cebu.`,
         timestamp: new Date(),
       };
     }

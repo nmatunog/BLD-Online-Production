@@ -17,6 +17,21 @@ import { UserRole } from '@prisma/client';
 import { normalizePhoneNumber } from '../common/utils/phone.util';
 import { EmailService } from '../common/services/email.service';
 
+/** Inputs that map to Cebu (Community ID starts with CEB) */
+const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
+const KNOWN_CITY_CODES = ['CEB', 'BAL', 'DAN', 'DUM', 'ORM', 'MAN'];
+
+function normalizeCityToCode(input: string): string {
+  if (!input || typeof input !== 'string') return '';
+  const raw = input.trim();
+  if (!raw) return '';
+  const lower = raw.toLowerCase();
+  if (CEBU_ALIASES.some((alias) => lower.includes(alias))) return 'CEB';
+  const upper = raw.toUpperCase();
+  if (KNOWN_CITY_CODES.includes(upper)) return upper;
+  return upper.substring(0, 3);
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -103,9 +118,14 @@ export class AuthService {
       (!!masterPhone && normalizedPhone === masterPhone);
     const role: UserRole = isMasterSuperUser ? UserRole.SUPER_USER : UserRole.MEMBER;
 
-    // Generate Community ID
+    const cityCode = normalizeCityToCode(registerDto.city);
+    if (!cityCode) {
+      throw new BadRequestException('City or location is required.');
+    }
+
+    // Generate Community ID (uses 3-letter city code; Talisay/Don Bosco/etc. → CEB)
     const communityId = await this.generateCommunityId(
-      registerDto.city,
+      cityCode,
       registerDto.encounterType,
       registerDto.classNumber,
     );
@@ -130,7 +150,7 @@ export class AuthService {
         );
       }
 
-      // Create member profile
+      // Create member profile (store 3-letter city code)
       const member = await tx.member.create({
         data: {
           userId: user.id,
@@ -140,7 +160,7 @@ export class AuthService {
           suffix: registerDto.suffix || null,
           nickname: registerDto.nickname || null,
           communityId,
-          city: registerDto.city,
+          city: cityCode,
           encounterType: registerDto.encounterType,
           classNumber: classNum, // Store as integer (e.g., 18, not 1801)
         },
