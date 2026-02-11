@@ -2,22 +2,19 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useEffect, useState, useRef, Suspense } from 'react';
+import { useEffect, useState, useRef, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { 
-  QrCode, 
-  CheckCircle, 
-  X, 
-  Camera, 
-  Calendar, 
-  Clock, 
-  MapPin,
-  Users,
+import {
+  QrCode,
+  CheckCircle,
+  X,
+  Camera,
   AlertCircle,
   Loader2,
   UserCheck,
   ArrowLeft,
-  LogIn
+  LogIn,
+  MessageSquare,
 } from 'lucide-react';
 import { attendanceService } from '@/services/attendance.service';
 import { eventsService, type Event } from '@/services/events.service';
@@ -26,213 +23,228 @@ import { membersService } from '@/services/members.service';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { QRScanner, qrUtils } from '@/lib/qr-scanner-service';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import ChatbotSignUp, { type ChatbotSignUpHandle } from '@/components/chatbot/ChatbotSignUp';
+
+const qrCodeRegionId = 'qr-reader-self';
 
 function SelfCheckInContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [isScanning, setIsScanning] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const chatbotRef = useRef<ChatbotSignUpHandle>(null);
+  const scannerRef = useRef<QRScanner | null>(null);
+
+  const [eventList, setEventList] = useState<Event[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState<string>('');
   const [event, setEvent] = useState<Event | null>(null);
+  const [loadingEvents, setLoadingEvents] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [isRegistered, setIsRegistered] = useState(false);
   const [registration, setRegistration] = useState<EventRegistration | null>(null);
   const [isCheckedIn, setIsCheckedIn] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
   const [cameraAvailable, setCameraAvailable] = useState(false);
   const [showRegistrationDialog, setShowRegistrationDialog] = useState(false);
-  const [userRole, setUserRole] = useState<string>('');
-  const [currentMember, setCurrentMember] = useState<any>(null);
-  const scannerRef = useRef<QRScanner | null>(null);
-  const qrCodeRegionId = 'qr-reader-self';
-  const [continuousMode, setContinuousMode] = useState(false);
+  const [currentMember, setCurrentMember] = useState<{ id: string; communityId: string; firstName: string; lastName: string; middleName?: string | null; nickname?: string | null } | null>(null);
 
-  // Check authentication and load member data
+  const loadEventList = useCallback(async () => {
+    setLoadingEvents(true);
+    const params = (status: 'ONGOING' | 'COMPLETED') => ({
+      status,
+      sortBy: 'startDate' as const,
+      sortOrder: (status === 'COMPLETED' ? 'desc' : 'asc') as 'asc' | 'desc',
+      limit: 50,
+    });
+    try {
+      const [ongoingResult, completedResult] = await Promise.all([
+        eventsService.getAll(params('ONGOING')),
+        eventsService.getAll(params('COMPLETED')),
+      ]);
+      const ongoingList =
+        ongoingResult.success && ongoingResult.data?.data
+          ? Array.isArray(ongoingResult.data.data) ? ongoingResult.data.data : []
+          : [];
+      const completedList =
+        completedResult.success && completedResult.data?.data
+          ? (Array.isArray(completedResult.data.data) ? completedResult.data.data : []).filter(
+              (e: Event) => e.isRecurring === true
+            )
+          : [];
+      const seen = new Set<string>();
+      const merged = [...ongoingList, ...completedList].filter((e) => {
+        if (seen.has(e.id)) return false;
+        seen.add(e.id);
+        return true;
+      });
+      merged.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+      setEventList(merged);
+
+      const eventId = searchParams.get('eventId');
+      if (eventId && merged.some((e) => e.id === eventId)) {
+        setSelectedEventId(eventId);
+      } else if (merged.length > 0 && !selectedEventId) {
+        setSelectedEventId(merged[0].id);
+      }
+    } catch (err) {
+      toast.error('Could not load events', {
+        description: err instanceof Error ? err.message : 'Please try again.',
+      });
+    } finally {
+      setLoadingEvents(false);
+    }
+  }, [searchParams]);
+
+  const checkRegistrationStatus = useCallback(
+    async (eventId: string, memberId: string) => {
+      try {
+        const result = await registrationsService.getRegistrations(eventId, {});
+        if (result.success && result.data?.data) {
+          const memberRegistration = result.data.data.find(
+            (reg: EventRegistration) => reg.memberId === memberId
+          );
+          if (memberRegistration) {
+            setIsRegistered(true);
+            setRegistration(memberRegistration);
+            return;
+          }
+        }
+        setIsRegistered(false);
+        setRegistration(null);
+      } catch {
+        setIsRegistered(false);
+        setRegistration(null);
+      }
+    },
+    []
+  );
+
+  const checkCheckInStatus = useCallback(async (eventId: string, memberId: string) => {
+    try {
+      const result = await attendanceService.getByEvent(eventId);
+      if (result.success && result.data) {
+        const attendance = result.data.find((a: { memberId: string }) => a.memberId === memberId);
+        setIsCheckedIn(!!attendance);
+      } else {
+        setIsCheckedIn(false);
+      }
+    } catch {
+      setIsCheckedIn(false);
+    }
+  }, []);
+
+  const loadEvent = useCallback(
+    async (eventId: string) => {
+      try {
+        setLoading(true);
+        setIsRegistered(false);
+        setRegistration(null);
+        setIsCheckedIn(false);
+        const result = await eventsService.getById(eventId);
+        if (!result.success || !result.data) {
+          toast.error('Event not found');
+          return;
+        }
+        const loaded = result.data;
+        setEvent(loaded);
+        setEventList((prev) => {
+          if (prev.some((e) => e.id === loaded.id)) return prev;
+          return [loaded, ...prev];
+        });
+        let member = currentMember;
+        if (!member?.id) {
+          const memberResult = await membersService.getMe();
+          if (memberResult?.id) {
+            setCurrentMember(memberResult);
+            member = memberResult;
+          }
+        }
+        if (member?.id) {
+          await checkRegistrationStatus(eventId, member.id);
+          await checkCheckInStatus(eventId, member.id);
+        }
+      } catch (e) {
+        toast.error('Failed to load event', {
+          description: e instanceof Error ? e.message : 'Please try again.',
+        });
+      } finally {
+        setLoading(false);
+      }
+    },
+    [currentMember?.id, checkRegistrationStatus, checkCheckInStatus]
+  );
+
   useEffect(() => {
     if (!authService.isAuthenticated()) {
       router.push('/login');
       return;
     }
-
-    const loadMemberData = async () => {
+    const loadMember = async () => {
       try {
-        const authData = localStorage.getItem('authData');
-        if (authData) {
-          const parsed = JSON.parse(authData);
-          setUserRole(parsed.user?.role || '');
-          
-          // Load current member profile
-          if (parsed.user?.id) {
-            try {
-              const memberResult = await membersService.getMe();
-              if (memberResult) {
-                setCurrentMember(memberResult);
-              }
-            } catch (error) {
-              console.error('Error loading member data:', error);
-            }
-          }
-        }
-      } catch (error) {
-        console.error('Error parsing auth data:', error);
+        const memberResult = await membersService.getMe();
+        if (memberResult) setCurrentMember(memberResult);
+      } catch {
+        // ignore
       }
     };
-
-    loadMemberData();
+    loadMember();
+    loadEventList();
     checkCameraAvailability();
-    
-    // Check for eventId in URL parameters
+  }, [router, loadEventList]);
+
+  useEffect(() => {
     const eventId = searchParams.get('eventId');
     if (eventId) {
-      loadEvent(eventId);
+      setSelectedEventId(eventId);
     }
-  }, [router, searchParams]);
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (selectedEventId && eventList.length > 0) {
+      loadEvent(selectedEventId);
+    } else {
+      setEvent(null);
+      setIsRegistered(false);
+      setRegistration(null);
+      setIsCheckedIn(false);
+    }
+  }, [selectedEventId, eventList.length]);
 
   const checkCameraAvailability = async () => {
     try {
       const available = await QRScanner.isCameraAvailable();
       setCameraAvailable(available);
-    } catch (error) {
-      console.error('Camera check failed:', error);
+    } catch {
       setCameraAvailable(false);
-    }
-  };
-
-  const loadEvent = async (eventId: string) => {
-    try {
-      setLoading(true);
-      const result = await eventsService.getById(eventId);
-      if (result.success && result.data) {
-        setEvent(result.data);
-        
-        // Ensure member data is loaded before checking status
-        let memberId = currentMember?.id;
-        if (!memberId) {
-          try {
-            const memberResult = await membersService.getMe();
-            if (memberResult?.id) {
-              setCurrentMember(memberResult);
-              memberId = memberResult.id;
-            }
-          } catch (error) {
-            console.error('Error loading member:', error);
-          }
-        }
-        
-        // Only check status if we have a member ID
-        if (memberId) {
-          await checkRegistrationStatus(eventId, memberId);
-          await checkCheckInStatus(eventId, memberId);
-        }
-      } else {
-        toast.error('Event Not Found', {
-          description: 'The event you are trying to access does not exist.',
-        });
-        router.push('/events');
-      }
-    } catch (error) {
-      console.error('Error loading event:', error);
-      toast.error('Failed to Load Event', {
-        description: error instanceof Error ? error.message : 'Could not load event details',
-      });
-      router.push('/events');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const checkRegistrationStatus = async (eventId: string, memberId?: string) => {
-    // Use provided memberId or current member
-    const memberIdToUse = memberId || currentMember?.id;
-    
-    if (!memberIdToUse) {
-      // No member ID available, skip check
-      return;
-    }
-    
-    try {
-      const result = await registrationsService.getRegistrations(eventId, {});
-      if (result.success && result.data?.data) {
-        const memberRegistration = result.data.data.find(
-          (reg: EventRegistration) => reg.memberId === memberIdToUse
-        );
-        if (memberRegistration) {
-          setIsRegistered(true);
-          setRegistration(memberRegistration);
-        }
-      }
-    } catch (error) {
-      console.error('Error checking registration:', error);
-    }
-  };
-
-  const checkCheckInStatus = async (eventId: string, memberId?: string) => {
-    // Use provided memberId or current member
-    const memberIdToUse = memberId || currentMember?.id;
-    
-    if (!memberIdToUse) {
-      // No member ID available, skip check
-      return;
-    }
-    
-    try {
-      // Check if member is already checked in
-      const result = await attendanceService.getByEvent(eventId);
-      if (result.success && result.data) {
-        const attendance = result.data.find((a: any) => a.memberId === memberIdToUse);
-        if (attendance) {
-          setIsCheckedIn(true);
-        }
-      }
-    } catch (error) {
-      console.error('Error checking check-in status:', error);
     }
   };
 
   const startQRScanner = async () => {
     if (!cameraAvailable) {
-      toast.error('Camera Not Available', {
-        description: 'Please enable camera permissions to scan QR codes',
-      });
+      toast.error('Camera not available. Please enable camera permissions.');
       return;
     }
-
-    // Set scanning state first so the DOM element is rendered
     setIsScanning(true);
-
-    // Wait for the DOM element to be available
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    // Check if element exists
-    const element = document.getElementById(qrCodeRegionId);
-    if (!element) {
+    await new Promise((r) => setTimeout(r, 100));
+    const el = document.getElementById(qrCodeRegionId);
+    if (!el) {
       setIsScanning(false);
-      toast.error('Scanner Element Not Found', {
-        description: 'Please try again',
-      });
+      toast.error('Scanner could not start. Try again.');
       return;
     }
-
     try {
-      scannerRef.current = new QRScanner(
-        qrCodeRegionId,
-        handleQRScanSuccess,
-        handleQRScanError,
-        {
-          continuousMode,
-          fps: 10,
-        }
-      );
-
-      await scannerRef.current.start();
-    } catch (error) {
-      console.error('Failed to start QR scanner:', error);
-      setIsScanning(false);
-      toast.error('Failed to Start Scanner', {
-        description: error instanceof Error ? error.message : 'Could not access camera',
+      scannerRef.current = new QRScanner(qrCodeRegionId, handleQRScanSuccess, handleQRScanError, {
+        continuousMode: true,
+        fps: 10,
       });
+      await scannerRef.current.start();
+    } catch (err) {
+      setIsScanning(false);
+      toast.error(err instanceof Error ? err.message : 'Could not start camera');
     }
   };
 
@@ -246,51 +258,38 @@ function SelfCheckInContent() {
 
   const handleQRScanSuccess = async (decodedText: string) => {
     try {
-      // Extract event data from QR code
       const eventData = qrUtils.extractEventData(decodedText);
-      
-      if (eventData && eventData.eventId) {
+      if (eventData?.eventId) {
         await stopQRScanner();
+        setSelectedEventId(eventData.eventId);
+        if (!eventList.some((e) => e.id === eventData.eventId)) {
+          await loadEventList();
+        }
         await loadEvent(eventData.eventId);
+        toast.success('Event selected. You can check in below.');
         return;
       }
-
-      toast.error('Invalid QR Code', {
-        description: 'Please scan a valid event QR code',
-      });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to process QR code';
-      toast.error('Scan Failed', {
-        description: errorMessage,
-      });
+      toast.error('Please scan a valid event QR code.');
+    } catch {
+      toast.error('Invalid QR code.');
     }
   };
 
-  const handleQRScanError = (errorMessage: string) => {
-    // Only log non-continuous scanning errors
-    if (
-      !errorMessage.includes('No barcode or QR code detected') &&
-      !errorMessage.includes('No MultiFormat Readers were able to detect the code')
-    ) {
-      console.error('QR scan error:', errorMessage);
-    }
-  };
+  const handleQRScanError = () => {}
 
   const handleSelfCheckIn = async () => {
     if (!event || !currentMember?.id) {
-      toast.error('Missing Information', {
-        description: 'Event or member information is missing',
-      });
+      toast.error('Event or member information is missing.');
       return;
     }
-
     if (isCheckedIn) {
-      toast.info('Already Checked In', {
-        description: 'You have already checked in to this event',
-      });
+      toast.info('You are already checked in.');
       return;
     }
-
+    if (event.hasRegistration && !isRegistered) {
+      setShowRegistrationDialog(true);
+      return;
+    }
     setLoading(true);
     try {
       const result = await attendanceService.checkIn({
@@ -298,32 +297,17 @@ function SelfCheckInContent() {
         eventId: event.id,
         method: 'QR_CODE',
       });
-
       if (result.success) {
         setIsCheckedIn(true);
-        toast.success('✅ Check-in Successful!', {
-          description: 'You have been successfully checked in to this event',
-          duration: 5000,
-        });
+        toast.success('You’re checked in!');
       }
-    } catch (error: any) {
-      let errorMessage = 'Failed to check in';
-      
-      if (error?.response?.data) {
-        const errorData = error.response.data;
-        if (Array.isArray(errorData.message)) {
-          errorMessage = errorData.message.join(', ');
-        } else if (errorData.message) {
-          errorMessage = errorData.message;
-        }
-      } else if (error instanceof Error) {
-        errorMessage = error.message;
-      }
-      
-      toast.error('Check-in Failed', {
-        description: errorMessage,
-        duration: 5000,
-      });
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === 'object' && 'response' in err && err.response && typeof err.response === 'object' && 'data' in err.response
+          ? (err.response as { data?: { message?: string | string[] } }).data?.message
+          : null;
+      const str = Array.isArray(msg) ? msg.join(', ') : typeof msg === 'string' ? msg : 'Check-in failed.';
+      toast.error(str);
     } finally {
       setLoading(false);
     }
@@ -331,67 +315,45 @@ function SelfCheckInContent() {
 
   const handleRegister = async () => {
     if (!event || !currentMember) {
-      toast.error('Missing Information', {
-        description: 'Event or member information is missing',
-      });
+      toast.error('Missing information.');
       return;
     }
-
     if (isRegistered) {
-      toast.info('Already Registered', {
-        description: 'You are already registered for this event',
-      });
+      setShowRegistrationDialog(false);
       return;
     }
-
     setLoading(true);
     try {
       const result = await registrationsService.registerMember(event.id, {
         memberCommunityId: currentMember.communityId,
         lastName: currentMember.lastName,
         firstName: currentMember.firstName,
-        middleName: currentMember.middleName || undefined,
-        nickname: currentMember.nickname || undefined,
+        middleName: currentMember.middleName ?? undefined,
+        nickname: currentMember.nickname ?? undefined,
       });
-
       if (result.success && result.data) {
         setIsRegistered(true);
         setRegistration(result.data);
         setShowRegistrationDialog(false);
-        toast.success('Registration Successful!', {
-          description: 'You have been successfully registered for this event',
-          duration: 5000,
-        });
+        toast.success('Registered. You can check in now.');
       }
-    } catch (error: any) {
-      let errorMessage = 'Failed to register';
-      
-      if (error?.response?.data) {
-        const errorData = error.response.data;
-        if (Array.isArray(errorData.message)) {
-          errorMessage = errorData.message.join(', ');
-        } else if (errorData.message) {
-          errorMessage = errorData.message;
-        }
-      } else if (error instanceof Error) {
-        errorMessage = error.message;
-      }
-      
-      toast.error('Registration Failed', {
-        description: errorMessage,
-        duration: 5000,
-      });
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === 'object' && 'response' in err && err.response && typeof err.response === 'object' && 'data' in err.response
+          ? (err.response as { data?: { message?: string | string[] } }).data?.message
+          : null;
+      const str = Array.isArray(msg) ? msg.join(', ') : typeof msg === 'string' ? msg : 'Registration failed.';
+      toast.error(str);
     } finally {
       setLoading(false);
     }
   };
 
-  const formatDate = (dateString: string): string => {
+  const formatDate = (dateString: string) => {
     try {
-      const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', {
+      return new Date(dateString).toLocaleDateString('en-US', {
         year: 'numeric',
-        month: 'long',
+        month: 'short',
         day: 'numeric',
       });
     } catch {
@@ -399,34 +361,33 @@ function SelfCheckInContent() {
     }
   };
 
-  const formatTime = (timeString: string): string => {
+  const formatTime = (timeString: string) => {
     try {
-      const [hours, minutes] = timeString.split(':');
-      const hour = parseInt(hours, 10);
+      const [h, m] = timeString.split(':');
+      const hour = parseInt(h, 10);
       const ampm = hour >= 12 ? 'PM' : 'AM';
       const displayHour = hour % 12 || 12;
-      return `${displayHour}:${minutes} ${ampm}`;
+      return `${displayHour}:${m} ${ampm}`;
     } catch {
       return timeString;
     }
   };
 
-  if (loading && !event) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
-      </div>
-    );
-  }
+  const canCheckIn =
+    event &&
+    currentMember &&
+    !isCheckedIn &&
+    event.status !== 'CANCELLED' &&
+    (event.status === 'ONGOING' || (event.status === 'COMPLETED' && event.isRecurring));
 
   if (!authService.isAuthenticated()) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <Card className="max-w-md w-full">
           <CardContent className="p-8 text-center">
             <AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
-            <h2 className="text-2xl font-bold mb-2 text-gray-800">Authentication Required</h2>
-            <p className="text-gray-600 mb-4">Please log in to check in or register for events</p>
+            <h2 className="text-xl font-bold mb-2 text-gray-800">Sign in required</h2>
+            <p className="text-gray-600 mb-4">Log in to check in or register for events.</p>
             <Button onClick={() => router.push('/login')} className="bg-purple-600 hover:bg-purple-700">
               <LogIn className="w-4 h-4 mr-2" />
               Go to Login
@@ -440,303 +401,210 @@ function SelfCheckInContent() {
   return (
     <div className="min-h-screen bg-gray-50">
       <DashboardHeader />
-      <div className="p-4 md:p-6">
-        <div className="max-w-4xl mx-auto space-y-6">
-          {/* Header */}
-          <div className="flex items-center gap-4">
-            <Button
-              variant="outline"
-              onClick={() => router.push('/events')}
-              className="flex items-center gap-2"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              Back to Events
-            </Button>
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Self Check-In & Registration</h1>
-              <p className="text-gray-600 mt-1">Scan an event QR code to check in or register</p>
-            </div>
+      <div className="p-4 md:p-6 max-w-xl mx-auto">
+        <div className="flex items-center gap-3 mb-6">
+          <Button variant="ghost" size="icon" onClick={() => router.push('/checkin')} aria-label="Back">
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Self Check-In</h1>
+            <p className="text-sm text-gray-500">Choose an event and check in, or scan the event QR.</p>
           </div>
+        </div>
 
-          {/* QR Scanner Section */}
-          {!event && (
-            <Card className="bg-white border-purple-200 shadow-sm">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <QrCode className="w-6 h-6 text-purple-600" />
-                  Scan Event QR Code
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {!isScanning ? (
-                  <div className="text-center py-8">
-                    <Camera className="w-16 h-16 mx-auto mb-4 text-gray-400" />
-                    <p className="text-gray-600 mb-4">
-                      Click the button below to start scanning an event QR code
-                    </p>
-                    <Button
-                      onClick={startQRScanner}
-                      disabled={!cameraAvailable}
-                      className="bg-purple-600 hover:bg-purple-700 text-white"
-                      size="lg"
-                    >
-                      <Camera className="w-5 h-5 mr-2" />
-                      Start Scanning
-                    </Button>
-                    {!cameraAvailable && (
-                      <p className="text-sm text-red-600 mt-2">
-                        Camera not available. Please enable camera permissions.
-                      </p>
-                    )}
+        <Card className="bg-white border border-gray-200 shadow-sm">
+          <CardContent className="p-5 space-y-5">
+            {/* Event dropdown */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Which event?</label>
+              {loadingEvents ? (
+                <div className="flex items-center gap-2 text-gray-500 text-sm">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading events…
+                </div>
+              ) : eventList.length === 0 ? (
+                <p className="text-sm text-gray-500">No ongoing or recent recurring events.</p>
+              ) : (
+                <Select
+                  value={selectedEventId || undefined}
+                  onValueChange={(v) => setSelectedEventId(v)}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select an event" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {eventList.map((e) => (
+                      <SelectItem key={e.id} value={e.id}>
+                        {e.title} — {formatDate(e.startDate)}
+                        {e.status === 'ONGOING' ? ' · Ongoing' : ''}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+
+            {/* Event summary + Check-in */}
+            {event && (
+              <div className="rounded-lg bg-gray-50 p-4 space-y-4">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600">
+                  <span className="font-medium text-gray-900">{event.title}</span>
+                  <span>{formatDate(event.startDate)}</span>
+                  {event.startTime && <span>{formatTime(event.startTime)}</span>}
+                  <Badge
+                    variant={event.status === 'ONGOING' ? 'default' : 'secondary'}
+                    className={event.status === 'ONGOING' ? 'bg-green-600' : ''}
+                  >
+                    {event.status}
+                  </Badge>
+                </div>
+                {loading ? (
+                  <div className="flex items-center gap-2 text-gray-500 text-sm">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Loading…
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    <div id={qrCodeRegionId} className="w-full min-h-[300px]" />
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={stopQRScanner}
-                        variant="outline"
-                        className="flex-1"
-                      >
-                        <X className="w-4 h-4 mr-2" />
-                        Stop Scanning
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Event Details and Actions */}
-          {event && (
-            <div className="space-y-6">
-              {/* Event Information Card */}
-              <Card className="bg-gradient-to-br from-purple-50 to-blue-50 border-purple-200 shadow-sm">
-                <CardHeader>
-                  <CardTitle className="text-2xl text-purple-800">{event.title}</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="flex items-start gap-3">
-                      <Calendar className="w-5 h-5 text-purple-600 mt-0.5" />
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">Date</p>
-                        <p className="text-base font-semibold text-gray-900">{formatDate(event.startDate)}</p>
-                      </div>
-                    </div>
-                    {event.startTime && (
-                      <div className="flex items-start gap-3">
-                        <Clock className="w-5 h-5 text-purple-600 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Time</p>
-                          <p className="text-base font-semibold text-gray-900">{formatTime(event.startTime)}</p>
-                        </div>
-                      </div>
+                  <>
+                    {event.hasRegistration && !isRegistered && (
+                      <p className="text-sm text-amber-700">
+                        This event requires registration. Register below, then check in.
+                      </p>
                     )}
-                    {event.location && (
-                      <div className="flex items-start gap-3">
-                        <MapPin className="w-5 h-5 text-purple-600 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium text-gray-600">Location</p>
-                          <p className="text-base font-semibold text-gray-900">{event.location}</p>
-                        </div>
-                      </div>
-                    )}
-                    <div className="flex items-start gap-3">
-                      <Users className="w-5 h-5 text-purple-600 mt-0.5" />
-                      <div>
-                        <p className="text-sm font-medium text-gray-600">Status</p>
-                        <Badge 
-                          variant={event.status === 'UPCOMING' ? 'default' : event.status === 'ONGOING' ? 'default' : 'secondary'}
-                          className={event.status === 'UPCOMING' ? 'bg-green-600' : event.status === 'ONGOING' ? 'bg-blue-600' : ''}
-                        >
-                          {event.status}
-                        </Badge>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Registration Status */}
-              {event.hasRegistration && (
-                <Card className="bg-white border-blue-200 shadow-sm">
-                  <CardHeader>
-                    <CardTitle className="text-lg">Registration Status</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {isRegistered ? (
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <CheckCircle className="w-6 h-6 text-green-600" />
-                          <div>
-                            <p className="font-semibold text-gray-900">Registered</p>
-                            {registration?.paymentStatus && (
-                              <div className="text-sm text-gray-600 mt-1">
-                                Payment: <Badge variant={registration.paymentStatus === 'PAID' ? 'default' : 'secondary'}>
-                                  {registration.paymentStatus}
-                                </Badge>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <Button
-                          variant="outline"
-                          onClick={() => router.push(`/event-registrations?eventId=${event.id}`)}
-                        >
-                          View Details
-                        </Button>
+                    {isCheckedIn ? (
+                      <div className="flex items-center gap-2 text-green-700">
+                        <CheckCircle className="w-5 h-5 shrink-0" />
+                        <span className="font-medium">You’re checked in</span>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-semibold text-gray-900">Not Registered</p>
-                          <p className="text-sm text-gray-600">Register now to secure your spot</p>
-                        </div>
-                        <Button
-                          onClick={() => setShowRegistrationDialog(true)}
-                          className="bg-blue-600 hover:bg-blue-700 text-white"
-                        >
-                          <UserCheck className="w-4 h-4 mr-2" />
-                          Register Now
-                        </Button>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Check-In Status */}
-              <Card className="bg-white border-green-200 shadow-sm">
-                <CardHeader>
-                  <CardTitle className="text-lg">Check-In Status</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {isCheckedIn ? (
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="w-6 h-6 text-green-600" />
-                        <div>
-                          <p className="font-semibold text-gray-900">Checked In</p>
-                          <p className="text-sm text-gray-600">You have successfully checked in to this event</p>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-semibold text-gray-900">Not Checked In</p>
-                        <p className="text-sm text-gray-600">
-                          {event.status === 'UPCOMING' 
-                            ? 'Check-in will be available 2 hours before the event starts'
-                            : event.status === 'COMPLETED' && event.isRecurring
-                              ? 'Completed recurring event — check-in available anytime'
-                              : 'Click the button below to check in'}
-                        </p>
-                      </div>
                       <Button
                         onClick={handleSelfCheckIn}
-                        disabled={loading || (event.status === 'COMPLETED' && !event.isRecurring) || event.status === 'CANCELLED'}
-                        className="bg-green-600 hover:bg-green-700 text-white"
+                        disabled={!canCheckIn || loading}
+                        className="w-full bg-green-600 hover:bg-green-700 text-white"
+                        size="lg"
                       >
                         {loading ? (
                           <>
                             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Checking In...
+                            Checking in…
+                          </>
+                        ) : event.hasRegistration && !isRegistered ? (
+                          <>
+                            <UserCheck className="w-4 h-4 mr-2" />
+                            Register & Check In
                           </>
                         ) : (
                           <>
                             <CheckCircle className="w-4 h-4 mr-2" />
-                            Check In Now
+                            Check In
                           </>
                         )}
                       </Button>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
 
-              {/* Scan Another Event */}
-              <Card className="bg-white border-gray-200 shadow-sm">
-                <CardContent className="p-6">
-                  <Button
-                    onClick={() => {
-                      setEvent(null);
-                      setIsRegistered(false);
-                      setRegistration(null);
-                      setIsCheckedIn(false);
-                    }}
-                    variant="outline"
-                    className="w-full"
-                  >
-                    <QrCode className="w-4 h-4 mr-2" />
-                    Scan Another Event QR Code
-                  </Button>
-                </CardContent>
-              </Card>
+            {/* Actions: AI Assistant + QR */}
+            <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-gray-100">
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => chatbotRef.current?.open('signup')}
+              >
+                <MessageSquare className="w-4 h-4 mr-2" />
+                AI Assistant
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={isScanning ? stopQRScanner : startQRScanner}
+                disabled={!cameraAvailable}
+              >
+                {isScanning ? (
+                  <>
+                    <X className="w-4 h-4 mr-2" />
+                    Stop scanner
+                  </>
+                ) : (
+                  <>
+                    <Camera className="w-4 h-4 mr-2" />
+                    Check in via QR
+                  </>
+                )}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* QR scanner area */}
+        {isScanning && (
+          <Card className="mt-4 bg-white border border-gray-200">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base flex items-center gap-2">
+                <QrCode className="w-5 h-5 text-purple-600" />
+                Scan event QR code
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div id={qrCodeRegionId} className="w-full min-h-[240px] rounded-lg overflow-hidden bg-black" />
+              <p className="text-sm text-gray-500 mt-2">Point your camera at the event QR code.</p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* Registration dialog */}
+      <Dialog open={showRegistrationDialog} onOpenChange={setShowRegistrationDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Register for this event</DialogTitle>
+            <DialogDescription>
+              {event?.title} — {event ? formatDate(event.startDate) : ''}
+            </DialogDescription>
+          </DialogHeader>
+          {event?.hasRegistration && event.registrationFee != null && Number(event.registrationFee) > 0 && (
+            <div className="bg-blue-50 p-3 rounded-lg text-sm text-gray-700">
+              <span className="font-medium">Fee:</span> ₱{Number(event.registrationFee).toFixed(2)}
             </div>
           )}
+          <div className="flex gap-3">
+            <Button variant="outline" className="flex-1" onClick={() => setShowRegistrationDialog(false)}>
+              Cancel
+            </Button>
+            <Button className="flex-1 bg-blue-600 hover:bg-blue-700" onClick={handleRegister} disabled={loading}>
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Registering…
+                </>
+              ) : (
+                <>
+                  <UserCheck className="w-4 h-4 mr-2" />
+                  Confirm
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
-          {/* Registration Dialog */}
-          <Dialog open={showRegistrationDialog} onOpenChange={setShowRegistrationDialog}>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>Register for Event</DialogTitle>
-                <DialogDescription>
-                  Register for {event?.title} on {event ? formatDate(event.startDate) : ''}
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                {event?.hasRegistration && event.registrationFee && (
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    <p className="text-sm text-gray-600">
-                      <span className="font-semibold">Registration Fee:</span> ₱{parseFloat(event.registrationFee.toString()).toFixed(2)}
-                    </p>
-                  </div>
-                )}
-                <div className="flex gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={() => setShowRegistrationDialog(false)}
-                    className="flex-1"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={handleRegister}
-                    disabled={loading}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Registering...
-                      </>
-                    ) : (
-                      <>
-                        <UserCheck className="w-4 h-4 mr-2" />
-                        Confirm Registration
-                      </>
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
+      <ChatbotSignUp ref={chatbotRef} />
     </div>
   );
 }
 
 export default function SelfCheckInPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-purple-600" />
+        </div>
+      }
+    >
       <SelfCheckInContent />
     </Suspense>
   );
