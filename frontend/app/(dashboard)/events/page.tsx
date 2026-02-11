@@ -173,7 +173,10 @@ export default function EventsPage() {
       // Load current user's check-ins for "You are already Checked In" on cards
       attendanceService.getMe().then((res) => {
         if (res.success && res.data && Array.isArray(res.data)) {
-          setMyCheckInEventIds(new Set(res.data.map((a: { eventId?: string; event?: { id: string } }) => a.eventId ?? a.event?.id).filter(Boolean)));
+          const ids = res.data
+            .map((a: { eventId?: string; event?: { id: string } }) => a.eventId ?? a.event?.id)
+            .filter((id): id is string => typeof id === 'string');
+          setMyCheckInEventIds(new Set(ids));
         }
       }).catch(() => {});
     };
