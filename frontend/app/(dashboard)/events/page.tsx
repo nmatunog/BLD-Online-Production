@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Search, Calendar, Filter, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Clock, MapPin, Users, Loader2, MessageSquare, Sparkles, RefreshCw, CheckCircle, Globe, FolderOpen, UserPlus, UserCheck } from 'lucide-react';
