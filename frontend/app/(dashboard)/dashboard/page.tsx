@@ -180,23 +180,25 @@ export default function DashboardPage() {
 
         {/* Quick Actions Grid */}
         <div className={`grid grid-cols-1 sm:grid-cols-2 ${isAdmin ? 'lg:grid-cols-3 xl:grid-cols-4' : isMember ? 'lg:grid-cols-2 xl:grid-cols-4' : 'lg:grid-cols-2'} gap-4 md:gap-6`}>
-          {/* Check-in - Staff/Admin view */}
-          <Link 
-            href="/checkin"
-            className="bg-card p-4 md:p-6 rounded-xl shadow-lg cursor-pointer hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
-          >
-            <div className="flex flex-col sm:flex-row items-center sm:items-start space-y-3 sm:space-y-0 sm:space-x-3">
-              <div className="flex-shrink-0">
-                <CheckCircle className="text-green-600" size={28} />
+          {/* Check-in - Staff/Admin only (not shown to members) */}
+          {!isMember && (
+            <Link 
+              href="/checkin"
+              className="bg-card p-4 md:p-6 rounded-xl shadow-lg cursor-pointer hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
+            >
+              <div className="flex flex-col sm:flex-row items-center sm:items-start space-y-3 sm:space-y-0 sm:space-x-3">
+                <div className="flex-shrink-0">
+                  <CheckCircle className="text-green-600" size={28} />
+                </div>
+                <div className="text-center sm:text-left">
+                  <h3 className="text-lg md:text-xl font-semibold text-card-foreground mb-1">Check-in</h3>
+                  <p className="text-sm md:text-base text-muted-foreground">Track attendance</p>
+                </div>
               </div>
-              <div className="text-center sm:text-left">
-                <h3 className="text-lg md:text-xl font-semibold text-card-foreground mb-1">Check-in</h3>
-                <p className="text-sm md:text-base text-muted-foreground">Track attendance</p>
-              </div>
-            </div>
-          </Link>
+            </Link>
+          )}
 
-          {/* Self Check-In - Show to members and admins (for testing) */}
+          {/* Self Check-In - Show to members and admins */}
           {(isMember || isAdmin) && (
             <Link 
               href="/checkin/self-checkin"
@@ -208,7 +210,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="text-center sm:text-left">
                   <h3 className="text-lg md:text-xl font-semibold text-card-foreground mb-1">Self Check-In</h3>
-                  <p className="text-sm md:text-base text-muted-foreground">{isMember ? 'Scan event QR code to check in' : 'Test member check-in experience'}</p>
+                  <p className="text-sm md:text-base text-muted-foreground">Check in for an event</p>
                 </div>
               </div>
             </Link>

@@ -22,6 +22,13 @@ import EventCard from '@/components/events/EventCard';
 import ClassShepherdAssignment from '@/components/events/ClassShepherdAssignment';
 import { eventChatbotService } from '@/services/event-chatbot-service';
 import { MINISTRIES_BY_APOSTOLATE } from '@/lib/member-constants';
+import { attendanceService } from '@/services/attendance.service';
+import {
+  isOngoingForDisplay,
+  isCompletedPastWindow,
+  isWithin7DaysOfEnd,
+  isPastEventCategory,
+} from '@/lib/event-checkin-window';
 
 export default function EventsPage() {
   const router = useRouter();
@@ -33,6 +40,7 @@ export default function EventsPage() {
   const [sortBy, setSortBy] = useState<'startDate' | 'title' | 'createdAt'>('startDate');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [userRole, setUserRole] = useState<string>('');
+  const [userMinistry, setUserMinistry] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -49,6 +57,13 @@ export default function EventsPage() {
   const [cancellationReason, setCancellationReason] = useState('');
   /** Admin/Super User: include all ministry-specific events (e.g. all WSC). Default: general + my ministry only. */
   const [includeAllMinistryEvents, setIncludeAllMinistryEvents] = useState(false);
+  /** Current user's check-ins: set of event IDs (for "You are already Checked In" on cards) */
+  const [myCheckInEventIds, setMyCheckInEventIds] = useState<Set<string>>(new Set());
+  const [pastEvents, setPastEvents] = useState<Event[]>([]);
+  const [pastEventsLoaded, setPastEventsLoaded] = useState(false);
+  const [pastSelectValue, setPastSelectValue] = useState('');
+  /** Past events user added via dropdown (so we show them in completed section even after 7 days) */
+  const [addedPastEventIds, setAddedPastEventIds] = useState<Set<string>>(new Set());
   // Event categories from old system
   const eventCategories = [
     'Community Worship',
@@ -141,12 +156,13 @@ export default function EventsPage() {
         return;
       }
 
-      // Get user role from localStorage
+      // Get user role and member ministry from localStorage
       const authData = localStorage.getItem('authData');
       if (authData) {
         try {
           const parsed = JSON.parse(authData);
           setUserRole(parsed.user?.role || '');
+          setUserMinistry(parsed.member?.ministry ?? null);
         } catch (error) {
           console.error('Error parsing auth data:', error);
         }
@@ -154,6 +170,12 @@ export default function EventsPage() {
       
       setAuthLoading(false);
       loadEvents();
+      // Load current user's check-ins for "You are already Checked In" on cards
+      attendanceService.getMe().then((res) => {
+        if (res.success && res.data && Array.isArray(res.data)) {
+          setMyCheckInEventIds(new Set(res.data.map((a: { eventId?: string; event?: { id: string } }) => a.eventId ?? a.event?.id).filter(Boolean)));
+        }
+      }).catch(() => {});
     };
 
     checkAuth();
@@ -209,6 +231,24 @@ export default function EventsPage() {
     return () => clearTimeout(timeoutId);
   }, [searchTerm, filterStatus, filterType, includeAllMinistryEvents, userRole]);
 
+  const loadPastEvents = useCallback(async () => {
+    if (pastEventsLoaded) return;
+    setPastEventsLoaded(true);
+    try {
+      const res = await eventsService.getAll({
+        status: 'COMPLETED',
+        sortBy: 'startDate',
+        sortOrder: 'desc',
+        limit: 30,
+      });
+      const list = res.success && res.data?.data && Array.isArray(res.data.data) ? res.data.data : [];
+      const past = list.filter((e) => isPastEventCategory(e.category)).slice(0, 10);
+      setPastEvents(past);
+    } catch {
+      setPastEvents([]);
+    }
+  }, [pastEventsLoaded]);
+
   // Get unique values for filters (normalize legacy Corporate Worship → Community Worship)
   const uniqueTypes = useMemo(() => {
     const types = new Set(events.map(e => categoryForDisplay(e.category)).filter(Boolean));
@@ -261,7 +301,7 @@ export default function EventsPage() {
     return filtered;
   }, [events, searchTerm, filterStatus, filterType, sortBy, sortOrder]);
 
-  // Group events by status
+  // Group events: ongoing (in check-in window) first, then upcoming, then completed within 7 days. Hide completed past 7 days from main list.
   const groupedEvents = useMemo(() => {
     const grouped = {
       upcoming: [] as Event[],
@@ -271,24 +311,25 @@ export default function EventsPage() {
     };
 
     filteredEvents.forEach(event => {
-      switch (event.status) {
-        case 'UPCOMING':
-          grouped.upcoming.push(event);
-          break;
-        case 'ONGOING':
-          grouped.ongoing.push(event);
-          break;
-        case 'COMPLETED':
-          grouped.completed.push(event);
-          break;
-        case 'CANCELLED':
-          grouped.cancelled.push(event);
-          break;
+      if (event.status === 'CANCELLED') {
+        grouped.cancelled.push(event);
+        return;
+      }
+      const ongoingDisplay = isOngoingForDisplay(event, currentTime);
+      const pastWindow = isCompletedPastWindow(event, currentTime);
+      const within7 = isWithin7DaysOfEnd(event, currentTime);
+
+      if (ongoingDisplay) {
+        grouped.ongoing.push(event);
+      } else if (pastWindow) {
+        if (within7 || addedPastEventIds.has(event.id)) grouped.completed.push(event);
+      } else {
+        grouped.upcoming.push(event);
       }
     });
 
     return grouped;
-  }, [filteredEvents]);
+  }, [filteredEvents, currentTime, addedPastEventIds]);
 
   // Format date for display
   const formatDate = (dateString: string): string => {
@@ -1060,6 +1101,51 @@ export default function EventsPage() {
           </div>
         </div>
 
+        {/* Ongoing Events (in check-in window: 2hr before start → 2hr after end) — first card/section */}
+        {groupedEvents.ongoing.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-gray-900 flex items-center">
+                <span className="w-3 h-3 bg-orange-500 rounded-full mr-3"></span>
+                <span className="bg-gradient-to-r from-orange-600 to-orange-700 bg-clip-text text-transparent">Ongoing Events</span>
+                <span className="ml-3 px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-semibold">{groupedEvents.ongoing.length}</span>
+              </h3>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {groupedEvents.ongoing.map((event) => (
+                <EventCard
+                  key={event.id}
+                  event={event}
+                  onEdit={() => handleEditEvent(event)}
+                  onDelete={() => handleDelete(event.id)}
+                  onCancel={() => handleCancelEvent(event)}
+                  onGenerateQR={() => handleRegenerateQR(event.id)}
+                  onViewQR={() => handleViewQR(event)}
+                  onToggleStatus={() => handleToggleStatus(event.id)}
+                  onAssignShepherds={() => {
+                    setSelectedEventForShepherds(event);
+                    setShowShepherdDialog(true);
+                  }}
+                  onCreateRegistration={() => {
+                    router.push(`/event-registrations?eventId=${event.id}`);
+                  }}
+                  onViewAccounting={() => {
+                    router.push(`/accounting/${event.id}`);
+                  }}
+                  canEdit={canEdit}
+                  canDelete={canDelete}
+                  isMember={isMember}
+                  userMinistry={userMinistry}
+                  isCheckedIn={myCheckInEventIds.has(event.id)}
+                  formatDate={formatDate}
+                  formatTime={formatTime}
+                  getStatusBadge={getStatusBadge}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Upcoming Events */}
         {groupedEvents.upcoming.length > 0 && (
           <div>
@@ -1093,6 +1179,9 @@ export default function EventsPage() {
                   }}
                   canEdit={canEdit}
                   canDelete={canDelete}
+                  isMember={isMember}
+                  userMinistry={userMinistry}
+                  isCheckedIn={myCheckInEventIds.has(event.id)}
                   formatDate={formatDate}
                   formatTime={formatTime}
                   getStatusBadge={getStatusBadge}
@@ -1102,49 +1191,7 @@ export default function EventsPage() {
           </div>
         )}
 
-        {/* Ongoing Events */}
-        {groupedEvents.ongoing.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold text-gray-900 flex items-center">
-                <span className="w-3 h-3 bg-orange-500 rounded-full mr-3"></span>
-                <span className="bg-gradient-to-r from-orange-600 to-orange-700 bg-clip-text text-transparent">Ongoing Events</span>
-                <span className="ml-3 px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-semibold">{groupedEvents.ongoing.length}</span>
-              </h3>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {groupedEvents.ongoing.map((event) => (
-                <EventCard
-                  key={event.id}
-                  event={event}
-                  onEdit={() => handleEditEvent(event)}
-                  onDelete={() => handleDelete(event.id)}
-                  onCancel={() => handleCancelEvent(event)}
-                  onGenerateQR={() => handleRegenerateQR(event.id)}
-                  onViewQR={() => handleViewQR(event)}
-                  onToggleStatus={() => handleToggleStatus(event.id)}
-                  onAssignShepherds={() => {
-                    setSelectedEventForShepherds(event);
-                    setShowShepherdDialog(true);
-                  }}
-                  onCreateRegistration={() => {
-                    router.push(`/event-registrations?eventId=${event.id}`);
-                  }}
-                  onViewAccounting={() => {
-                    router.push(`/accounting/${event.id}`);
-                  }}
-                  canEdit={canEdit}
-                  canDelete={canDelete}
-                  formatDate={formatDate}
-                  formatTime={formatTime}
-                  getStatusBadge={getStatusBadge}
-                />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Completed Events */}
+        {/* Completed Events (within 7 days of end) */}
         {groupedEvents.completed.length > 0 && (
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -1177,6 +1224,9 @@ export default function EventsPage() {
                   }}
                   canEdit={canEdit}
                   canDelete={canDelete}
+                  isMember={isMember}
+                  userMinistry={userMinistry}
+                  isCheckedIn={myCheckInEventIds.has(event.id)}
                   formatDate={formatDate}
                   formatTime={formatTime}
                   getStatusBadge={getStatusBadge}
@@ -1185,6 +1235,39 @@ export default function EventsPage() {
             </div>
           </div>
         )}
+
+        {/* Past events (Community Worship / Word Sharing Circle, past 10) */}
+        <div className="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
+          <label className="text-sm font-medium text-gray-700 block mb-2">Past events (Community Worship / Word Sharing Circle)</label>
+          <Select
+            onOpenChange={(open) => open && loadPastEvents()}
+            value={pastSelectValue || undefined}
+            onValueChange={(v) => {
+              if (v && v !== '_none') {
+                const pastEvent = pastEvents.find((e) => e.id === v);
+                if (pastEvent) {
+                  setEvents((prev) => (prev.some((e) => e.id === v) ? prev : [pastEvent, ...prev]));
+                  setAddedPastEventIds((prev) => new Set(prev).add(v));
+                }
+                setPastSelectValue('');
+              }
+            }}
+          >
+            <SelectTrigger className="w-full max-w-md bg-white">
+              <SelectValue placeholder="View a past event (past 10)…" />
+            </SelectTrigger>
+            <SelectContent>
+              {pastEvents.map((e) => (
+                <SelectItem key={e.id} value={e.id}>
+                  {e.title} — {formatDate(e.startDate)}
+                </SelectItem>
+              ))}
+              {pastEventsLoaded && pastEvents.length === 0 && (
+                <SelectItem value="_none" disabled>No past events found</SelectItem>
+              )}
+            </SelectContent>
+          </Select>
+        </div>
 
         {/* Empty State */}
         {!loading && events.length === 0 && (

@@ -30,6 +30,15 @@ import DashboardHeader from '@/components/layout/DashboardHeader';
 import { QRScanner, qrUtils } from '@/lib/qr-scanner-service';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import ChatbotSignUp, { type ChatbotSignUpHandle } from '@/components/chatbot/ChatbotSignUp';
+import {
+  isInCheckInWindow,
+  isOngoingForDisplay,
+  isCompletedPastWindow,
+  isWithin7DaysOfEnd,
+  canCheckInToEvent,
+  sortEventsForCheckIn,
+  isPastEventCategory,
+} from '@/lib/event-checkin-window';
 
 const qrCodeRegionId = 'qr-reader-self';
 
@@ -51,44 +60,52 @@ function SelfCheckInContent() {
   const [cameraAvailable, setCameraAvailable] = useState(false);
   const [showRegistrationDialog, setShowRegistrationDialog] = useState(false);
   const [currentMember, setCurrentMember] = useState<{ id: string; communityId: string; firstName: string; lastName: string; middleName?: string | null; nickname?: string | null } | null>(null);
+  const [pastEvents, setPastEvents] = useState<Event[]>([]);
+  const [pastEventsLoaded, setPastEventsLoaded] = useState(false);
+  const [pastSelectValue, setPastSelectValue] = useState<string>('');
 
   const loadEventList = useCallback(async () => {
     setLoadingEvents(true);
-    const params = (status: 'ONGOING' | 'COMPLETED') => ({
+    const params = (status: 'UPCOMING' | 'ONGOING' | 'COMPLETED') => ({
       status,
       sortBy: 'startDate' as const,
       sortOrder: (status === 'COMPLETED' ? 'desc' : 'asc') as 'asc' | 'desc',
       limit: 50,
     });
     try {
-      const [ongoingResult, completedResult] = await Promise.all([
+      const [upcomingRes, ongoingRes, completedRes] = await Promise.all([
+        eventsService.getAll(params('UPCOMING')),
         eventsService.getAll(params('ONGOING')),
         eventsService.getAll(params('COMPLETED')),
       ]);
-      const ongoingList =
-        ongoingResult.success && ongoingResult.data?.data
-          ? Array.isArray(ongoingResult.data.data) ? ongoingResult.data.data : []
-          : [];
-      const completedList =
-        completedResult.success && completedResult.data?.data
-          ? (Array.isArray(completedResult.data.data) ? completedResult.data.data : []).filter(
-              (e: Event) => e.isRecurring === true
-            )
-          : [];
+      const toList = (r: typeof upcomingRes) =>
+        r.success && r.data?.data && Array.isArray(r.data.data) ? r.data.data : [];
+      const upcoming = toList(upcomingRes);
+      const ongoing = toList(ongoingRes);
+      const completed = toList(completedRes);
+
       const seen = new Set<string>();
-      const merged = [...ongoingList, ...completedList].filter((e) => {
+      const all = [...upcoming, ...ongoing, ...completed].filter((e) => {
         if (seen.has(e.id)) return false;
         seen.add(e.id);
         return true;
       });
-      merged.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
-      setEventList(merged);
+
+      const now = new Date();
+      // Show: in check-in window (ongoing) OR completed recurring within 7 days
+      const mainList = all.filter(
+        (e) =>
+          isInCheckInWindow(e, now) ||
+          (isCompletedPastWindow(e, now) && e.isRecurring && isWithin7DaysOfEnd(e, now))
+      );
+      const sorted = sortEventsForCheckIn(mainList, now);
+      setEventList(sorted);
 
       const eventId = searchParams.get('eventId');
-      if (eventId && merged.some((e) => e.id === eventId)) {
+      if (eventId && sorted.some((e) => e.id === eventId)) {
         setSelectedEventId(eventId);
-      } else if (merged.length > 0 && !selectedEventId) {
-        setSelectedEventId(merged[0].id);
+      } else if (sorted.length > 0 && !selectedEventId) {
+        setSelectedEventId(sorted[0].id);
       }
     } catch (err) {
       toast.error('Could not load events', {
@@ -98,6 +115,24 @@ function SelfCheckInContent() {
       setLoadingEvents(false);
     }
   }, [searchParams]);
+
+  const loadPastEvents = useCallback(async () => {
+    if (pastEventsLoaded) return;
+    setPastEventsLoaded(true);
+    try {
+      const res = await eventsService.getAll({
+        status: 'COMPLETED',
+        sortBy: 'startDate',
+        sortOrder: 'desc',
+        limit: 30,
+      });
+      const list = res.success && res.data?.data && Array.isArray(res.data.data) ? res.data.data : [];
+      const past = list.filter((e) => isPastEventCategory(e.category)).slice(0, 10);
+      setPastEvents(past);
+    } catch {
+      setPastEvents([]);
+    }
+  }, [pastEventsLoaded]);
 
   const checkRegistrationStatus = useCallback(
     async (eventId: string, memberId: string) => {
@@ -378,7 +413,7 @@ function SelfCheckInContent() {
     currentMember &&
     !isCheckedIn &&
     event.status !== 'CANCELLED' &&
-    (event.status === 'ONGOING' || (event.status === 'COMPLETED' && event.isRecurring));
+    canCheckInToEvent(event);
 
   if (!authService.isAuthenticated()) {
     return (
@@ -422,25 +457,67 @@ function SelfCheckInContent() {
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Loading events…
                 </div>
-              ) : eventList.length === 0 ? (
-                <p className="text-sm text-gray-500">No ongoing or recent recurring events.</p>
               ) : (
-                <Select
-                  value={selectedEventId || undefined}
-                  onValueChange={(v) => setSelectedEventId(v)}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select an event" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {eventList.map((e) => (
-                      <SelectItem key={e.id} value={e.id}>
-                        {e.title} — {formatDate(e.startDate)}
-                        {e.status === 'ONGOING' ? ' · Ongoing' : ''}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <>
+                  {eventList.length === 0 && (
+                    <p className="text-sm text-gray-500">No ongoing or recent recurring events. Use past events below if needed.</p>
+                  )}
+                  {eventList.length > 0 && (
+                  <Select
+                    value={selectedEventId || undefined}
+                    onValueChange={(v) => {
+                      setSelectedEventId(v);
+                      const fromPast = pastEvents.find((e) => e.id === v);
+                      if (fromPast) {
+                        setEventList((prev) => (prev.some((e) => e.id === v) ? prev : [fromPast, ...prev]));
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select an event" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {eventList.map((e) => (
+                        <SelectItem key={e.id} value={e.id}>
+                          {e.title} — {formatDate(e.startDate)}
+                          {isOngoingForDisplay(e) ? ' · Ongoing' : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  )}
+                  <div className="pt-2">
+                    <label className="text-xs text-gray-500 block mb-1">Past events (Community Worship / Word Sharing Circle)</label>
+                    <Select
+                      onOpenChange={(open) => open && loadPastEvents()}
+                      value={pastSelectValue || undefined}
+                      onValueChange={(v) => {
+                        if (v && v !== '_none') {
+                          setSelectedEventId(v);
+                          const fromPast = pastEvents.find((e) => e.id === v);
+                          if (fromPast) {
+                            setEventList((prev) => (prev.some((e) => e.id === v) ? prev : [fromPast, ...prev]));
+                          }
+                          setPastSelectValue('');
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="w-full text-gray-500">
+                        <SelectValue placeholder="Past 10 events (Community Worship / Word Sharing Circle)…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {pastEvents.map((e) => (
+                          <SelectItem key={e.id} value={e.id}>
+                            {e.title} — {formatDate(e.startDate)}
+                          </SelectItem>
+                        ))}
+                        {pastEventsLoaded && pastEvents.length === 0 && (
+                          <SelectItem value="_none" disabled>No past events found</SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
               )}
             </div>
 
@@ -471,9 +548,12 @@ function SelfCheckInContent() {
                       </p>
                     )}
                     {isCheckedIn ? (
-                      <div className="flex items-center gap-2 text-green-700">
+                      <div
+                        className="flex items-center justify-center gap-2 w-full py-3 px-4 rounded-lg bg-green-600 text-white font-semibold text-base border-2 border-green-700 shadow-sm"
+                        aria-live="polite"
+                      >
                         <CheckCircle className="w-5 h-5 shrink-0" />
-                        <span className="font-medium">You’re checked in</span>
+                        You are already Checked In
                       </div>
                     ) : (
                       <Button
