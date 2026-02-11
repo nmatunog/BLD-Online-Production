@@ -56,11 +56,20 @@ export class AttendanceService {
     // Calculate 2 hours before event start
     const twoHoursBeforeStart = new Date(actualEventStartDateTime.getTime() - 2 * 60 * 60 * 1000);
 
-    // Completed recurring events (e.g. Community Worship) are available for check-in anytime
-    const isCompletedRecurring = event.status === 'COMPLETED' && event.isRecurring === true;
+    // Recurring events (e.g. Community Worship) allow check-in within 7 days after event end
+    const recurringCategories = ['Community Worship', 'Word Sharing Circle'];
+    const categoryRecurring =
+      event.category &&
+      (recurringCategories.includes(event.category) ||
+        ['Corporate Worship', 'Corporate Worship (Weekly Recurring)'].includes(event.category));
+    const isRecurring = event.isRecurring === true || categoryRecurring === true;
+    const MS_7_DAYS = 7 * 24 * 60 * 60 * 1000;
+    const sevenDaysAfterEnd = new Date(actualEventEndDateTime.getTime() + MS_7_DAYS);
 
-    // Check if trying to check in too early (more than 2 hours before start) — skip for completed recurring
-    if (!isCompletedRecurring && now < twoHoursBeforeStart) {
+    // Check if trying to check in too early (more than 2 hours before start) — skip for past recurring within window
+    const isCompletedRecurringWithinWindow =
+      event.status === 'COMPLETED' && isRecurring && now > actualEventEndDateTime && now <= sevenDaysAfterEnd;
+    if (!isCompletedRecurringWithinWindow && now < twoHoursBeforeStart) {
       // Format the acceptable check-in time for the error message
       const opts: Intl.DateTimeFormatOptions = {
         weekday: 'short',
@@ -79,9 +88,17 @@ export class AttendanceService {
       );
     }
 
-    // Block check-in after event end, except for completed recurring events (check-in anytime)
-    if (!isCompletedRecurring && actualEventEndDateTime < now) {
-      throw new BadRequestException('Event has already ended');
+    // Block check-in after event end; recurring events get 7 days after end
+    if (actualEventEndDateTime < now) {
+      if (isRecurring && now <= sevenDaysAfterEnd) {
+        // Allow: recurring event within 7 days after end
+      } else if (isRecurring && now > sevenDaysAfterEnd) {
+        throw new BadRequestException(
+          'Check-in for this event is only available within 7 days after it ended.',
+        );
+      } else {
+        throw new BadRequestException('Event has already ended');
+      }
     }
 
     // Verify member exists and is active
