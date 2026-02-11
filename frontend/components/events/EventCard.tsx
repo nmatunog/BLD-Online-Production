@@ -28,6 +28,8 @@ interface EventCardProps {
   formatDate: (date: string) => string;
   formatTime: (time: string | null) => string;
   getStatusBadge: (status: string) => React.ReactNode;
+  /** Display status from date logic (section). When set, badge uses this instead of event.status. */
+  displayStatus?: 'UPCOMING' | 'ONGOING' | 'COMPLETED' | 'CANCELLED';
 }
 
 export default function EventCard({
@@ -49,6 +51,7 @@ export default function EventCard({
   formatDate,
   formatTime,
   getStatusBadge,
+  displayStatus,
 }: EventCardProps) {
   const isRecurring = event.isRecurring || event.eventType === 'RECURRING';
   const isInstance = false; // TODO: Check if this is a recurring instance
@@ -115,7 +118,7 @@ export default function EventCard({
             </div>
           </div>
           <div className="flex flex-col items-end ml-3">
-            {getStatusBadge(event.status)}
+            {getStatusBadge(displayStatus ?? event.status)}
           </div>
         </div>
 

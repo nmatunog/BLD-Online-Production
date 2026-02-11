@@ -1119,6 +1119,7 @@ export default function EventsPage() {
                 <EventCard
                   key={event.id}
                   event={event}
+                  displayStatus="ONGOING"
                   onEdit={() => handleEditEvent(event)}
                   onDelete={() => handleDelete(event.id)}
                   onCancel={() => handleCancelEvent(event)}
@@ -1164,6 +1165,7 @@ export default function EventsPage() {
                 <EventCard
                   key={event.id}
                   event={event}
+                  displayStatus="UPCOMING"
                   onEdit={() => handleEditEvent(event)}
                   onDelete={() => handleDelete(event.id)}
                   onCancel={() => handleCancelEvent(event)}
@@ -1209,6 +1211,7 @@ export default function EventsPage() {
                 <EventCard
                   key={event.id}
                   event={event}
+                  displayStatus="COMPLETED"
                   onEdit={() => handleEditEvent(event)}
                   onDelete={() => handleDelete(event.id)}
                   onCancel={() => handleCancelEvent(event)}
