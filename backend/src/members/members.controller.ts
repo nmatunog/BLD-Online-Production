@@ -27,13 +27,17 @@ import { Public } from '../auth/decorators/public.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { ApiResponse as ApiResponseDto } from '../common/interfaces/api-response.interface';
 import { UserRole } from '@prisma/client';
+import { AllowExtraFieldsPipe } from './pipes/allow-extra-fields.pipe';
 
 @ApiTags('Members')
 @Controller('members')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class MembersController {
-  constructor(private readonly membersService: MembersService) {}
+  constructor(
+    private readonly membersService: MembersService,
+    private readonly allowExtraFieldsPipe: AllowExtraFieldsPipe,
+  ) {}
 
   @Post()
   @UseGuards(RolesGuard)
@@ -148,9 +152,14 @@ export class MembersController {
   @ApiResponse({ status: 404, description: 'Member profile not found' })
   async updateMe(
     @CurrentUser() user: { id: string; role: string },
-    @Body() updateMemberDto: UpdateMemberDto,
+    @Body() body: object,
   ): Promise<ApiResponseDto<unknown>> {
     try {
+      const updateMemberDto = await this.allowExtraFieldsPipe.transform(body, {
+        type: 'body',
+        metatype: UpdateMemberDto,
+        data: undefined,
+      });
       const member = await this.membersService.findMe(user.id);
       const allowCommunityId = user.role === UserRole.SUPER_USER;
       const updatedMember = await this.membersService.update(member.id, updateMemberDto, { allowCommunityId });
@@ -290,7 +299,7 @@ export class MembersController {
   @ApiResponse({ status: 404, description: 'Member not found' })
   async update(
     @Param('id') id: string,
-    @Body() updateMemberDto: UpdateMemberDto,
+    @Body() body: object,
     @CurrentUser() user: { 
       id: string; 
       role: UserRole; 
@@ -322,6 +331,11 @@ export class MembersController {
       }
     }
 
+    const updateMemberDto = await this.allowExtraFieldsPipe.transform(body, {
+      type: 'body',
+      metatype: UpdateMemberDto,
+      data: undefined,
+    });
     const allowCommunityId = user.role === UserRole.SUPER_USER;
     const updatedMember = await this.membersService.update(id, updateMemberDto, { allowCommunityId });
     return {

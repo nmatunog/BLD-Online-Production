@@ -459,7 +459,7 @@ export class MembersService {
       updateData.numberOfChildren = Number.isInteger(n) && n >= 0 ? n : null;
     }
     if (updateMemberDto.children !== undefined) {
-      updateData.children = Array.isArray(updateMemberDto.children) ? updateMemberDto.children : null;
+      updateData.children = Array.isArray(updateMemberDto.children) ? updateMemberDto.children : Prisma.JsonNull;
     }
     if (updateMemberDto.dateOfEncounter !== undefined) {
       updateData.dateOfEncounter = updateMemberDto.dateOfEncounter ? String(updateMemberDto.dateOfEncounter).trim() || null : null;
