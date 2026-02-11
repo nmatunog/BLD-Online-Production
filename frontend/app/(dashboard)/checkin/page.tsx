@@ -62,7 +62,7 @@ function CheckInContent() {
   /** Admin/Super User: include all ministry-specific events (e.g. all WSC). Default: general + my ministry only. */
   const [includeAllMinistryEvents, setIncludeAllMinistryEvents] = useState(false);
 
-  // Check authentication
+  // Check authentication and restrict to staff/admins only (members use Self Check-In)
   useEffect(() => {
     if (!authService.isAuthenticated()) {
       router.push('/login');
@@ -79,6 +79,16 @@ function CheckInContent() {
       } catch (error) {
         console.error('Error parsing auth data:', error);
       }
+    }
+
+    const staffRoles = ['SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR'];
+    if (role === 'MEMBER') {
+      router.replace('/checkin/self-checkin');
+      return;
+    }
+    if (role && !staffRoles.includes(role)) {
+      router.replace('/dashboard');
+      return;
     }
 
     loadEvents(includeAllMinistryEvents, role);

@@ -24,12 +24,11 @@ import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { QRScanner, qrUtils } from '@/lib/qr-scanner-service';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
-import ChatbotSignUp, { type ChatbotSignUpHandle } from '@/components/chatbot/ChatbotSignUp';
+import CheckInChatbot, { type CheckInChatbotHandle } from '@/components/chatbot/CheckInChatbot';
 import {
   isInCheckInWindow,
   isOngoingForDisplay,
@@ -45,7 +44,7 @@ const qrCodeRegionId = 'qr-reader-self';
 function SelfCheckInContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const chatbotRef = useRef<ChatbotSignUpHandle>(null);
+  const checkInChatbotRef = useRef<CheckInChatbotHandle>(null);
   const scannerRef = useRef<QRScanner | null>(null);
 
   const [eventList, setEventList] = useState<Event[]>([]);
@@ -63,6 +62,7 @@ function SelfCheckInContent() {
   const [pastEvents, setPastEvents] = useState<Event[]>([]);
   const [pastEventsLoaded, setPastEventsLoaded] = useState(false);
   const [pastSelectValue, setPastSelectValue] = useState<string>('');
+  const [showEventPicker, setShowEventPicker] = useState(false);
 
   const loadEventList = useCallback(async () => {
     setLoadingEvents(true);
@@ -417,14 +417,17 @@ function SelfCheckInContent() {
 
   if (!authService.isAuthenticated()) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-        <Card className="max-w-md w-full">
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-6">
+        <Card className="max-w-md w-full border-2 border-gray-200">
           <CardContent className="p-8 text-center">
-            <AlertCircle className="w-12 h-12 mx-auto mb-4 text-red-500" />
-            <h2 className="text-xl font-bold mb-2 text-gray-800">Sign in required</h2>
-            <p className="text-gray-600 mb-4">Log in to check in or register for events.</p>
-            <Button onClick={() => router.push('/login')} className="bg-purple-600 hover:bg-purple-700">
-              <LogIn className="w-4 h-4 mr-2" />
+            <AlertCircle className="w-14 h-14 mx-auto mb-4 text-red-500" />
+            <h2 className="text-2xl font-bold mb-2 text-gray-800">Sign in required</h2>
+            <p className="text-lg text-gray-600 mb-6">Log in to check in or register for events.</p>
+            <Button
+              onClick={() => router.push('/login')}
+              className="min-h-[56px] px-6 text-lg font-semibold bg-purple-600 hover:bg-purple-700"
+            >
+              <LogIn className="w-5 h-5 mr-2" />
               Go to Login
             </Button>
           </CardContent>
@@ -434,60 +437,140 @@ function SelfCheckInContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-100">
       <DashboardHeader />
       <div className="p-4 md:p-6 max-w-xl mx-auto">
-        <div className="flex items-center gap-3 mb-6">
-          <Button variant="ghost" size="icon" onClick={() => router.push('/checkin')} aria-label="Back">
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Self Check-In</h1>
-            <p className="text-sm text-gray-500">Choose an event and check in, or scan the event QR.</p>
-          </div>
-        </div>
+        {/* Back: large tap target */}
+        <Button
+          variant="ghost"
+          className="mb-4 min-h-[48px] min-w-[48px] text-lg text-gray-700"
+          onClick={() => router.push('/dashboard')}
+          aria-label="Back"
+        >
+          <ArrowLeft className="w-6 h-6 mr-1" />
+          Back
+        </Button>
 
-        <Card className="bg-white border border-gray-200 shadow-sm">
-          <CardContent className="p-5 space-y-5">
-            {/* Event dropdown */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Which event?</label>
-              {loadingEvents ? (
-                <div className="flex items-center gap-2 text-gray-500 text-sm">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Loading events…
+        <h1 className="text-3xl font-bold text-gray-900 mb-1">Self Check-In</h1>
+        <p className="text-lg text-gray-600 mb-6">Tap the green button to check in for today&apos;s event.</p>
+
+        <Card className="bg-white border-2 border-gray-200 shadow-md">
+          <CardContent className="p-6 space-y-6">
+            {loadingEvents ? (
+              <div className="flex items-center justify-center gap-3 py-8 text-gray-600">
+                <Loader2 className="w-8 h-8 animate-spin" />
+                <span className="text-lg">Loading events…</span>
+              </div>
+            ) : !event && eventList.length === 0 ? (
+              <div className="py-6 text-center">
+                <p className="text-lg text-gray-600">No events right now.</p>
+                <p className="text-base text-gray-500 mt-2">Tap &quot;Need a different event?&quot; below to see past events.</p>
+              </div>
+            ) : eventList.length > 0 && !event ? (
+              <div className="flex items-center justify-center gap-3 py-8 text-gray-600">
+                <Loader2 className="w-8 h-8 animate-spin" />
+                <span className="text-lg">Loading event…</span>
+              </div>
+            ) : event ? (
+              <>
+                {/* Event name: large, clear */}
+                <div className="text-center">
+                  <p className="text-xl font-semibold text-gray-900 leading-tight">{event.title}</p>
+                  <p className="text-base text-gray-600 mt-1">
+                    {formatDate(event.startDate)}
+                    {event.startTime ? ` at ${formatTime(event.startTime)}` : ''}
+                  </p>
                 </div>
-              ) : (
-                <>
-                  {eventList.length === 0 && (
-                    <p className="text-sm text-gray-500">No ongoing or recent recurring events. Use past events below if needed.</p>
-                  )}
-                  {eventList.length > 0 && (
-                  <Select
-                    value={selectedEventId || undefined}
-                    onValueChange={(v) => {
-                      setSelectedEventId(v);
-                      const fromPast = pastEvents.find((e) => e.id === v);
-                      if (fromPast) {
-                        setEventList((prev) => (prev.some((e) => e.id === v) ? prev : [fromPast, ...prev]));
-                      }
-                    }}
+
+                {/* One primary action: big Check In or You're checked in */}
+                {loading ? (
+                  <div className="flex items-center justify-center gap-3 py-6 text-gray-600">
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                    <span className="text-lg">Loading…</span>
+                  </div>
+                ) : isCheckedIn ? (
+                  <div
+                    className="flex items-center justify-center gap-3 w-full min-h-[72px] py-4 px-6 rounded-xl bg-green-600 text-white text-xl font-semibold border-2 border-green-700 shadow-md"
+                    aria-live="polite"
                   >
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Select an event" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {eventList.map((e) => (
-                        <SelectItem key={e.id} value={e.id}>
-                          {e.title} — {formatDate(e.startDate)}
-                          {isOngoingForDisplay(e) ? ' · Ongoing' : ''}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    <CheckCircle className="w-8 h-8 shrink-0" />
+                    You are checked in!
+                  </div>
+                ) : (
+                  <>
+                    {event.hasRegistration && !isRegistered && (
+                      <p className="text-base text-amber-800 bg-amber-50 py-2 px-3 rounded-lg text-center">
+                        This event requires registration. Tap the button below to register and check in.
+                      </p>
+                    )}
+                    <Button
+                      onClick={handleSelfCheckIn}
+                      disabled={!canCheckIn || loading}
+                      className="w-full min-h-[72px] py-4 text-xl font-semibold bg-green-600 hover:bg-green-700 text-white rounded-xl border-2 border-green-700 shadow-md disabled:opacity-60"
+                    >
+                      {loading ? (
+                        <>
+                          <Loader2 className="w-6 h-6 mr-2 animate-spin" />
+                          Checking in…
+                        </>
+                      ) : event.hasRegistration && !isRegistered ? (
+                        <>
+                          <UserCheck className="w-6 h-6 mr-2" />
+                          Register & Check In
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-6 h-6 mr-2" />
+                          Check In
+                        </>
+                      )}
+                    </Button>
+                  </>
+                )}
+              </>
+            ) : null}
+
+            {/* Need a different event? — collapsed by default to reduce choices */}
+            <div className="border-t border-gray-200 pt-4">
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full min-h-[48px] text-base font-medium text-gray-700 hover:bg-gray-100"
+                onClick={() => setShowEventPicker(!showEventPicker)}
+              >
+                {showEventPicker ? 'Hide other events' : 'Need a different event?'}
+              </Button>
+              {showEventPicker && (
+                <div className="mt-3 space-y-3 pl-0">
+                  {eventList.length > 0 && (
+                    <div>
+                      <label className="block text-base font-medium text-gray-700 mb-2">Choose an event</label>
+                      <Select
+                        value={selectedEventId || undefined}
+                        onValueChange={(v) => {
+                          setSelectedEventId(v);
+                          const fromPast = pastEvents.find((e) => e.id === v);
+                          if (fromPast) {
+                            setEventList((prev) => (prev.some((e) => e.id === v) ? prev : [fromPast, ...prev]));
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="w-full min-h-[48px] text-base">
+                          <SelectValue placeholder="Select an event" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {eventList.map((e) => (
+                            <SelectItem key={e.id} value={e.id} className="text-base py-3">
+                              {e.title} — {formatDate(e.startDate)}
+                              {isOngoingForDisplay(e) ? ' · Ongoing' : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   )}
-                  <div className="pt-2">
-                    <label className="text-xs text-gray-500 block mb-1">Past events (Community Worship / Word Sharing Circle)</label>
+                  <div>
+                    <label className="block text-base font-medium text-gray-700 mb-2">Past events</label>
                     <Select
                       onOpenChange={(open) => open && loadPastEvents()}
                       value={pastSelectValue || undefined}
@@ -502,12 +585,12 @@ function SelfCheckInContent() {
                         }
                       }}
                     >
-                      <SelectTrigger className="w-full text-gray-500">
-                        <SelectValue placeholder="Past 10 events (Community Worship / Word Sharing Circle)…" />
+                      <SelectTrigger className="w-full min-h-[48px] text-base text-gray-600">
+                        <SelectValue placeholder="Community Worship / Word Sharing Circle" />
                       </SelectTrigger>
                       <SelectContent>
                         {pastEvents.map((e) => (
-                          <SelectItem key={e.id} value={e.id}>
+                          <SelectItem key={e.id} value={e.id} className="text-base py-3">
                             {e.title} — {formatDate(e.startDate)}
                           </SelectItem>
                         ))}
@@ -517,120 +600,58 @@ function SelfCheckInContent() {
                       </SelectContent>
                     </Select>
                   </div>
-                </>
+                  {eventList.length === 0 && !pastEvents.length && (
+                    <p className="text-base text-gray-500">No other events right now.</p>
+                  )}
+                </div>
               )}
             </div>
 
-            {/* Event summary + Check-in */}
-            {event && (
-              <div className="rounded-lg bg-gray-50 p-4 space-y-4">
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600">
-                  <span className="font-medium text-gray-900">{event.title}</span>
-                  <span>{formatDate(event.startDate)}</span>
-                  {event.startTime && <span>{formatTime(event.startTime)}</span>}
-                  <Badge
-                    variant={event.status === 'ONGOING' ? 'default' : 'secondary'}
-                    className={event.status === 'ONGOING' ? 'bg-green-600' : ''}
-                  >
-                    {event.status}
-                  </Badge>
-                </div>
-                {loading ? (
-                  <div className="flex items-center gap-2 text-gray-500 text-sm">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Loading…
-                  </div>
-                ) : (
-                  <>
-                    {event.hasRegistration && !isRegistered && (
-                      <p className="text-sm text-amber-700">
-                        This event requires registration. Register below, then check in.
-                      </p>
-                    )}
-                    {isCheckedIn ? (
-                      <div
-                        className="flex items-center justify-center gap-2 w-full py-3 px-4 rounded-lg bg-green-600 text-white font-semibold text-base border-2 border-green-700 shadow-sm"
-                        aria-live="polite"
-                      >
-                        <CheckCircle className="w-5 h-5 shrink-0" />
-                        You are already Checked In
-                      </div>
-                    ) : (
-                      <Button
-                        onClick={handleSelfCheckIn}
-                        disabled={!canCheckIn || loading}
-                        className="w-full bg-green-600 hover:bg-green-700 text-white"
-                        size="lg"
-                      >
-                        {loading ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Checking in…
-                          </>
-                        ) : event.hasRegistration && !isRegistered ? (
-                          <>
-                            <UserCheck className="w-4 h-4 mr-2" />
-                            Register & Check In
-                          </>
-                        ) : (
-                          <>
-                            <CheckCircle className="w-4 h-4 mr-2" />
-                            Check In
-                          </>
-                        )}
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Actions: AI Assistant + QR */}
-            <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-gray-100">
+            {/* Secondary: Scan QR + Get help — large tap targets, visually lighter */}
+            <div className="flex flex-col gap-3 pt-2 border-t border-gray-200">
               <Button
                 type="button"
                 variant="outline"
-                className="flex-1"
-                onClick={() => chatbotRef.current?.open('signup')}
-              >
-                <MessageSquare className="w-4 h-4 mr-2" />
-                AI Assistant
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="flex-1"
+                className="w-full min-h-[52px] text-base border-2"
                 onClick={isScanning ? stopQRScanner : startQRScanner}
                 disabled={!cameraAvailable}
               >
                 {isScanning ? (
                   <>
-                    <X className="w-4 h-4 mr-2" />
+                    <X className="w-5 h-5 mr-2" />
                     Stop scanner
                   </>
                 ) : (
                   <>
-                    <Camera className="w-4 h-4 mr-2" />
-                    Check in via QR
+                    <Camera className="w-5 h-5 mr-2" />
+                    Scan QR code instead
                   </>
                 )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full min-h-[52px] text-base border-2"
+                onClick={() => checkInChatbotRef.current?.open()}
+              >
+                <MessageSquare className="w-5 h-5 mr-2" />
+                Get help
               </Button>
             </div>
           </CardContent>
         </Card>
 
-        {/* QR scanner area */}
         {isScanning && (
-          <Card className="mt-4 bg-white border border-gray-200">
+          <Card className="mt-6 bg-white border-2 border-gray-200">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center gap-2">
-                <QrCode className="w-5 h-5 text-purple-600" />
-                Scan event QR code
+              <CardTitle className="text-xl flex items-center gap-2">
+                <QrCode className="w-6 h-6 text-purple-600" />
+                Point your camera at the event QR code
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <div id={qrCodeRegionId} className="w-full min-h-[240px] rounded-lg overflow-hidden bg-black" />
-              <p className="text-sm text-gray-500 mt-2">Point your camera at the event QR code.</p>
+              <div id={qrCodeRegionId} className="w-full min-h-[260px] rounded-xl overflow-hidden bg-black" />
+              <p className="text-base text-gray-600 mt-3">Hold the QR code in front of your camera.</p>
             </CardContent>
           </Card>
         )}
@@ -640,29 +661,37 @@ function SelfCheckInContent() {
       <Dialog open={showRegistrationDialog} onOpenChange={setShowRegistrationDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Register for this event</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-xl">Register for this event</DialogTitle>
+            <DialogDescription className="text-base">
               {event?.title} — {event ? formatDate(event.startDate) : ''}
             </DialogDescription>
           </DialogHeader>
           {event?.hasRegistration && event.registrationFee != null && Number(event.registrationFee) > 0 && (
-            <div className="bg-blue-50 p-3 rounded-lg text-sm text-gray-700">
-              <span className="font-medium">Fee:</span> ₱{Number(event.registrationFee).toFixed(2)}
+            <div className="bg-blue-50 p-4 rounded-lg text-base text-gray-700">
+              <span className="font-semibold">Fee:</span> ₱{Number(event.registrationFee).toFixed(2)}
             </div>
           )}
-          <div className="flex gap-3">
-            <Button variant="outline" className="flex-1" onClick={() => setShowRegistrationDialog(false)}>
+          <div className="flex gap-4">
+            <Button
+              variant="outline"
+              className="flex-1 min-h-[52px] text-base font-medium"
+              onClick={() => setShowRegistrationDialog(false)}
+            >
               Cancel
             </Button>
-            <Button className="flex-1 bg-blue-600 hover:bg-blue-700" onClick={handleRegister} disabled={loading}>
+            <Button
+              className="flex-1 min-h-[52px] text-base font-semibold bg-blue-600 hover:bg-blue-700"
+              onClick={handleRegister}
+              disabled={loading}
+            >
               {loading ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                   Registering…
                 </>
               ) : (
                 <>
-                  <UserCheck className="w-4 h-4 mr-2" />
+                  <UserCheck className="w-5 h-5 mr-2" />
                   Confirm
                 </>
               )}
@@ -671,7 +700,14 @@ function SelfCheckInContent() {
         </DialogContent>
       </Dialog>
 
-      <ChatbotSignUp ref={chatbotRef} />
+      <CheckInChatbot
+        ref={checkInChatbotRef}
+        onCheckInSuccess={() => {
+          if (selectedEventId) {
+            loadEvent(selectedEventId);
+          }
+        }}
+      />
     </div>
   );
 }
