@@ -38,20 +38,23 @@ export class AttendanceService {
     const eventStartDate = new Date(event.startDate);
     const eventEndDate = new Date(event.endDate);
 
-    // Combine event start date with time if time is provided
-    let actualEventStartDateTime = new Date(eventStartDate);
-    if (event.startTime) {
-      // Parse time string (handles both "HH:MM" and "HH:MM:SS" formats)
-      const timeParts = event.startTime.split(':');
-      const hours = parseInt(timeParts[0], 10);
-      const minutes = parseInt(timeParts[1] || '0', 10);
-      actualEventStartDateTime = new Date(eventStartDate);
-      actualEventStartDateTime.setHours(hours, minutes, 0, 0);
-    }
+    // Interpret event date+time as Asia/Manila (UTC+8) so server timezone doesn't block check-in
+    const MANILA_OFFSET_MS = 8 * 60 * 60 * 1000;
+    const toManilaAsUtc = (d: Date, hours: number, minutes: number) =>
+      new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate(), hours, minutes, 0) - MANILA_OFFSET_MS);
+
+    const [startHours, startMinutes] = event.startTime
+      ? (event.startTime.split(':').map((p, i) => (i === 0 ? parseInt(p, 10) : parseInt(p || '0', 10))) as [number, number])
+      : [0, 0];
+    const actualEventStartDateTime = toManilaAsUtc(eventStartDate, startHours, startMinutes);
+
+    const [endHours, endMinutes] = event.endTime
+      ? (event.endTime.split(':').map((p, i) => (i === 0 ? parseInt(p, 10) : parseInt(p || '0', 10))) as [number, number])
+      : [23, 59];
+    const actualEventEndDateTime = toManilaAsUtc(eventEndDate, endHours, endMinutes);
 
     // Calculate 2 hours before event start
-    const twoHoursBeforeStart = new Date(actualEventStartDateTime);
-    twoHoursBeforeStart.setHours(twoHoursBeforeStart.getHours() - 2);
+    const twoHoursBeforeStart = new Date(actualEventStartDateTime.getTime() - 2 * 60 * 60 * 1000);
 
     // Completed recurring events (e.g. Community Worship) are available for check-in anytime
     const isCompletedRecurring = event.status === 'COMPLETED' && event.isRecurring === true;
@@ -59,7 +62,7 @@ export class AttendanceService {
     // Check if trying to check in too early (more than 2 hours before start) — skip for completed recurring
     if (!isCompletedRecurring && now < twoHoursBeforeStart) {
       // Format the acceptable check-in time for the error message
-      const acceptableTime = twoHoursBeforeStart.toLocaleString('en-US', {
+      const opts: Intl.DateTimeFormatOptions = {
         weekday: 'short',
         year: 'numeric',
         month: 'short',
@@ -67,23 +70,17 @@ export class AttendanceService {
         hour: 'numeric',
         minute: '2-digit',
         hour12: true,
-      });
-      const eventStartTime = actualEventStartDateTime.toLocaleString('en-US', {
-        weekday: 'short',
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-      });
+        timeZone: 'Asia/Manila',
+      };
+      const acceptableTime = twoHoursBeforeStart.toLocaleString('en-US', opts);
+      const eventStartTime = actualEventStartDateTime.toLocaleString('en-US', opts);
       throw new BadRequestException(
         `Check-in is only available 2 hours before the event starts. Please check in at ${acceptableTime} (Event starts at ${eventStartTime})`,
       );
     }
 
     // Block check-in after event end, except for completed recurring events (check-in anytime)
-    if (!isCompletedRecurring && eventEndDate < now) {
+    if (!isCompletedRecurring && actualEventEndDateTime < now) {
       throw new BadRequestException('Event has already ended');
     }
 

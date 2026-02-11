@@ -16,7 +16,7 @@ import {
   LogIn,
   MessageSquare,
 } from 'lucide-react';
-import { attendanceService } from '@/services/attendance.service';
+import { attendanceService, type Attendance } from '@/services/attendance.service';
 import { eventsService, type Event } from '@/services/events.service';
 import { registrationsService, type EventRegistration } from '@/services/registrations.service';
 import { membersService } from '@/services/members.service';
@@ -63,6 +63,7 @@ function SelfCheckInContent() {
   const [pastEventsLoaded, setPastEventsLoaded] = useState(false);
   const [pastSelectValue, setPastSelectValue] = useState<string>('');
   const [showEventPicker, setShowEventPicker] = useState(false);
+  const [myAttendances, setMyAttendances] = useState<Attendance[]>([]);
 
   const loadEventList = useCallback(async () => {
     setLoadingEvents(true);
@@ -73,16 +74,19 @@ function SelfCheckInContent() {
       limit: 50,
     });
     try {
-      const [upcomingRes, ongoingRes, completedRes] = await Promise.all([
+      const [upcomingRes, ongoingRes, completedRes, meRes] = await Promise.all([
         eventsService.getAll(params('UPCOMING')),
         eventsService.getAll(params('ONGOING')),
         eventsService.getAll(params('COMPLETED')),
+        attendanceService.getMe(),
       ]);
       const toList = (r: typeof upcomingRes) =>
         r.success && r.data?.data && Array.isArray(r.data.data) ? r.data.data : [];
       const upcoming = toList(upcomingRes);
       const ongoing = toList(ongoingRes);
       const completed = toList(completedRes);
+      const attendances: Attendance[] = meRes?.success && Array.isArray(meRes.data) ? meRes.data : [];
+      setMyAttendances(attendances);
 
       const seen = new Set<string>();
       const all = [...upcoming, ...ongoing, ...completed].filter((e) => {
@@ -92,20 +96,24 @@ function SelfCheckInContent() {
       });
 
       const now = new Date();
-      // Show: in check-in window (ongoing) OR completed recurring within 7 days
       const mainList = all.filter(
         (e) =>
           isInCheckInWindow(e, now) ||
           (isCompletedPastWindow(e, now) && e.isRecurring && isWithin7DaysOfEnd(e, now))
       );
       const sorted = sortEventsForCheckIn(mainList, now);
-      setEventList(sorted);
+      const checkedInIds = new Set(attendances.map((a) => a.eventId));
+      const reSorted = [
+        ...sorted.filter((e) => !checkedInIds.has(e.id)),
+        ...sorted.filter((e) => checkedInIds.has(e.id)),
+      ];
+      setEventList(reSorted);
 
       const eventId = searchParams.get('eventId');
-      if (eventId && sorted.some((e) => e.id === eventId)) {
+      if (eventId && reSorted.some((e) => e.id === eventId)) {
         setSelectedEventId(eventId);
-      } else if (sorted.length > 0 && !selectedEventId) {
-        setSelectedEventId(sorted[0].id);
+      } else if (reSorted.length > 0) {
+        setSelectedEventId((prev) => (prev && reSorted.some((e) => e.id === prev) ? prev : reSorted[0].id));
       }
     } catch (err) {
       toast.error('Could not load events', {
@@ -332,8 +340,10 @@ function SelfCheckInContent() {
         eventId: event.id,
         method: 'QR_CODE',
       });
-      if (result.success) {
+      if (result.success && result.data) {
         setIsCheckedIn(true);
+        setMyAttendances((prev) => [result.data as Attendance, ...prev]);
+        await loadEventList();
         toast.success('You’re checked in!');
       }
     } catch (err: unknown) {
@@ -640,6 +650,27 @@ function SelfCheckInContent() {
             </div>
           </CardContent>
         </Card>
+
+        {myAttendances.length > 0 && (
+          <div className="mt-6 pb-4">
+            <h2 className="text-lg font-semibold text-gray-900 mb-3">Events you&apos;ve already checked in to</h2>
+            <ul className="space-y-2">
+              {myAttendances.slice(0, 5).map((a) => (
+                <li
+                  key={a.id}
+                  className="flex items-center gap-2 py-2 px-3 rounded-lg bg-green-50 border border-green-200 text-gray-800"
+                >
+                  <CheckCircle className="w-5 h-5 shrink-0 text-green-600" />
+                  <span className="font-medium">{a.event?.title ?? 'Event'}</span>
+                  <span className="text-gray-600 text-sm">
+                    {a.event?.startDate ? formatDate(a.event.startDate) : ''}
+                    {a.event?.startDate && a.event?.startTime ? ` at ${formatTime(a.event.startTime)}` : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {isScanning && (
           <Card className="mt-6 bg-white border-2 border-gray-200">
