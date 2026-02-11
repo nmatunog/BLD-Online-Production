@@ -21,7 +21,7 @@ export const validateLocation = (location: string): ValidationResult => {
   if (!location || !location.trim()) {
     return {
       valid: false,
-      error: 'Please enter the city or location where you attended your encounter',
+      error: 'Please enter the BLD District or location (Outreach/ DIP) where you attended your encounter',
     };
   }
 

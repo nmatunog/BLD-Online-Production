@@ -464,7 +464,7 @@ class ChatbotService {
       this.state.step = 'collectingLocation';
       return {
         role: 'bot',
-        content: `Perfect, ${nickname}! You attended ${mappedType}. Which city or location did you have your ${mappedType}?`,
+        content: `Perfect, ${nickname}! You attended ${mappedType}. Which BLD District or location (Outreach/ DIP) did you have your ${mappedType}?`,
         timestamp: new Date(),
       };
     }
@@ -488,7 +488,7 @@ class ChatbotService {
     this.state.step = 'collectingLocation';
     return {
       role: 'bot',
-      content: `Perfect, ${nickname}! You attended ${validation.normalized}. Which city or location did you have your ${validation.normalized}?`,
+      content: `Perfect, ${nickname}! You attended ${validation.normalized}. Which BLD District or location (Outreach/ DIP) did you have your ${validation.normalized}?`,
       timestamp: new Date(),
     };
   }
@@ -898,7 +898,7 @@ class ChatbotService {
       this.state.step = 'collectingLocation';
       return {
         role: 'bot',
-        content: `Which city or location did you have your ${this.state.data.encounterType}?`,
+        content: `Which BLD District or location (Outreach/ DIP) did you have your ${this.state.data.encounterType}?`,
         timestamp: new Date(),
       };
     }

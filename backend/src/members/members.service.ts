@@ -20,6 +20,25 @@ import {
   normalizeMinistry,
 } from '../common/constants/organization.constants';
 
+/** Inputs that map to Cebu (Community ID starts with CEB) */
+const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
+const KNOWN_CITY_CODES = ['CEB', 'BAL', 'DAN', 'DUM', 'ORM', 'MAN'];
+
+/**
+ * Normalize city to 3-letter code for storage and Community ID.
+ * Talisay, Don Bosco, Holy Family, Schoenstatt → CEB.
+ */
+function normalizeCityToCode(input: string): string {
+  if (!input || typeof input !== 'string') return '';
+  const raw = input.trim();
+  if (!raw) return '';
+  const lower = raw.toLowerCase();
+  if (CEBU_ALIASES.some((alias) => lower.includes(alias))) return 'CEB';
+  const upper = raw.toUpperCase();
+  if (KNOWN_CITY_CODES.includes(upper)) return upper;
+  return upper.substring(0, 3);
+}
+
 @Injectable()
 export class MembersService {
   constructor(
@@ -52,9 +71,14 @@ export class MembersService {
       }
     }
 
-    // Generate Community ID
+    const cityCode = normalizeCityToCode(createMemberDto.city);
+    if (!cityCode) {
+      throw new BadRequestException('City or location is required.');
+    }
+
+    // Generate Community ID (uses 3-letter city code)
     const communityId = await this.generateCommunityId(
-      createMemberDto.city,
+      cityCode,
       createMemberDto.encounterType,
       createMemberDto.classNumber,
     );
@@ -67,7 +91,7 @@ export class MembersService {
       );
     }
 
-    // Create member
+    // Create member (store 3-letter city code)
     const member = await this.prisma.member.create({
       data: {
         userId,
@@ -77,7 +101,7 @@ export class MembersService {
         suffix: createMemberDto.suffix || null,
         nickname: createMemberDto.nickname || null,
         communityId,
-        city: createMemberDto.city.toUpperCase(),
+        city: cityCode,
         encounterType: createMemberDto.encounterType.toUpperCase(),
         classNumber: classNum,
         apostolate: createMemberDto.apostolate || null,
@@ -408,7 +432,7 @@ export class MembersService {
     }
     if (updateMemberDto.city !== undefined) {
       const cityVal = updateMemberDto.city != null ? String(updateMemberDto.city).trim() : '';
-      updateData.city = cityVal ? cityVal.toUpperCase() : member.city;
+      updateData.city = cityVal ? normalizeCityToCode(cityVal) : member.city;
     }
     if (updateMemberDto.encounterType !== undefined) {
       const etVal = updateMemberDto.encounterType != null ? String(updateMemberDto.encounterType).trim() : '';

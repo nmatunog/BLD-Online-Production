@@ -134,6 +134,53 @@ export function capitalizeName(name: string): string {
     .join(' ');
 }
 
+// Encounter city/location options (after Encounter weekend capture)
+export const ENCOUNTER_CITY_OPTIONS = [
+  { value: 'CEB', label: 'Cebu' },
+  { value: 'BAL', label: 'Balamban' },
+  { value: 'DAN', label: 'Danao-Compostela' },
+  { value: 'DUM', label: 'Dumaguete' },
+  { value: 'ORM', label: 'Ormoc' },
+  { value: 'MAN', label: 'Manila' },
+  { value: 'OTHERS', label: 'Others' },
+] as const;
+
+/** Inputs that map to Cebu (Community ID starts with CEB) */
+const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
+
+/**
+ * Normalize encounter city for display/storage. If input contains Talisay, Don Bosco, Holy Family, or Schoenstatt, returns Cebu (CEB).
+ * Used so Community ID starts with CEB for these locations.
+ */
+export function normalizeEncounterCity(raw: string): string {
+  if (!raw || !raw.trim()) return '';
+  const lower = raw.trim().toLowerCase();
+  const isCebuAlias = CEBU_ALIASES.some((alias) => lower.includes(alias));
+  if (isCebuAlias) return 'CEB';
+  return raw.trim().toUpperCase();
+}
+
+/**
+ * Resolve final city code to send to API: dropdown value or, if Others, normalized manual input (first 3 letters or CEB for aliases).
+ */
+export function resolveCityCode(selectedValue: string, othersManualInput: string): string {
+  if (selectedValue === 'OTHERS') {
+    const input = (othersManualInput || '').trim();
+    if (!input) return '';
+    const lower = input.toLowerCase();
+    if (CEBU_ALIASES.some((a) => lower.includes(a))) return 'CEB';
+    return input.substring(0, 3).toUpperCase();
+  }
+  return selectedValue;
+}
+
+/** Get display label for a stored city code (e.g. CEB → Cebu). Unknown codes returned as-is. */
+export function getCityLabel(code: string): string {
+  if (!code) return '';
+  const opt = ENCOUNTER_CITY_OPTIONS.find((o) => o.value === code);
+  return opt ? opt.label : code;
+}
+
 // Helper function to capitalize location
 export function capitalizeLocation(location: string): string {
   if (!location) return '';

@@ -31,6 +31,9 @@ import {
   capitalizeName,
   capitalizeLocation,
   getMiddleInitial,
+  ENCOUNTER_CITY_OPTIONS,
+  resolveCityCode,
+  getCityLabel,
 } from '@/lib/member-constants';
 import { generateMemberQR, downloadQRCode, type MemberData } from '@/lib/qr-service';
 
@@ -45,6 +48,7 @@ interface EditFormData {
   apostolate: string;
   ministry: string;
   city: string;
+  cityOthers: string;
   encounterType: string;
   classNumber: string;
   communityId: string;
@@ -102,6 +106,7 @@ export default function MembersPage() {
     apostolate: '',
     ministry: '',
     city: '',
+    cityOthers: '',
     encounterType: '',
     classNumber: '',
     communityId: '',
@@ -545,7 +550,8 @@ export default function MembersPage() {
       phone: member.user.phone || '',
       apostolate: member.apostolate || '',
       ministry: member.ministry || '',
-      city: member.city || '',
+      city: ENCOUNTER_CITY_OPTIONS.some((o) => o.value === (member.city || '')) ? (member.city || '') : 'OTHERS',
+      cityOthers: ENCOUNTER_CITY_OPTIONS.some((o) => o.value === (member.city || '')) ? '' : (member.city || ''),
       encounterType: getEncounterTypeDisplay(member.encounterType),
       classNumber: member.classNumber.toString(),
       communityId: member.communityId || '',
@@ -582,7 +588,7 @@ export default function MembersPage() {
       nickname: editForm.nickname || null,
       email: editForm.email || null,
       phone: editForm.phone || null,
-      city: editForm.city,
+      city: resolveCityCode(editForm.city, editForm.cityOthers),
       encounterType: getEncounterTypeShort(editForm.encounterType),
       classNumber: editForm.classNumber,
       apostolate,
@@ -618,11 +624,16 @@ export default function MembersPage() {
       setEditingMember(null);
       loadMembers();
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string | string[] } }; message?: string };
-      const msg = Array.isArray(err.response?.data?.message)
-        ? err.response.data.message[0]
-        : err.response?.data?.message ?? (error instanceof Error ? error.message : 'Failed to update member');
-      toast.error('Update failed', { description: msg });
+      const err = error as { response?: { data?: { message?: string | string[] }; status?: number } };
+      const raw = err.response?.data?.message;
+      const msg = typeof raw === 'string' ? raw : Array.isArray(raw) ? raw[0] : undefined;
+      const description = msg ?? (error instanceof Error ? error.message : 'Failed to update member');
+      const isDuplicateCommunityId = typeof description === 'string' && /community id|already in use/i.test(description);
+      toast.error(isDuplicateCommunityId ? 'Duplicate Community ID' : 'Update failed', {
+        description,
+        duration: 6000,
+      });
+      // Keep dialog open so user can correct Community ID; do not rethrow
     }
   };
 
@@ -1281,15 +1292,35 @@ export default function MembersPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label className={`block text-sm font-medium mb-2 ${userRole === 'SUPER_USER' ? 'text-gray-700' : 'text-gray-500'}`}>City</Label>
-                      <Input
-                        type="text"
-                        value={editForm.city}
-                        onChange={(e) => handleProfileInputChange('city', e.target.value)}
-                        disabled={userRole !== 'SUPER_USER'}
-                        readOnly={userRole !== 'SUPER_USER'}
-                        className={userRole !== 'SUPER_USER' ? 'bg-gray-200 cursor-not-allowed' : ''}
-                      />
+                      <Label className={`block text-sm font-medium mb-2 ${userRole === 'SUPER_USER' ? 'text-gray-700' : 'text-gray-500'}`}>City / Location</Label>
+                      {userRole === 'SUPER_USER' ? (
+                        <>
+                          <Select
+                            value={editForm.city || undefined}
+                            onValueChange={(value) => setEditForm({ ...editForm, city: value, ...(value !== 'OTHERS' ? { cityOthers: '' } : {}) })}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select city or location" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {ENCOUNTER_CITY_OPTIONS.map((opt) => (
+                                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {editForm.city === 'OTHERS' && (
+                            <Input
+                              type="text"
+                              placeholder="Enter location (e.g. Talisay, Don Bosco → saved as Cebu)"
+                              value={editForm.cityOthers}
+                              onChange={(e) => setEditForm({ ...editForm, cityOthers: e.target.value })}
+                              className="mt-2"
+                            />
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-gray-700">{getCityLabel(member.city) || member.city || '-'}</p>
+                      )}
                     </div>
                     <div>
                       <Label className={`block text-sm font-medium mb-2 ${userRole === 'SUPER_USER' ? 'text-gray-700' : 'text-gray-500'}`}>Encounter Type</Label>

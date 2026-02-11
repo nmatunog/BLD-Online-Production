@@ -19,6 +19,9 @@ import {
   ENCOUNTER_TYPES,
   CIVIL_STATUSES,
   GENDERS,
+  ENCOUNTER_CITY_OPTIONS,
+  resolveCityCode,
+  getCityLabel,
   getMinistriesForApostolate,
   getEncounterTypeDisplay,
   getEncounterTypeShort,
@@ -47,6 +50,7 @@ export default function ProfilePage() {
     ministry: '',
     communityId: '',
     city: '',
+    cityOthers: '',
     encounterType: '',
     classNumber: '',
     serviceArea: '',
@@ -99,7 +103,8 @@ export default function ProfilePage() {
           apostolate: profile.apostolate || '',
           ministry: profile.ministry || '',
           communityId: profile.communityId || '',
-          city: profile.city || '',
+          city: ENCOUNTER_CITY_OPTIONS.some((o) => o.value === (profile.city || '')) ? (profile.city || '') : 'OTHERS',
+          cityOthers: ENCOUNTER_CITY_OPTIONS.some((o) => o.value === (profile.city || '')) ? '' : (profile.city || ''),
           encounterType: getEncounterTypeDisplay(profile.encounterType),
           classNumber: profile.classNumber.toString(),
           serviceArea: profile.serviceArea || '',
@@ -158,7 +163,7 @@ export default function ProfilePage() {
         nickname: editForm.nickname || null,
         email: editForm.email || null,
         phone: editForm.phone || null,
-        city: editForm.city,
+        city: resolveCityCode(editForm.city, editForm.cityOthers),
         encounterType: getEncounterTypeShort(editForm.encounterType),
         classNumber: editForm.classNumber,
         apostolate: editForm.apostolate?.trim() || null,
@@ -195,7 +200,7 @@ export default function ProfilePage() {
       const updatedProfile = await membersService.getMe();
       setMember(updatedProfile);
     } catch (error: unknown) {
-      // Surface backend message (e.g. validation, duplicate email/phone 409)
+      // Surface backend message (e.g. validation, duplicate email/phone/Community ID)
       let errorMessage = 'Failed to update profile';
       const err = error as { response?: { data?: { message?: string | string[] }; status?: number } };
       if (err?.response?.data?.message) {
@@ -204,8 +209,14 @@ export default function ProfilePage() {
       } else if (error instanceof Error) {
         errorMessage = error.message;
       }
+      const isDuplicateCommunityId = /community id|already in use/i.test(errorMessage);
       const is409 = err?.response?.status === 409;
-      toast.error(is409 ? 'Duplicate email or phone' : 'Profile update failed', {
+      const title = isDuplicateCommunityId
+        ? 'Duplicate Community ID'
+        : is409
+          ? 'Duplicate email or phone'
+          : 'Profile update failed';
+      toast.error(title, {
         description: errorMessage,
         duration: 8000,
       });
@@ -323,7 +334,8 @@ export default function ProfilePage() {
                         apostolate: member.apostolate || '',
                         ministry: member.ministry || '',
                         communityId: member.communityId || '',
-                        city: member.city || '',
+                        city: ENCOUNTER_CITY_OPTIONS.some((o) => o.value === (member.city || '')) ? (member.city || '') : 'OTHERS',
+                        cityOthers: ENCOUNTER_CITY_OPTIONS.some((o) => o.value === (member.city || '')) ? '' : (member.city || ''),
                         encounterType: getEncounterTypeDisplay(member.encounterType),
                         classNumber: member.classNumber.toString(),
                         serviceArea: member.serviceArea || '',
@@ -464,9 +476,9 @@ export default function ProfilePage() {
                 </div>
               </div>
 
-              {/* Personal Information */}
+              {/* Personal Information (all fields optional) */}
               <div>
-                <h3 className="text-lg font-semibold text-gray-800 mb-4">Personal Information</h3>
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">Personal Information <span className="text-sm font-normal text-gray-500">(optional)</span></h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label className="text-base font-semibold text-gray-700">Gender</Label>
@@ -548,7 +560,7 @@ export default function ProfilePage() {
                     )}
                   </div>
                   <div>
-                    <Label className="text-base font-semibold text-gray-700">Spouse Name</Label>
+                    <Label className="text-base font-semibold text-gray-700">Name of Spouse</Label>
                     {isEditing ? (
                       <Input
                         value={editForm.spouseName}
@@ -579,7 +591,15 @@ export default function ProfilePage() {
                         type="number"
                         min={0}
                         value={editForm.numberOfChildren}
-                        onChange={(e) => setEditForm({ ...editForm, numberOfChildren: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                        onChange={(e) => {
+                          const n = Math.max(0, parseInt(e.target.value, 10) || 0);
+                          const prev = editForm.children;
+                          const next =
+                            n >= prev.length
+                              ? [...prev, ...Array(n - prev.length).fill(null).map(() => ({ name: '', gender: '', dateOfBirth: '' }))]
+                              : prev.slice(0, n);
+                          setEditForm({ ...editForm, numberOfChildren: n, children: next });
+                        }}
                         className="mt-2 h-12 text-lg"
                       />
                     ) : (
@@ -587,6 +607,80 @@ export default function ProfilePage() {
                     )}
                   </div>
                 </div>
+                {/* Children details (optional) - same as Members edit */}
+                {isEditing && editForm.numberOfChildren > 0 && (
+                  <div className="mt-6 space-y-4">
+                    <h4 className="text-base font-semibold text-gray-800">Children Information (optional)</h4>
+                    {Array.from({ length: editForm.numberOfChildren }, (_, index) => (
+                      <div key={index} className="rounded-lg border border-gray-200 bg-gray-50/50 p-4">
+                        <h5 className="text-sm font-medium text-gray-600 mb-3">Child {index + 1}</h5>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <Label className="text-sm font-medium text-gray-700">Full Name</Label>
+                            <Input
+                              className="mt-1"
+                              value={editForm.children[index]?.name ?? ''}
+                              onChange={(e) => {
+                                const next = [...(editForm.children || [])];
+                                while (next.length <= index) next.push({ name: '', gender: '', dateOfBirth: '' });
+                                next[index] = { ...next[index], name: e.target.value };
+                                setEditForm({ ...editForm, children: next });
+                              }}
+                              placeholder="Child's full name"
+                            />
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium text-gray-700">Gender</Label>
+                            <Select
+                              value={(editForm.children[index]?.gender ?? '') || undefined}
+                              onValueChange={(value) => {
+                                const next = [...(editForm.children || [])];
+                                while (next.length <= index) next.push({ name: '', gender: '', dateOfBirth: '' });
+                                next[index] = { ...next[index], gender: value };
+                                setEditForm({ ...editForm, children: next });
+                              }}
+                            >
+                              <SelectTrigger className="mt-1">
+                                <SelectValue placeholder="Select" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {GENDERS.map((g) => (
+                                  <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium text-gray-700">Date of Birth</Label>
+                            <Input
+                              type="date"
+                              className="mt-1"
+                              value={editForm.children[index]?.dateOfBirth ?? ''}
+                              onChange={(e) => {
+                                const next = [...(editForm.children || [])];
+                                while (next.length <= index) next.push({ name: '', gender: '', dateOfBirth: '' });
+                                next[index] = { ...next[index], dateOfBirth: e.target.value };
+                                setEditForm({ ...editForm, children: next });
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {!isEditing && member.numberOfChildren && member.numberOfChildren > 0 && Array.isArray(member.children) && member.children.length > 0 && (
+                  <div className="mt-6 space-y-3">
+                    <h4 className="text-base font-semibold text-gray-800">Children Information</h4>
+                    {member.children.map((c: { name?: string; gender?: string; dateOfBirth?: string }, i: number) => (
+                      <div key={i} className="rounded-lg border border-gray-200 bg-gray-50/50 p-3">
+                        <p className="text-sm font-medium text-gray-700">
+                          Child {i + 1}: {c?.name || '—'} {c?.gender ? `(${c.gender})` : ''} {c?.dateOfBirth ? `· DOB ${c.dateOfBirth}` : ''}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Community Information (align with Members management: Super User can edit Community ID, City, Encounter) */}
@@ -614,17 +708,36 @@ export default function ProfilePage() {
                     )}
                   </div>
                   <div>
-                    <Label className="text-base font-semibold text-gray-700">City</Label>
+                    <Label className="text-base font-semibold text-gray-700">City / Location</Label>
                     {isEditing && userRole === 'SUPER_USER' ? (
-                      <Input
-                        value={editForm.city}
-                        onChange={(e) => handleInputChange('city', e.target.value)}
-                        className="mt-2 h-12 text-lg"
-                      />
+                      <>
+                        <Select
+                          value={editForm.city || undefined}
+                          onValueChange={(value) => setEditForm({ ...editForm, city: value, ...(value !== 'OTHERS' ? { cityOthers: '' } : {}) })}
+                        >
+                          <SelectTrigger className="mt-2 h-12 text-lg">
+                            <SelectValue placeholder="Select city or location" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {ENCOUNTER_CITY_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {editForm.city === 'OTHERS' && (
+                          <Input
+                            type="text"
+                            placeholder="Enter location (Talisay, Don Bosco, etc. → saved as Cebu)"
+                            value={editForm.cityOthers}
+                            onChange={(e) => setEditForm({ ...editForm, cityOthers: e.target.value })}
+                            className="mt-2 h-12 text-lg"
+                          />
+                        )}
+                      </>
                     ) : isEditing ? (
-                      <p className="mt-2 text-lg text-gray-800 bg-gray-100 px-3 py-2 rounded">{member.city}</p>
+                      <p className="mt-2 text-lg text-gray-800 bg-gray-100 px-3 py-2 rounded">{getCityLabel(member.city) || member.city}</p>
                     ) : (
-                      <p className="mt-2 text-lg text-gray-800">{member.city}</p>
+                      <p className="mt-2 text-lg text-gray-800">{getCityLabel(member.city) || member.city}</p>
                     )}
                   </div>
                   <div>
