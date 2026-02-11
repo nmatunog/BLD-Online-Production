@@ -25,6 +25,7 @@ export interface Attendance {
     title: string;
     startDate: string;
     endDate: string;
+    startTime?: string;
     location: string;
     venue: string | null;
     status?: string;
