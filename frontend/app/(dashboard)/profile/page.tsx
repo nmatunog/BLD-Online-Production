@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import {
@@ -890,9 +890,12 @@ export default function ProfilePage() {
       {/* QR Code Modal */}
       {showQRCode && member && (
         <Dialog open={!!showQRCode} onOpenChange={() => setShowQRCode(null)}>
-          <DialogContent className="max-w-md bg-white">
+          <DialogContent className="max-w-md bg-white" aria-describedby="qr-code-desc">
             <DialogHeader>
               <DialogTitle>QR Code for {displayName}</DialogTitle>
+              <DialogDescription id="qr-code-desc" className="sr-only">
+                Member QR code for event check-in. Community ID: {member.communityId}
+              </DialogDescription>
             </DialogHeader>
             <div className="text-center">
               <img src={showQRCode} alt="Member QR Code" className="mx-auto mb-4" />

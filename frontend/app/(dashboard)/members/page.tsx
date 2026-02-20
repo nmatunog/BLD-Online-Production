@@ -982,9 +982,12 @@ export default function MembersPage() {
         {/* Edit Member Dialog - Part 1: Personal Information */}
         {showEditDialog && editingMember && (
           <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-white">
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-white" aria-describedby="edit-member-desc">
               <DialogHeader>
                 <DialogTitle className="text-lg font-semibold">Edit Member Profile</DialogTitle>
+                <DialogDescription id="edit-member-desc" className="sr-only">
+                  Edit personal and ministry information for this member.
+                </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleUpdateMember} className="space-y-6">
                 {/* Personal Information */}
