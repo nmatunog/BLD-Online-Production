@@ -47,6 +47,8 @@ export interface MemberQueryParams {
   encounterType?: string;
   ministry?: string;
   apostolate?: string;
+  role?: string;
+  isActive?: boolean;
   sortBy?: 'name' | 'communityId' | 'city' | 'encounterType' | 'createdAt';
   sortOrder?: 'asc' | 'desc';
   page?: number;

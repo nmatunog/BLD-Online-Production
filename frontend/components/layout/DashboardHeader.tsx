@@ -1,27 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useRouter, usePathname } from 'next/navigation';
+import { useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Home, Users, Calendar, CheckCircle, FileText, LogOut, Menu, X, User, BarChart3 } from 'lucide-react';
 import { authService } from '@/services/auth.service';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
-
-interface User {
-  id: string;
-  email: string | null;
-  phone: string | null;
-  role: string;
-  member?: {
-    nickname: string | null;
-    lastName: string;
-    firstName: string;
-    communityId?: string;
-  };
-}
 
 // Role Badge Component
 function RoleBadge({ role }: { role: string }) {
@@ -50,47 +38,12 @@ function RoleBadge({ role }: { role: string }) {
 export default function DashboardHeader() {
   const router = useRouter();
   const pathname = usePathname();
-  const [user, setUser] = useState<User | null>(null);
+  const { user } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  // Define admin roles
   const adminRoles = ['SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR', 'CLASS_SHEPHERD'];
   const isAdmin = user?.role && adminRoles.includes(user.role);
   const isMember = user?.role === 'MEMBER';
-
-  useEffect(() => {
-    const loadUserData = async () => {
-      if (!authService.isAuthenticated()) {
-        router.push('/login');
-        return;
-      }
-
-      // Get user data from localStorage
-      const authData = localStorage.getItem('authData');
-      let userData: User | null = null;
-
-      if (authData) {
-        try {
-          const parsed = JSON.parse(authData);
-          userData = {
-            id: parsed.user?.id || '',
-            email: parsed.user?.email || null,
-            phone: parsed.user?.phone || null,
-            role: parsed.user?.role || '',
-            member: parsed.member || undefined,
-          };
-        } catch (error) {
-          console.error('Error parsing auth data:', error);
-        }
-      }
-
-      if (userData) {
-        setUser(userData);
-      }
-    };
-
-    loadUserData();
-  }, [router]);
 
   const handleLogout = () => {
     authService.logout();

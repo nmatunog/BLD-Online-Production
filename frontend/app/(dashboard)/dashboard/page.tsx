@@ -1,119 +1,28 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { apiClient } from '@/services/api-client';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CheckCircle, Users, Calendar, FileText, LogOut } from 'lucide-react';
 import { authService } from '@/services/auth.service';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { toast } from 'sonner';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 
-interface User {
-  id: string;
-  email: string | null;
-  phone: string | null;
-  role: string;
-  member?: {
-    nickname: string | null;
-    lastName: string;
-    firstName: string;
-  };
-}
-
 export default function DashboardPage() {
-  const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
 
-  // Define admin roles
   const adminRoles = ['SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR'];
   const isAdmin = user?.role && adminRoles.includes(user.role);
-  // System Status is restricted to SUPER_USER only
   const isSuperUser = user?.role === 'SUPER_USER';
   const isMember = user?.role === 'MEMBER';
-
-  useEffect(() => {
-    const loadUserData = async () => {
-      if (!authService.isAuthenticated()) {
-        router.push('/login');
-        return;
-      }
-
-      // Get user data from localStorage (stored during login)
-      const authData = localStorage.getItem('authData');
-      let userData: User | null = null;
-
-      if (authData) {
-        try {
-          const parsed = JSON.parse(authData);
-          console.log('Auth data from localStorage:', parsed); // Debug log
-          
-          userData = {
-            id: parsed.user?.id || '',
-            email: parsed.user?.email || null,
-            phone: parsed.user?.phone || null,
-            role: parsed.user?.role || '',
-            member: parsed.member || undefined,
-          };
-          
-          console.log('User data parsed:', userData); // Debug log
-          console.log('Member data:', userData.member); // Debug log
-        } catch (error) {
-          console.error('Error parsing auth data:', error);
-        }
-      }
-      
-      // Fallback: decode token if authData not found
-      if (!userData) {
-        const token = authService.getToken();
-        if (token) {
-          try {
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            userData = {
-              id: payload.sub,
-              email: payload.email,
-              phone: payload.phone,
-              role: payload.role,
-            };
-          } catch (error) {
-            console.error('Error decoding token:', error);
-            authService.logout();
-            return;
-          }
-        }
-      }
-
-      if (userData) {
-        setUser(userData);
-      }
-      setLoading(false);
-    };
-
-    loadUserData();
-  }, [router]);
 
   const handleLogout = () => {
     authService.logout();
     toast.success('Logged out successfully');
-    router.push('/login');
   };
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="text-center">
-          <div className="text-lg">Loading...</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return null;
-  }
+  if (!user) return null;
 
   // Get user display name in format "Nickname Lastname"
   const getUserDisplayName = () => {

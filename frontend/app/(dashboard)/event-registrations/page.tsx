@@ -10,6 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
+import { getErrorMessage } from '@/lib/get-error-message';
+import { isEncounterEvent, isMarriageEncounter } from '@/lib/event-utils';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { eventsService, type Event } from '@/services/events.service';
 import { registrationsService, type EventRegistration, type RegistrationQueryParams } from '@/services/registrations.service';
@@ -48,50 +50,21 @@ function EventRegistrationsContent() {
   const [filterType, setFilterType] = useState<string>('ALL');
   const [filterPaymentStatus, setFilterPaymentStatus] = useState<string>('ALL');
 
+  // Load user role (auth redirect handled by dashboard layout)
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        if (!authService.isAuthenticated()) {
-          router.push('/login');
-          setAuthLoading(false);
-          return;
+    if (typeof window !== 'undefined') {
+      const authDataStr = localStorage.getItem('authData');
+      if (authDataStr) {
+        try {
+          const parsed = JSON.parse(authDataStr);
+          setUserRole(parsed?.user?.role || '');
+        } catch {
+          // ignore
         }
-
-        if (typeof window !== 'undefined') {
-          const authDataStr = localStorage.getItem('authData');
-          if (!authDataStr) {
-            router.push('/login');
-            setAuthLoading(false);
-            return;
-          }
-          
-          try {
-            const parsed = JSON.parse(authDataStr);
-            if (!parsed || !parsed.user) {
-              router.push('/login');
-              setAuthLoading(false);
-              return;
-            }
-            // Store user role for permission checks
-            setUserRole(parsed.user?.role || '');
-          } catch (error) {
-            console.error('Error parsing auth data:', error);
-            router.push('/login');
-            setAuthLoading(false);
-            return;
-          }
-        }
-
-        setAuthLoading(false);
-      } catch (error) {
-        console.error('Error checking auth:', error);
-        setAuthLoading(false);
-        router.push('/login');
       }
-    };
-
-    checkAuth();
-  }, [router]);
+      setAuthLoading(false);
+    }
+  }, []);
 
   // Load event data - only depends on eventId and authLoading
   useEffect(() => {
@@ -240,91 +213,36 @@ function EventRegistrationsContent() {
         setRegistrationsLoading(true);
         setSummaryLoading(true);
 
-        // Add timeout wrappers
-        const createTimeoutPromise = (timeout: number) => 
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error(`Request timeout after ${timeout}ms`)), timeout)
+        const createTimeoutPromise = (timeout: number) =>
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Request timeout after ${timeout}ms`)), timeout),
           );
 
-        // Load registrations first (most important) - show immediately when ready
-        console.log('Fetching registrations...');
-        const startTime = Date.now();
-        
-        try {
-          const registrationsResult = await Promise.race([
-            registrationsService.getRegistrations(eventId, {
-              search: debouncedSearchTerm || undefined,
-              registrationType: filterType !== 'ALL' ? filterType as any : undefined,
-              paymentStatus: filterPaymentStatus !== 'ALL' ? filterPaymentStatus as any : undefined,
-            }),
-            createTimeoutPromise(8000),
-          ]) as Awaited<ReturnType<typeof registrationsService.getRegistrations>>;
-          
-          const elapsed = Date.now() - startTime;
-          console.log(`Registrations loaded in ${elapsed}ms:`, registrationsResult);
-          
-          if (registrationsResult.success && registrationsResult.data) {
-            setRegistrations(registrationsResult.data.data);
-          } else {
-            setRegistrations([]);
-          }
-        } catch (error: any) {
-          console.error('Registrations request failed:', error);
-          setRegistrations([]);
-          const errorMessage = error?.response?.status === 403 
-            ? 'You do not have permission to view registrations'
-            : error instanceof Error ? error.message : 'Unknown error';
-          
-          if (error?.response?.status === 403) {
-            // Don't show error toast for 403 - it's expected for members
-            console.log('Access denied - user does not have permission');
-          } else if (errorMessage.includes('timeout')) {
-            toast.error('Request Timeout', {
-              description: 'Loading registrations took too long. Please try again.',
-            });
-          } else {
-            toast.error('Error Loading Registrations', {
-              description: errorMessage,
-            });
-          }
-        } finally {
-          setRegistrationsLoading(false);
-        }
-
-        // Load summary separately (non-blocking) - don't block UI
-        console.log('Fetching summary...');
-        const summaryStartTime = Date.now();
-        
-        // Fire and forget - update summary when ready
-        Promise.race([
-          registrationsService.getSummary(eventId),
+        const result = await Promise.race([
+          registrationsService.getRegistrationsWithSummary(eventId, {
+            search: debouncedSearchTerm || undefined,
+            registrationType: filterType !== 'ALL' ? (filterType as 'MEMBER' | 'NON_MEMBER' | 'COUPLE') : undefined,
+            paymentStatus: filterPaymentStatus !== 'ALL' ? (filterPaymentStatus as 'PENDING' | 'PAID' | 'REFUNDED' | 'CANCELLED') : undefined,
+          }),
           createTimeoutPromise(8000),
-        ]).then((summaryResult: any) => {
-          const elapsed = Date.now() - summaryStartTime;
-          console.log(`Summary loaded in ${elapsed}ms:`, summaryResult);
-          
-          if (summaryResult.success && summaryResult.data) {
-            setSummary(summaryResult.data);
-          }
-          setSummaryLoading(false);
-        }).catch((error: any) => {
-          console.error('Summary request failed:', error);
-          // Don't show error for summary - it's not critical
-          // Also don't log 403 errors as they're expected for members
-          if (error?.response?.status !== 403) {
-            console.log('Summary error (non-403):', error);
-          }
-          setSummaryLoading(false);
-        });
-      } catch (error) {
-        console.error('Error loading registrations:', error);
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        toast.error('Error Loading Registrations', {
-          description: errorMessage.includes('timeout') 
-            ? 'The request took too long. Please check your connection and try again.'
-            : errorMessage,
-        });
+        ]);
+
+        if (result.success && result.data) {
+          setRegistrations(result.data.data ?? []);
+          if (result.data.summary) setSummary(result.data.summary);
+        } else {
+          setRegistrations([]);
+        }
+      } catch (error: unknown) {
         setRegistrations([]);
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        const is403 = typeof error === 'object' && error !== null && 'response' in error && (error as { response?: { status?: number } }).response?.status === 403;
+        if (!is403) {
+          toast.error(msg.includes('timeout') ? 'Request Timeout' : 'Error Loading Registrations', {
+            description: msg.includes('timeout') ? 'Loading took too long. Please try again.' : msg,
+          });
+        }
+      } finally {
         setRegistrationsLoading(false);
         setSummaryLoading(false);
       }
@@ -340,49 +258,24 @@ function EventRegistrationsContent() {
       setRegistrationsLoading(true);
       setSummaryLoading(true);
 
-      const [registrationsResult, summaryResult] = await Promise.all([
-        registrationsService.getRegistrations(eventId, {
-          search: searchTerm || undefined,
-          registrationType: filterType !== 'ALL' ? filterType as any : undefined,
-          paymentStatus: filterPaymentStatus !== 'ALL' ? filterPaymentStatus as any : undefined,
-        }),
-        registrationsService.getSummary(eventId),
-      ]);
+      const result = await registrationsService.getRegistrationsWithSummary(eventId, {
+        search: searchTerm || undefined,
+        registrationType: filterType !== 'ALL' ? (filterType as 'MEMBER' | 'NON_MEMBER' | 'COUPLE') : undefined,
+        paymentStatus: filterPaymentStatus !== 'ALL' ? (filterPaymentStatus as 'PENDING' | 'PAID' | 'REFUNDED' | 'CANCELLED') : undefined,
+      });
 
-      if (registrationsResult.success && registrationsResult.data) {
-        setRegistrations(registrationsResult.data.data);
-      }
-
-      if (summaryResult.success && summaryResult.data) {
-        setSummary(summaryResult.data);
+      if (result.success && result.data) {
+        setRegistrations(result.data.data ?? []);
+        if (result.data.summary) setSummary(result.data.summary);
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to refresh data';
       toast.error('Error', {
-        description: errorMessage,
+        description: getErrorMessage(error, 'Failed to refresh data'),
       });
     } finally {
       setRegistrationsLoading(false);
       setSummaryLoading(false);
     }
-  };
-
-  const isMarriageEncounter = () => {
-    return event?.category === 'Marriage Encounter' || 
-           event?.title?.toLowerCase().includes('marriage encounter') ||
-           event?.eventType?.toUpperCase() === 'ME';
-  };
-
-  const isEncounterEvent = () => {
-    const encounterCategories = [
-      'Marriage Encounter',
-      'Singles Encounter',
-      'Solo Parents Encounter',
-      'Family Encounter',
-      'Youth Encounter',
-    ];
-    return encounterCategories.includes(event?.category || '') ||
-           event?.title?.toLowerCase().includes('encounter');
   };
 
   if (authLoading) {
@@ -533,7 +426,7 @@ function EventRegistrationsContent() {
                     <UserPlus className="w-5 h-5 mr-2" />
                     Register Non-Member
                   </Button>
-                  {isMarriageEncounter() && (
+                  {isMarriageEncounter(event) && (
                     <Button
                       onClick={() => setShowCoupleForm(true)}
                       className="h-12 text-lg px-6 bg-purple-600 hover:bg-purple-700"
@@ -633,6 +526,7 @@ function EventRegistrationsContent() {
               <RegistrationTable
                 registrations={registrations}
                 loading={registrationsLoading}
+                hasActiveFilters={filterType !== 'ALL' || filterPaymentStatus !== 'ALL' || !!debouncedSearchTerm}
                 onUpdatePayment={userRole !== 'MEMBER' ? (reg) => {
                   setSelectedRegistration(reg);
                   setShowPaymentDialog(true);
@@ -663,10 +557,10 @@ function EventRegistrationsContent() {
             isOpen={showNonMemberForm}
             onClose={() => setShowNonMemberForm(false)}
             onSuccess={handleRefresh}
-            isEncounterEvent={isEncounterEvent()}
-            isMarriageEncounter={isMarriageEncounter()}
+            isEncounterEvent={isEncounterEvent(event)}
+            isMarriageEncounter={isMarriageEncounter(event)}
           />
-          {isMarriageEncounter() && (
+          {isMarriageEncounter(event) && (
             <CoupleRegistrationForm
               eventId={eventId}
               isOpen={showCoupleForm}

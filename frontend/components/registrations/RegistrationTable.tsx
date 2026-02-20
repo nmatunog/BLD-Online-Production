@@ -32,6 +32,8 @@ import {
 interface RegistrationTableProps {
   registrations: EventRegistration[];
   loading?: boolean;
+  /** When true and list is empty, show "No registrations match your filters" instead of generic message */
+  hasActiveFilters?: boolean;
   onUpdatePayment?: (registration: EventRegistration) => void;
   onAssignRoom?: (registration: EventRegistration) => void;
   onDelete?: (registration: EventRegistration) => void;
@@ -41,6 +43,7 @@ interface RegistrationTableProps {
 export default function RegistrationTable({
   registrations,
   loading,
+  hasActiveFilters = false,
   onUpdatePayment,
   onAssignRoom,
   onDelete,
@@ -116,8 +119,13 @@ export default function RegistrationTable({
 
   if (registrations.length === 0) {
     return (
-      <div className="text-center py-12">
-        <p className="text-lg text-gray-600">No registrations found</p>
+      <div className="text-center py-12 px-4 rounded-lg border border-gray-200 bg-gray-50">
+        <p className="text-lg font-medium text-gray-700">
+          {hasActiveFilters ? 'No registrations match your filters' : 'No registrations found'}
+        </p>
+        {hasActiveFilters && (
+          <p className="text-sm text-gray-500 mt-1">Try changing or clearing filters above.</p>
+        )}
       </div>
     );
   }

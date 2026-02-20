@@ -122,17 +122,10 @@ export default function MembersPage() {
     dateOfEncounter: '',
   });
 
-  // Check authentication and permissions
+  // Load user role and data (auth redirect handled by dashboard layout)
   useEffect(() => {
     const checkAuth = async () => {
       setAuthLoading(true);
-      
-      if (!authService.isAuthenticated()) {
-        router.push('/login');
-        return;
-      }
-
-      // Get user role from localStorage
       const authData = localStorage.getItem('authData');
       if (authData) {
         try {
@@ -161,19 +154,14 @@ export default function MembersPage() {
     try {
       const params: MemberQueryParams = {
         search: searchTerm || undefined,
-        city: undefined,
-        encounterType: undefined,
-        ministry: filterMinistry !== 'ALL' ? filterMinistry : undefined,
+        ministry: filterMinistry !== 'ALL' ? filterMinistry : (userRole === 'MINISTRY_COORDINATOR' ? userMinistry : undefined),
+        role: filterRole !== 'ALL' ? filterRole : undefined,
+        isActive: filterStatus === 'ALL' ? undefined : filterStatus === 'Active',
         sortBy: 'name',
         sortOrder: 'asc',
         page: 1,
         limit: 1000,
       };
-
-      // Filter by ministry if user is MINISTRY_COORDINATOR
-      if (userRole === 'MINISTRY_COORDINATOR' && userMinistry) {
-        params.ministry = userMinistry;
-      }
 
       const result = await membersService.getAll(params);
       setMembers(Array.isArray(result.data) ? result.data : []);
@@ -210,44 +198,27 @@ export default function MembersPage() {
     return Array.from(ministries).sort();
   }, [members]);
 
-  // Filtered and sorted members
+  // Filtered (by search/ministry) and sorted members; role/status applied server-side
   const filteredMembers = useMemo(() => {
     let filtered = members.filter(member => {
-      const firstName = member.firstName || '';
-      const lastName = member.lastName || '';
-      const communityId = member.communityId || '';
-      
-      const fullName = `${firstName} ${lastName}`.toLowerCase();
-      const matchesSearch = fullName.includes(searchTerm.toLowerCase()) ||
-                           communityId.toLowerCase().includes(searchTerm.toLowerCase());
-      
+      const fullName = `${member.firstName || ''} ${member.lastName || ''}`.toLowerCase();
+      const communityId = (member.communityId || '').toLowerCase();
+      const term = searchTerm.toLowerCase();
+      const matchesSearch = !term || fullName.includes(term) || communityId.includes(term);
       const matchesMinistry = filterMinistry === 'ALL' || member.ministry === filterMinistry;
-      const matchesRole = filterRole === 'ALL' || member.user?.role === filterRole;
-      const matchesStatus =
-        filterStatus === 'ALL' ||
-        (filterStatus === 'Active' && member.user?.isActive) ||
-        (filterStatus === 'Inactive' && !member.user?.isActive);
-
-      return matchesSearch && matchesMinistry && matchesRole && matchesStatus;
+      return matchesSearch && matchesMinistry;
     });
 
-    // Sort alphabetically if enabled
     if (sortAlphabetically) {
       filtered = [...filtered].sort((a, b) => {
         const aLastName = (a.lastName || '').toLowerCase();
         const bLastName = (b.lastName || '').toLowerCase();
-        const aFirstName = (a.firstName || '').toLowerCase();
-        const bFirstName = (b.firstName || '').toLowerCase();
-        
-        if (aLastName !== bLastName) {
-          return aLastName.localeCompare(bLastName);
-        }
-        return aFirstName.localeCompare(bFirstName);
+        if (aLastName !== bLastName) return aLastName.localeCompare(bLastName);
+        return (a.firstName || '').toLowerCase().localeCompare((b.firstName || '').toLowerCase());
       });
     }
-
     return filtered;
-  }, [members, searchTerm, filterRole, filterStatus, filterMinistry, sortAlphabetically]);
+  }, [members, searchTerm, filterMinistry, sortAlphabetically]);
 
   // Permission checks
   const canEditMember = (member: Member): boolean => {

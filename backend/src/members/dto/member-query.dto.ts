@@ -1,5 +1,5 @@
-import { IsString, IsOptional, IsEnum, IsInt, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsString, IsOptional, IsEnum, IsInt, Min, IsBoolean } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 
 export enum MemberSortBy {
   NAME = 'name',
@@ -29,6 +29,15 @@ export class MemberQueryDto {
   @IsString()
   @IsOptional()
   apostolate?: string;
+
+  @IsString()
+  @IsOptional()
+  role?: string; // User role (e.g. MEMBER, MINISTRY_COORDINATOR)
+
+  @IsOptional()
+  @Transform(({ value }) => (value === 'true' ? true : value === 'false' ? false : value))
+  @IsBoolean()
+  isActive?: boolean; // Filter by user active status
 
   @IsString()
   @IsOptional()

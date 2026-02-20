@@ -101,6 +101,24 @@ export class RegistrationsController {
     };
   }
 
+  @Get('events/:eventId/registrations-and-summary')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR, UserRole.CLASS_SHEPHERD)
+  @ApiOperation({ summary: 'Get registrations and summary for an event (one call)' })
+  @ApiResponse({ status: 200, description: 'Registrations and summary retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Event not found' })
+  async findAllWithSummary(
+    @Param('eventId') eventId: string,
+    @Query() query: RegistrationQueryDto,
+  ): Promise<ApiResponseDto<unknown>> {
+    const result = await this.registrationsService.findAllWithSummary(eventId, query);
+    return {
+      success: true,
+      data: result,
+      message: 'Registrations and summary retrieved successfully',
+    };
+  }
+
   @Get('events/:eventId/registrations')
   @UseGuards(RolesGuard)
   @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR, UserRole.CLASS_SHEPHERD)

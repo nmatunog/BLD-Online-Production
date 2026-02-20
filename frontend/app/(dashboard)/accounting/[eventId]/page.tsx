@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import { getErrorMessage } from '@/lib/get-error-message';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import jsPDF from 'jspdf';
 
@@ -140,7 +141,9 @@ export default function EventAccountingPage() {
         setFinancialReport(result.data);
       }
     } catch (error) {
-      console.error('Error loading financial report:', error);
+      toast.error('Failed to load report', {
+        description: getErrorMessage(error, 'Could not load financial report. Please try again.'),
+      });
     } finally {
       setReportLoading(false);
     }
@@ -216,7 +219,7 @@ export default function EventAccountingPage() {
       setShowIncomeDialog(false);
       loadData();
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to save income entry';
+      const errorMessage = getErrorMessage(error, 'Failed to save income entry');
       toast.error('Error', {
         description: errorMessage,
       });
@@ -235,7 +238,7 @@ export default function EventAccountingPage() {
       });
       loadData();
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to delete income entry';
+      const errorMessage = getErrorMessage(error, 'Failed to delete income entry');
       toast.error('Error', {
         description: errorMessage,
       });
@@ -312,7 +315,7 @@ export default function EventAccountingPage() {
       setShowExpenseDialog(false);
       loadData();
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to save expense entry';
+      const errorMessage = getErrorMessage(error, 'Failed to save expense entry');
       toast.error('Error', {
         description: errorMessage,
       });
@@ -331,7 +334,7 @@ export default function EventAccountingPage() {
       });
       loadData();
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to delete expense entry';
+      const errorMessage = getErrorMessage(error, 'Failed to delete expense entry');
       toast.error('Error', {
         description: errorMessage,
       });
@@ -378,7 +381,7 @@ export default function EventAccountingPage() {
       setShowAdjustmentDialog(false);
       loadData();
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to save adjustment entry';
+      const errorMessage = getErrorMessage(error, 'Failed to save adjustment entry');
       toast.error('Error', {
         description: errorMessage,
       });
@@ -397,7 +400,7 @@ export default function EventAccountingPage() {
       });
       loadData();
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to delete adjustment entry';
+      const errorMessage = getErrorMessage(error, 'Failed to delete adjustment entry');
       toast.error('Error', {
         description: errorMessage,
       });
@@ -416,7 +419,7 @@ export default function EventAccountingPage() {
       });
       loadData();
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to close account';
+      const errorMessage = getErrorMessage(error, 'Failed to close account');
       toast.error('Error', {
         description: errorMessage,
       });
@@ -431,7 +434,7 @@ export default function EventAccountingPage() {
       });
       loadData();
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to reopen account';
+      const errorMessage = getErrorMessage(error, 'Failed to reopen account');
       toast.error('Error', {
         description: errorMessage,
       });
@@ -445,7 +448,7 @@ export default function EventAccountingPage() {
         downloadFinancialReportCSV(result.data);
       }
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to generate report';
+      const errorMessage = getErrorMessage(error, 'Failed to generate report');
       toast.error('Error', {
         description: errorMessage,
       });
@@ -462,7 +465,7 @@ export default function EventAccountingPage() {
       }
       downloadFinancialReportPDF(financialReport, event, currentUser);
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to generate PDF';
+      const errorMessage = getErrorMessage(error, 'Failed to generate PDF');
       toast.error('Error', {
         description: errorMessage,
       });

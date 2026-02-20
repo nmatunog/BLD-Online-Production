@@ -894,6 +894,17 @@ export class RegistrationsService {
     };
   }
 
+  async findAllWithSummary(eventId: string, query: RegistrationQueryDto) {
+    const [listResult, summaryResult] = await Promise.all([
+      this.findAll(eventId, query),
+      this.getSummary(eventId),
+    ]);
+    return {
+      ...listResult,
+      summary: summaryResult,
+    };
+  }
+
   private async generateCommunityId(
     city: string,
     encounterType: string,

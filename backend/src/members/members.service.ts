@@ -196,6 +196,12 @@ export class MembersService {
       where.apostolate = { contains: apostolate, mode: 'insensitive' };
     }
 
+    if (query.role || query.isActive !== undefined) {
+      where.user = {};
+      if (query.role) (where.user as Prisma.UserWhereInput).role = query.role;
+      if (query.isActive !== undefined) (where.user as Prisma.UserWhereInput).isActive = query.isActive;
+    }
+
     // Auto-filter by encounter class for CLASS_SHEPHERD
     // Note: Class Shepherds shepherd a DIFFERENT class than their own
     // e.g., A person from ME Class 18 can be assigned to shepherd ME Class 101

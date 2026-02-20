@@ -64,10 +64,6 @@ function CheckInContent() {
 
   // Check authentication and restrict to staff/admins only (members use Self Check-In)
   useEffect(() => {
-    if (!authService.isAuthenticated()) {
-      router.push('/login');
-      return;
-    }
 
     const authData = localStorage.getItem('authData');
     let role = '';

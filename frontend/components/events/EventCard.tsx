@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { Event } from '@/services/events.service';
+import { isEncounterEvent as checkEncounterEvent } from '@/lib/event-utils';
 
 interface EventCardProps {
   event: Event;
@@ -60,23 +61,7 @@ export default function EventCard({
   const canManageEvent = canEdit || !!(userMinistry && event.ministry && userMinistry === event.ministry);
   const showMemberOnlyActions = isMember && !canManageEvent;
   
-  // Check if event is an Encounter Event
-  const isEncounterEvent = () => {
-    const encounterCategories = [
-      'Marriage Encounter',
-      'Singles Encounter',
-      'Solo Parents Encounter',
-      'Family Encounter',
-      'Youth Encounter',
-    ];
-    const encounterTypes = ['ME', 'SE', 'SPE', 'FE', 'YE', 'ENCOUNTER'];
-    
-    return (
-      encounterCategories.includes(event.category) ||
-      encounterTypes.includes(event.eventType?.toUpperCase() || '') ||
-      event.category?.toLowerCase().includes('encounter')
-    );
-  };
+  const isEncounterEvent = checkEncounterEvent(event);
 
   // Check if event has registrations
   const hasRegistrations = (event._count?.registrations || 0) > 0;
@@ -266,7 +251,7 @@ export default function EventCard({
                   👥 Registrations ({event._count?.registrations || 0})
                 </button>
               )}
-              {isEncounterEvent() && canEdit && onAssignShepherds && (
+              {isEncounterEvent && canEdit && onAssignShepherds && (
                 <button
                   onClick={onAssignShepherds}
                   className="text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md border border-red-200 hover:border-red-300"

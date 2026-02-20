@@ -67,10 +67,6 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const loadProfile = async () => {
-      if (!authService.isAuthenticated()) {
-        router.push('/login');
-        return;
-      }
 
       setLoading(true);
       try {

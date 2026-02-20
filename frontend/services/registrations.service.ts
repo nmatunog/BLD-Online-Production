@@ -217,6 +217,26 @@ class RegistrationsService {
     return response.data;
   }
 
+  async getRegistrationsWithSummary(
+    eventId: string,
+    params?: RegistrationQueryParams,
+  ): Promise<
+    ApiResponse<{
+      data: EventRegistration[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+      summary: RegistrationSummary;
+    }>
+  > {
+    const response = await apiClient.get<
+      ApiResponse<{
+        data: EventRegistration[];
+        pagination: { page: number; limit: number; total: number; totalPages: number };
+        summary: RegistrationSummary;
+      }>
+    >(`/registrations/events/${eventId}/registrations-and-summary`, { params });
+    return response.data;
+  }
+
   async getById(id: string): Promise<ApiResponse<EventRegistration>> {
     const response = await apiClient.get<ApiResponse<EventRegistration>>(
       `/registrations/${id}`,

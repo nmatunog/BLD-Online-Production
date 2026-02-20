@@ -222,10 +222,6 @@ function SelfCheckInContent() {
   );
 
   useEffect(() => {
-    if (!authService.isAuthenticated()) {
-      router.push('/login');
-      return;
-    }
     const loadMember = async () => {
       try {
         const memberResult = await membersService.getMe();
@@ -424,27 +420,6 @@ function SelfCheckInContent() {
     !isCheckedIn &&
     event.status !== 'CANCELLED' &&
     canCheckInToEvent(event);
-
-  if (!authService.isAuthenticated()) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-6">
-        <Card className="max-w-md w-full border-2 border-gray-200">
-          <CardContent className="p-8 text-center">
-            <AlertCircle className="w-14 h-14 mx-auto mb-4 text-red-500" />
-            <h2 className="text-2xl font-bold mb-2 text-gray-800">Sign in required</h2>
-            <p className="text-lg text-gray-600 mb-6">Log in to check in or register for events.</p>
-            <Button
-              onClick={() => router.push('/login')}
-              className="min-h-[56px] px-6 text-lg font-semibold bg-purple-600 hover:bg-purple-700"
-            >
-              <LogIn className="w-5 h-5 mr-2" />
-              Go to Login
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gray-100">

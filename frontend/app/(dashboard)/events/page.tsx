@@ -146,17 +146,10 @@ export default function EventsPage() {
     ministry: '',
   });
 
-  // Check authentication and permissions
+  // Load user role and data (auth redirect handled by dashboard layout)
   useEffect(() => {
     const checkAuth = async () => {
       setAuthLoading(true);
-      
-      if (!authService.isAuthenticated()) {
-        router.push('/login');
-        return;
-      }
-
-      // Get user role and member ministry from localStorage
       const authData = localStorage.getItem('authData');
       if (authData) {
         try {

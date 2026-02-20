@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { getErrorMessage } from '@/lib/get-error-message';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import {
   Chart as ChartJS,
@@ -44,6 +45,7 @@ ChartJS.register(
 export default function ReportsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [dataLoading, setDataLoading] = useState(true);
   const [reportType, setReportType] = useState<ReportType>(ReportType.ATTENDANCE);
   const [reportData, setReportData] = useState<ReportResult | null>(null);
   const reportResultsRef = useRef<HTMLDivElement>(null);
@@ -124,24 +126,19 @@ export default function ReportsPage() {
   const [filteredEvents, setFilteredEvents] = useState<Event[]>([]);
 
   useEffect(() => {
-    if (!authService.isAuthenticated()) {
-      router.push('/login');
-      return;
-    }
-
     const authData = localStorage.getItem('authData');
     if (authData) {
       try {
         const parsed = JSON.parse(authData);
         setUserRole(parsed.user?.role || '');
-      } catch (error) {
-        console.error('Error parsing auth data:', error);
+      } catch {
+        // ignore
       }
     }
-
-    loadEvents();
-    loadMembers();
-    loadAttendanceRecords();
+    setDataLoading(true);
+    Promise.allSettled([loadEvents(), loadMembers(), loadAttendanceRecords()]).finally(() => {
+      setDataLoading(false);
+    });
 
     // Initialize individual report config dates
     const currentMonth = new Date().getMonth() + 1;
@@ -169,7 +166,9 @@ export default function ReportsPage() {
         setEvents(Array.isArray(result.data.data) ? result.data.data : []);
       }
     } catch (error) {
-      console.error('Error loading events:', error);
+      toast.error('Failed to load events', {
+        description: getErrorMessage(error, 'Could not load events for reports.'),
+      });
     }
   };
 
@@ -178,10 +177,11 @@ export default function ReportsPage() {
       const result = await membersService.getAll({ limit: 1000 });
       if (result && result.data) {
         setMembers(Array.isArray(result.data) ? result.data : []);
-        console.log('Loaded members:', result.data.length, 'members with ministries:', result.data.filter(m => m.ministry).length);
       }
     } catch (error) {
-      console.error('Error loading members:', error);
+      toast.error('Failed to load members', {
+        description: getErrorMessage(error, 'Could not load members for reports.'),
+      });
     }
   };
 
@@ -192,7 +192,9 @@ export default function ReportsPage() {
         setAttendanceRecords(Array.isArray(result.data.data) ? result.data.data : []);
       }
     } catch (error) {
-      console.error('Error loading attendance records:', error);
+      toast.error('Failed to load attendance data', {
+        description: getErrorMessage(error, 'Could not load attendance records.'),
+      });
     }
   };
 
@@ -963,6 +965,12 @@ export default function ReportsPage() {
       <DashboardHeader />
       <div className="p-4 md:p-6">
         <div className="max-w-7xl mx-auto space-y-6">
+          {dataLoading && (
+            <div className="flex items-center gap-2 py-2 px-3 rounded-lg bg-purple-50 border border-purple-200 text-purple-800">
+              <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+              <span className="text-sm font-medium">Loading report data…</span>
+            </div>
+          )}
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6">
             <div>
