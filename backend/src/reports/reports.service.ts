@@ -399,7 +399,11 @@ export class ReportsService {
       query.apostolate,
     );
 
-    const ministryFilter = query.recurringReportType === 'ministry' ? query.ministry : undefined;
+    let ministryFilter = query.recurringReportType === 'ministry' ? query.ministry : undefined;
+    // For individual report, use the single member's ministry for WSC total so "X/Y attended" is correct
+    if (query.recurringReportType === 'individual' && members.length === 1 && members[0].ministry) {
+      ministryFilter = members[0].ministry;
+    }
     const wscTotalsByMinistry = await this.getWscEventCountsByMinistry(startDate, endDate, ministryFilter);
     const totalInstances = {
       corporateWorship: totalCwInPeriod,

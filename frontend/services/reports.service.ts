@@ -298,11 +298,12 @@ export interface MonthlyAttendanceTrendPoint {
 
 class ReportsService {
   async generateReport(params: ReportQueryParams): Promise<{ success: boolean; data: ReportResult }> {
-    const response = await apiClient.get<ApiResponse<ReportResult>>('/reports', { params });
-    const apiResponse = response.data as ApiResponse<ReportResult>;
+    const response = await apiClient.get<ReportResult>('/reports', { params, timeout: 30000 });
+    // Backend returns the report object directly: { data, statistics, summary }
+    const report = response.data as ReportResult;
     return {
       success: true,
-      data: apiResponse.data!,
+      data: report,
     };
   }
 

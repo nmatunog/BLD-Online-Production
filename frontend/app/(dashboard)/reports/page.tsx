@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { getErrorMessage } from '@/lib/get-error-message';
 import DashboardHeader from '@/components/layout/DashboardHeader';
@@ -86,6 +86,17 @@ export default function ReportsPage() {
   const [showIndividualReport, setShowIndividualReport] = useState(false);
   const [recurringReportData, setRecurringReportData] = useState<RecurringAttendanceReport | null>(null);
   const [individualReportData, setIndividualReportData] = useState<RecurringAttendanceReport | null>(null);
+  /** When user clicks Generate Member Report we store this so the dialog always shows name, Community ID, and period even if API returns empty */
+  const [requestedIndividualReport, setRequestedIndividualReport] = useState<{
+    communityId: string;
+    firstName: string;
+    lastName: string;
+    middleInitial?: string;
+    ministry?: string;
+    apostolate?: string;
+    startDate: string;
+    endDate: string;
+  } | null>(null);
   const [recurringReportConfig, setRecurringReportConfig] = useState({
     reportType: RecurringReportType.COMMUNITY,
     period: PeriodType.MONTHLY,
@@ -2040,6 +2051,16 @@ export default function ReportsPage() {
 
                           const result = await reportsService.generateReport(params);
                           setIndividualReportData(result.data as RecurringAttendanceReport);
+                          setRequestedIndividualReport({
+                            communityId: member.communityId,
+                            firstName: member.firstName,
+                            lastName: member.lastName,
+                            middleInitial: member.middleName ? member.middleName.charAt(0).toUpperCase() : undefined,
+                            ministry: member.ministry ?? undefined,
+                            apostolate: member.apostolate ?? undefined,
+                            startDate,
+                            endDate,
+                          });
                           setRecurringReportConfig(prev => ({
                             ...prev,
                             reportType: RecurringReportType.INDIVIDUAL,
@@ -2744,23 +2765,70 @@ export default function ReportsPage() {
         </div>
       </div>
 
-      {/* Individual Attendance Report Dialog */}
+      {/* Individual Attendance Report Dialog — card format: Community Worship and WSC for period with percentage */}
       <Dialog open={showIndividualReport} onOpenChange={setShowIndividualReport}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto" aria-describedby="individual-report-desc">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold text-purple-800">
               Individual Attendance Report
             </DialogTitle>
+            <DialogDescription id="individual-report-desc" className="sr-only">
+              Attendance for Community Worship and Word Sharing Circles for the selected period with percentages.
+            </DialogDescription>
           </DialogHeader>
 
-          {individualReportData && Array.isArray(individualReportData.data) && individualReportData.data.length > 0 && (() => {
-            const memberData = individualReportData.data[0];
-            const member = members.find(m => m.communityId === memberData.communityId);
-            const startDate = individualReportConfig.startDate || filters.startDate || recurringReportConfig.startDate;
-            const endDate = individualReportConfig.endDate || filters.endDate || recurringReportConfig.endDate;
-            
+          {(() => {
+            const hasReportData = individualReportData && Array.isArray(individualReportData.data) && individualReportData.data.length > 0;
+            const requested = requestedIndividualReport;
+            const memberData = hasReportData
+              ? individualReportData!.data[0]
+              : (() => {
+                  if (requested) {
+                    return {
+                      communityId: requested.communityId,
+                      firstName: requested.firstName,
+                      lastName: requested.lastName,
+                      middleInitial: requested.middleInitial ?? '',
+                      ministry: requested.ministry,
+                      apostolate: requested.apostolate,
+                      corporateWorshipAttended: 0,
+                      wordSharingCirclesAttended: 0,
+                      corporateWorshipPercentage: 0,
+                      wordSharingCirclesPercentage: 0,
+                      totalAttended: 0,
+                      percentage: 0,
+                    };
+                  }
+                  const reqMember = members.find(m => m.communityId === recurringReportConfig.memberId) || members.find(m => m.id === filters.memberId);
+                  return {
+                    communityId: reqMember?.communityId ?? '',
+                    firstName: reqMember?.firstName ?? '',
+                    lastName: reqMember?.lastName ?? '',
+                    middleInitial: reqMember?.middleName ? reqMember.middleName.charAt(0).toUpperCase() : '',
+                    ministry: reqMember?.ministry,
+                    apostolate: reqMember?.apostolate,
+                    corporateWorshipAttended: 0,
+                    wordSharingCirclesAttended: 0,
+                    corporateWorshipPercentage: 0,
+                    wordSharingCirclesPercentage: 0,
+                    totalAttended: 0,
+                    percentage: 0,
+                  };
+                })();
+            const member = members.find(m => m.communityId === (memberData.communityId || recurringReportConfig.memberId)) || members.find(m => m.id === filters.memberId);
+            const startDate = requested?.startDate || recurringReportConfig.startDate || individualReportConfig.startDate || filters.startDate;
+            const endDate = requested?.endDate || recurringReportConfig.endDate || individualReportConfig.endDate || filters.endDate;
+            const totalCw = individualReportData?.statistics?.totalInstances?.corporateWorship ?? 0;
+            const totalWsc = individualReportData?.statistics?.totalInstances?.wordSharingCircles ?? 0;
+
             return (
               <div className="space-y-6">
+                {!hasReportData && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-800 text-sm">
+                    No attendance data for this period. Showing member and period with zero attendance.
+                  </div>
+                )}
+
                 {/* Individual Profile Information */}
                 <Card className="bg-purple-50 border-purple-200">
                   <CardHeader>
@@ -2770,11 +2838,11 @@ export default function ReportsPage() {
                     <p><strong>Name:</strong> {memberData.lastName}, {memberData.firstName} {memberData.middleInitial || ''}</p>
                     <p><strong>Current Ministry:</strong> {member?.ministry || memberData.ministry || 'N/A'}</p>
                     <p><strong>Current Apostolate:</strong> {member?.apostolate || memberData.apostolate || 'N/A'}</p>
-                    <p><strong>Period:</strong> {formatDate(startDate)} - {formatDate(endDate)}</p>
+                    <p><strong>Period:</strong> {startDate ? formatDate(startDate) : '—'} – {endDate ? formatDate(endDate) : '—'}</p>
                   </CardContent>
                 </Card>
 
-                {/* Member Profile Section */}
+                {/* Attendance cards: Community Worship and WSC for the period */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <Card>
                     <CardHeader>
@@ -2784,7 +2852,7 @@ export default function ReportsPage() {
                       <div className="grid grid-cols-2 gap-4">
                         <div>
                           <p className="text-sm text-gray-600">Member ID</p>
-                          <p className="font-mono font-semibold">{memberData.communityId}</p>
+                          <p className="font-mono font-semibold">{memberData.communityId || '—'}</p>
                         </div>
                         <div>
                           <p className="text-sm text-gray-600">Nickname</p>
@@ -2795,9 +2863,8 @@ export default function ReportsPage() {
                           <p className="font-semibold">{memberData.lastName}, {memberData.firstName} {memberData.middleInitial || ''}</p>
                         </div>
                         <div className="col-span-2">
-                          <p className="text-sm text-gray-600">Attendance Percentage</p>
-                          <p className="text-3xl font-bold text-purple-600">{memberData.percentage || 0}%</p>
-                          <p className="text-xs text-gray-500 mt-1">Use "View Detailed Analysis" button in the table below</p>
+                          <p className="text-sm text-gray-600">Overall Attendance</p>
+                          <p className="text-3xl font-bold text-purple-600">{memberData.percentage ?? 0}%</p>
                         </div>
                       </div>
                     </CardContent>
@@ -2807,7 +2874,7 @@ export default function ReportsPage() {
                     <CardHeader>
                       <CardTitle className="text-lg flex items-center gap-2">
                         <Calendar className="w-5 h-5" />
-                        Last 4 Weeks Detailed Attendance
+                        Attendance for period
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
@@ -2818,9 +2885,9 @@ export default function ReportsPage() {
                               <Church className="w-5 h-5 text-purple-600" />
                               <h5 className="font-semibold text-purple-800">Community Worship</h5>
                             </div>
-                            <p className="text-2xl font-bold text-purple-600">{memberData.corporateWorshipPercentage || 0}%</p>
+                            <p className="text-2xl font-bold text-purple-600">{memberData.corporateWorshipPercentage ?? 0}%</p>
                             <p className="text-sm text-gray-600">
-                              {memberData.corporateWorshipAttended || 0}/{individualReportData.statistics?.totalInstances?.corporateWorship ?? 0} attended
+                              {memberData.corporateWorshipAttended ?? 0}/{totalCw} attended
                             </p>
                           </CardContent>
                         </Card>
@@ -2830,9 +2897,9 @@ export default function ReportsPage() {
                               <MessageCircle className="w-5 h-5 text-blue-600" />
                               <h5 className="font-semibold text-blue-800">Word Sharing Circles</h5>
                             </div>
-                            <p className="text-2xl font-bold text-blue-600">{memberData.wordSharingCirclesPercentage || 0}%</p>
+                            <p className="text-2xl font-bold text-blue-600">{memberData.wordSharingCirclesPercentage ?? 0}%</p>
                             <p className="text-sm text-gray-600">
-                              {memberData.wordSharingCirclesAttended || 0}/{individualReportData.statistics?.totalInstances?.wordSharingCircles ?? 0} attended
+                              {memberData.wordSharingCirclesAttended ?? 0}/{totalWsc} attended
                             </p>
                           </CardContent>
                         </Card>
@@ -2841,84 +2908,76 @@ export default function ReportsPage() {
                   </Card>
                 </div>
 
-                {/* Attendance Summary */}
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
+                {hasReportData && (
+                  <Card>
+                    <CardHeader>
                       <CardTitle className="text-lg">Attendance Summary</CardTitle>
-                      <Button variant="outline" size="sm">
-                        <Search className="w-4 h-4 mr-2" />
-                        View Detailed Analysis
-                      </Button>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead className="font-mono text-xs">Member ID</TableHead>
-                            <TableHead>Last Name</TableHead>
-                            <TableHead>First Name</TableHead>
-                            <TableHead>MI</TableHead>
-                            <TableHead className="text-center">CW</TableHead>
-                            <TableHead className="text-center">CW%</TableHead>
-                            <TableHead className="text-center">WSC</TableHead>
-                            <TableHead className="text-center">WSC%</TableHead>
-                            <TableHead className="text-center">Total</TableHead>
-                            <TableHead className="text-center">Overall%</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          <TableRow>
-                            <TableCell className="font-mono text-sm">{memberData.communityId}</TableCell>
-                            <TableCell>{memberData.lastName}</TableCell>
-                            <TableCell>{memberData.firstName}</TableCell>
-                            <TableCell>{memberData.middleInitial || ''}</TableCell>
-                            <TableCell className="text-center">{memberData.corporateWorshipAttended || 0}</TableCell>
-                            <TableCell className="text-center font-medium text-purple-600">{memberData.corporateWorshipPercentage || 0}%</TableCell>
-                            <TableCell className="text-center">{memberData.wordSharingCirclesAttended || 0}</TableCell>
-                            <TableCell className="text-center font-medium text-blue-600">{memberData.wordSharingCirclesPercentage || 0}%</TableCell>
-                            <TableCell className="text-center font-medium">{memberData.totalAttended || 0}</TableCell>
-                            <TableCell className="text-center font-medium text-purple-600">{memberData.percentage || 0}%</TableCell>
-                          </TableRow>
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </CardContent>
-                </Card>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead className="font-mono text-xs">Member ID</TableHead>
+                              <TableHead>Last Name</TableHead>
+                              <TableHead>First Name</TableHead>
+                              <TableHead>MI</TableHead>
+                              <TableHead className="text-center">CW</TableHead>
+                              <TableHead className="text-center">CW%</TableHead>
+                              <TableHead className="text-center">WSC</TableHead>
+                              <TableHead className="text-center">WSC%</TableHead>
+                              <TableHead className="text-center">Total</TableHead>
+                              <TableHead className="text-center">Overall%</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            <TableRow>
+                              <TableCell className="font-mono text-sm">{memberData.communityId}</TableCell>
+                              <TableCell>{memberData.lastName}</TableCell>
+                              <TableCell>{memberData.firstName}</TableCell>
+                              <TableCell>{memberData.middleInitial || ''}</TableCell>
+                              <TableCell className="text-center">{memberData.corporateWorshipAttended ?? 0}</TableCell>
+                              <TableCell className="text-center font-medium text-purple-600">{memberData.corporateWorshipPercentage ?? 0}%</TableCell>
+                              <TableCell className="text-center">{memberData.wordSharingCirclesAttended ?? 0}</TableCell>
+                              <TableCell className="text-center font-medium text-blue-600">{memberData.wordSharingCirclesPercentage ?? 0}%</TableCell>
+                              <TableCell className="text-center font-medium">{memberData.totalAttended ?? 0}</TableCell>
+                              <TableCell className="text-center font-medium text-purple-600">{memberData.percentage ?? 0}%</TableCell>
+                            </TableRow>
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
-                {/* Export Buttons */}
                 <div className="flex flex-wrap justify-end gap-3">
                   <Button onClick={() => setShowIndividualReport(false)} variant="outline">
                     Close
                   </Button>
+                  {hasReportData && (
+                    <Button 
+                      onClick={() => {
+                        if (!individualReportData) return;
+                        const data = individualReportData.data || [];
+                        const filename = `individual-attendance-report-${memberData.communityId}-${new Date().toISOString().split('T')[0]}`;
+                        reportsService.exportToCSV(data, filename);
+                        toast.success('Report Exported to CSV');
+                      }} 
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      Export CSV
+                    </Button>
+                  )}
                   <Button 
-                    onClick={() => {
-                      if (!individualReportData) return;
-                      const data = individualReportData.data || [];
-                      const filename = `individual-attendance-report-${memberData.communityId}-${new Date().toISOString().split('T')[0]}`;
-                      reportsService.exportToCSV(data, filename);
-                      toast.success('Report Exported to CSV');
-                    }} 
-                    className="bg-green-600 hover:bg-green-700 text-white"
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Export CSV
-                  </Button>
-                  <Button 
-                    onClick={() => {
-                      toast.info('Excel export coming soon');
-                    }} 
+                    onClick={() => toast.info('Excel export coming soon')} 
                     className="bg-purple-600 hover:bg-purple-700 text-white"
                   >
                     <LineChart className="w-4 h-4 mr-2" />
                     Export Excel
                   </Button>
                   <Button 
-                    onClick={() => {
-                      toast.info('PDF export coming soon');
-                    }} 
+                    onClick={() => toast.info('PDF export coming soon')} 
                     className="bg-red-600 hover:bg-red-700 text-white"
                   >
                     <FileText className="w-4 h-4 mr-2" />
