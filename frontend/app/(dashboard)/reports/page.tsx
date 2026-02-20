@@ -3071,11 +3071,14 @@ export default function ReportsPage() {
 
       {/* Recurring Attendance Report Dialog */}
       <Dialog open={showRecurringReport} onOpenChange={setShowRecurringReport}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto" aria-describedby="recurring-report-desc">
           <DialogHeader>
             <DialogTitle className="text-2xl font-bold text-purple-800">
               Recurring Attendance Report
             </DialogTitle>
+            <DialogDescription id="recurring-report-desc" className="sr-only">
+              Recurring attendance summary by community, ministry, or individual for the selected period.
+            </DialogDescription>
           </DialogHeader>
 
           {recurringReportData && (

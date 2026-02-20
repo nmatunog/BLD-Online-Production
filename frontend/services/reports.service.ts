@@ -349,6 +349,7 @@ class ReportsService {
   ): Promise<MonthlyAttendanceTrendPoint[]> {
     const response = await apiClient.get<MonthlyAttendanceTrendPoint[]>('/reports/monthly-attendance-trend', {
       params: { ministry, year },
+      timeout: 30000,
     });
     return Array.isArray(response.data) ? response.data : [];
   }
