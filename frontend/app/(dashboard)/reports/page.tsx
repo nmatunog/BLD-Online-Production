@@ -97,6 +97,31 @@ export default function ReportsPage() {
     startDate: string;
     endDate: string;
   } | null>(null);
+  /** Member search for Individual Report: type to search by surname (min 3 letters), then pick from list */
+  const [memberSearchQuery, setMemberSearchQuery] = useState('');
+  const [memberSearchOpen, setMemberSearchOpen] = useState(false);
+  const memberSearchRef = useRef<HTMLDivElement>(null);
+  const memberSearchInputRef = useRef<HTMLInputElement>(null);
+  /** Members matching surname search (min 3 chars), max 50 for performance */
+  const memberSearchResults = useMemo(() => {
+    const q = memberSearchQuery.trim().toLowerCase();
+    if (q.length < 3) return [];
+    return members
+      .filter((m) => (m.lastName?.toLowerCase() ?? '').includes(q))
+      .slice(0, 50);
+  }, [members, memberSearchQuery]);
+
+  useEffect(() => {
+    if (!memberSearchOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (memberSearchRef.current && !memberSearchRef.current.contains(e.target as Node)) {
+        setMemberSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [memberSearchOpen]);
+
   const [recurringReportConfig, setRecurringReportConfig] = useState({
     reportType: RecurringReportType.COMMUNITY,
     period: PeriodType.MONTHLY,
@@ -1861,34 +1886,86 @@ export default function ReportsPage() {
                     <CardTitle className="text-lg">Generate Member Report</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    <div>
-                      <Label htmlFor="individualMemberId">Select Member</Label>
-                      <Select
-                        value={filters.memberId || ''}
-                        onValueChange={(value) => {
-                          setFilters({ ...filters, memberId: value });
-                        }}
-                      >
-                        <SelectTrigger id="individualMemberId">
-                          <SelectValue placeholder="Select a member..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {members.length > 0 ? (
-                            members.map((member) => {
-                              const middleInitial = member.middleName ? member.middleName.charAt(0).toUpperCase() : '';
-                              return (
-                                <SelectItem key={member.id} value={member.id}>
-                                  {member.lastName}, {member.firstName} {middleInitial} ({member.communityId})
-                                </SelectItem>
-                              );
-                            })
+                    <div ref={memberSearchRef} className="relative">
+                      <Label htmlFor="individualMemberId">Search Member (by surname)</Label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                        <Input
+                          ref={memberSearchInputRef}
+                          id="individualMemberId"
+                          type="text"
+                          placeholder={filters.memberId ? '' : 'Type at least 3 letters of surname...'}
+                          value={filters.memberId
+                            ? (() => {
+                                const m = members.find((mb) => mb.id === filters.memberId);
+                                return m
+                                  ? `${m.lastName}, ${m.firstName}${m.middleName ? ' ' + m.middleName.charAt(0).toUpperCase() + '.' : ''} (${m.communityId})`
+                                  : '';
+                              })()
+                            : memberSearchQuery}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setMemberSearchQuery(v);
+                            setMemberSearchOpen(v.trim().length >= 3);
+                            if (filters.memberId) setFilters({ ...filters, memberId: '' });
+                          }}
+                          onFocus={() => {
+                            if (filters.memberId) {
+                              setFilters({ ...filters, memberId: '' });
+                              setMemberSearchQuery('');
+                            }
+                            if (memberSearchQuery.trim().length >= 3) setMemberSearchOpen(true);
+                          }}
+                          className="pl-9 pr-8"
+                        />
+                        {filters.memberId && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFilters({ ...filters, memberId: '' });
+                              setMemberSearchQuery('');
+                              memberSearchInputRef.current?.focus();
+                            }}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1 rounded"
+                            aria-label="Clear member"
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                      {!filters.memberId && memberSearchOpen && memberSearchQuery.trim().length >= 3 && (
+                        <div className="absolute z-50 mt-1 w-full rounded-md border bg-white shadow-lg max-h-60 overflow-auto">
+                          {memberSearchResults.length === 0 ? (
+                            <div className="px-3 py-4 text-sm text-muted-foreground text-center">
+                              No members match &quot;{memberSearchQuery}&quot;
+                            </div>
                           ) : (
-                            <SelectItem value="NO_DATA" disabled>
-                              No members available
-                            </SelectItem>
+                            <ul className="py-1">
+                              {memberSearchResults.map((member) => {
+                                const mi = member.middleName ? member.middleName.charAt(0).toUpperCase() + '.' : '';
+                                return (
+                                  <li key={member.id}>
+                                    <button
+                                      type="button"
+                                      className="w-full px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none flex justify-between items-center"
+                                      onClick={() => {
+                                        setFilters({ ...filters, memberId: member.id });
+                                        setMemberSearchQuery('');
+                                        setMemberSearchOpen(false);
+                                      }}
+                                    >
+                                      <span>
+                                        {member.lastName}, {member.firstName} {mi}
+                                      </span>
+                                      <span className="font-mono text-xs text-muted-foreground">{member.communityId}</span>
+                                    </button>
+                                  </li>
+                                );
+                              })}
+                            </ul>
                           )}
-                        </SelectContent>
-                      </Select>
+                        </div>
+                      )}
                     </div>
 
                     <div>
