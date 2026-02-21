@@ -198,7 +198,7 @@ export class MembersService {
 
     if (query.role || query.isActive !== undefined) {
       where.user = {};
-      if (query.role) (where.user as Prisma.UserWhereInput).role = query.role;
+      if (query.role) (where.user as Prisma.UserWhereInput).role = query.role as Prisma.UserRole;
       if (query.isActive !== undefined) (where.user as Prisma.UserWhereInput).isActive = query.isActive;
     }
 

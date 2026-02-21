@@ -137,6 +137,17 @@ export default function ReportsPage() {
   const [monthlyTrendData, setMonthlyTrendData] = useState<MonthlyAttendanceTrendPoint[] | null>(null);
   const [monthlyTrendLoading, setMonthlyTrendLoading] = useState(false);
 
+  // Filters (declared before individualReportDisplay useMemo which depends on it)
+  const [filters, setFilters] = useState({
+    eventId: '',
+    memberId: '',
+    startDate: '',
+    endDate: '',
+    encounterType: '',
+    ministry: '',
+    city: '',
+  });
+
   /** Safe display payload for Individual Report dialog — computed so dialog body never throws and always has values */
   const individualReportDisplay = useMemo(() => {
     if (!showIndividualReport) return null;
@@ -225,17 +236,6 @@ export default function ReportsPage() {
     filters.endDate,
     members,
   ]);
-
-  // Filters
-  const [filters, setFilters] = useState({
-    eventId: '',
-    memberId: '',
-    startDate: '',
-    endDate: '',
-    encounterType: '',
-    ministry: '',
-    city: '',
-  });
 
   // Advanced filtering states
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
