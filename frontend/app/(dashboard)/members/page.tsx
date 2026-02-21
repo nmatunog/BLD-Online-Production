@@ -156,7 +156,7 @@ export default function MembersPage() {
         search: searchTerm || undefined,
         ministry: filterMinistry !== 'ALL' ? filterMinistry : (userRole === 'MINISTRY_COORDINATOR' ? userMinistry : undefined),
         role: filterRole !== 'ALL' ? filterRole : undefined,
-        isActive: filterStatus === 'ALL' ? undefined : filterStatus === 'Active',
+        ...(filterStatus !== 'ALL' && { isActive: filterStatus === 'Active' }),
         sortBy: 'name',
         sortOrder: 'asc',
         page: 1,

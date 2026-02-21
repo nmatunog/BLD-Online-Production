@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsInt, Min, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsInt, Min, IsBoolean, Allow } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 export enum MemberSortBy {
@@ -34,6 +34,7 @@ export class MemberQueryDto {
   @IsOptional()
   role?: string; // User role (e.g. MEMBER, MINISTRY_COORDINATOR)
 
+  @Allow()
   @IsOptional()
   @Transform(({ value }) => (value === 'true' ? true : value === 'false' ? false : value))
   @IsBoolean()
