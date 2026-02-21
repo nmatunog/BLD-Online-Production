@@ -19,7 +19,7 @@ import {
   UserRole,
 } from '@prisma/client';
 import { normalizePhoneNumber } from '../common/utils/phone.util';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class RegistrationsService {

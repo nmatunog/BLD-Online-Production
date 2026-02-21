@@ -13,7 +13,7 @@
  */
 
 import { PrismaClient, UserRole } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+import * as bcrypt from 'bcryptjs';
 import * as readline from 'readline';
 
 const prisma = new PrismaClient();
