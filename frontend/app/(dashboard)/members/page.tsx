@@ -36,6 +36,7 @@ import {
   getCityLabel,
 } from '@/lib/member-constants';
 import { generateMemberQR, downloadQRCode, type MemberData } from '@/lib/qr-service';
+import jsPDF from 'jspdf';
 
 interface EditFormData {
   firstName: string;
@@ -488,6 +489,78 @@ export default function MembersPage() {
     }
   };
 
+  /** Export all members' QR codes as a single PDF for ID printing (grid of cards per page) */
+  const [exportingAllQR, setExportingAllQR] = useState(false);
+  const exportAllMembersQRForPrinting = async () => {
+    const list = members.length > 0 ? members : [];
+    if (list.length === 0) {
+      toast.error('No members to export', { description: 'Load members first or add members.' });
+      return;
+    }
+    setExportingAllQR(true);
+    toast.info('Generating PDF with all member QR codes…', { duration: 5000 });
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const pageW = 210;
+      const pageH = 297;
+      const margin = 10;
+      const cols = 3;
+      const rows = 4;
+      const cardW = (pageW - 2 * margin) / cols;
+      const cardH = (pageH - 2 * margin) / rows;
+      const qrSize = 28;
+      const lineH = 5;
+      let pageIndex = 0;
+      let col = 0;
+      let row = 0;
+      for (let i = 0; i < list.length; i++) {
+        if (pageIndex > 0 || col > 0 || row > 0) {
+          col++;
+          if (col >= cols) {
+            col = 0;
+            row++;
+            if (row >= rows) {
+              doc.addPage();
+              pageIndex++;
+              row = 0;
+            }
+          }
+        }
+        const member = list[i];
+        const x = margin + col * cardW;
+        const y = margin + row * cardH;
+        const memberData: MemberData = {
+          communityId: member.communityId,
+          firstName: member.firstName,
+          lastName: member.lastName,
+          nickname: member.nickname,
+          email: member.user?.email,
+        };
+        const dataUrl = await generateMemberQR(memberData);
+        const qrX = x + (cardW - qrSize) / 2;
+        doc.addImage(dataUrl, 'PNG', qrX, y, qrSize, qrSize);
+        const textY = y + qrSize + 3;
+        doc.setFontSize(8);
+        doc.setFont('helvetica', 'bold');
+        const name = [member.lastName, member.firstName].filter(Boolean).join(', ');
+        doc.text(name.length > 24 ? name.slice(0, 22) + '…' : name, x + cardW / 2, textY, { align: 'center' });
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.text(member.communityId || '', x + cardW / 2, textY + lineH, { align: 'center' });
+      }
+      const filename = `member-qr-codes-for-printing-${new Date().toISOString().split('T')[0]}.pdf`;
+      doc.save(filename);
+      toast.success('Export complete', {
+        description: `Saved ${filename} with ${list.length} member QR code(s). Open and print for ID cards.`,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to export QR codes';
+      toast.error('Export failed', { description: msg });
+    } finally {
+      setExportingAllQR(false);
+    }
+  };
+
   // Handle generate QR code
   const handleGenerateQR = async (member: Member) => {
     try {
@@ -672,6 +745,19 @@ export default function MembersPage() {
               >
                 <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                 Refresh
+              </Button>
+              <Button
+                onClick={exportAllMembersQRForPrinting}
+                disabled={exportingAllQR || members.length === 0}
+                variant="outline"
+                className="bg-purple-600 text-white hover:bg-purple-700 border-purple-600"
+              >
+                {exportingAllQR ? (
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 mr-2" />
+                )}
+                Export all QR codes for ID printing
               </Button>
             </div>
           </div>
