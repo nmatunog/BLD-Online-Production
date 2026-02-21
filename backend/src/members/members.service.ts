@@ -9,7 +9,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateMemberDto } from './dto/create-member.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { MemberQueryDto } from './dto/member-query.dto';
-import { Prisma } from '@prisma/client';
+import { Prisma, UserRole } from '@prisma/client';
 import QRCode from 'qrcode';
 import { normalizePhoneNumber } from '../common/utils/phone.util';
 import { BunnyCDNService } from '../common/services/bunnycdn.service';
@@ -198,7 +198,7 @@ export class MembersService {
 
     if (query.role || query.isActive !== undefined) {
       where.user = {};
-      if (query.role) (where.user as Prisma.UserWhereInput).role = query.role as Prisma.UserRole;
+      if (query.role) (where.user as Prisma.UserWhereInput).role = query.role as UserRole;
       if (query.isActive !== undefined) (where.user as Prisma.UserWhereInput).isActive = query.isActive;
     }
 
