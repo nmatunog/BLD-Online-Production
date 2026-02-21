@@ -812,6 +812,18 @@ export default function ReportsPage() {
     toast.success('Report Exported to CSV');
   };
 
+  const exportRecurringReportToExcel = () => {
+    if (!recurringReportData) return;
+    const data = recurringReportData.data || [];
+    if (data.length === 0) {
+      toast.error('No Data to Export');
+      return;
+    }
+    const filename = `recurring-attendance-report-${new Date().toISOString().split('T')[0]}`;
+    reportsService.exportToExcel(data, filename, 'Attendance');
+    toast.success('Report Exported to Excel');
+  };
+
   const exportRecurringReportToPDF = () => {
     if (!recurringReportData) return;
 
@@ -958,6 +970,63 @@ export default function ReportsPage() {
 
     // Save PDF
     const filename = `recurring-attendance-report-${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.save(filename);
+    toast.success('Report Exported to PDF');
+  };
+
+  const exportIndividualReportToPDF = () => {
+    if (!individualReportDisplay) return;
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    let y = 20;
+    const addText = (text: string, x: number, yPos: number, opts: { fontSize?: number; fontStyle?: string; color?: [number, number, number]; maxWidth?: number } = {}) => {
+      const { fontSize = 12, fontStyle = 'normal', color = [0, 0, 0], maxWidth = pageWidth - 40 } = opts;
+      doc.setFontSize(fontSize);
+      doc.setFont('helvetica', fontStyle as 'normal' | 'bold');
+      doc.setTextColor(...color);
+      const lines = doc.splitTextToSize(text, maxWidth);
+      doc.text(lines, x, yPos);
+      return yPos + lines.length * fontSize * 0.4;
+    };
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(88, 28, 135);
+    doc.text('Individual Attendance Report', 20, y);
+    y += 12;
+    const m = individualReportDisplay.memberData;
+    const name = [m.lastName, m.firstName].filter(Boolean).join(', ') + (m.middleInitial ? ` ${m.middleInitial}.` : '');
+    y = addText(`Member: ${name}`, 20, y, { fontSize: 12 });
+    y = addText(`Community ID: ${m.communityId || '—'}`, 20, y, { fontSize: 12 });
+    y = addText(`Period: ${individualReportDisplay.startDate ? formatDate(individualReportDisplay.startDate) : '—'} – ${individualReportDisplay.endDate ? formatDate(individualReportDisplay.endDate) : '—'}`, 20, y, { fontSize: 12 });
+    y += 10;
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Attendance Summary', 20, y);
+    y += 8;
+    const headers = ['Metric', 'Percentage', 'Attended'];
+    const colWidths = [70, 45, 45];
+    let xPos = 20;
+    headers.forEach((h, i) => {
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'bold');
+      doc.text(h, xPos, y);
+      xPos += colWidths[i];
+    });
+    y += 7;
+    const rows = [
+      ['Community Worship', `${m.corporateWorshipPercentage ?? 0}%`, `${m.corporateWorshipAttended ?? 0} / ${individualReportDisplay.totalCw}`],
+      ['Word Sharing Circles', `${m.wordSharingCirclesPercentage ?? 0}%`, `${m.wordSharingCirclesAttended ?? 0} / ${individualReportDisplay.totalWsc}`],
+    ];
+    rows.forEach(([metric, pct, att]) => {
+      xPos = 20;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      doc.text(metric, xPos, y);
+      doc.text(pct, xPos + colWidths[0], y);
+      doc.text(att, xPos + colWidths[0] + colWidths[1], y);
+      y += 6;
+    });
+    const filename = `individual-attendance-${m.communityId || 'report'}-${new Date().toISOString().split('T')[0]}.pdf`;
     doc.save(filename);
     toast.success('Report Exported to PDF');
   };
@@ -3050,11 +3119,30 @@ export default function ReportsPage() {
                     Export CSV
                   </Button>
                 ) : null}
-                <Button onClick={() => toast.info('Excel export coming soon')} className="bg-purple-600 hover:bg-purple-700 text-white">
+                <Button
+                  onClick={() => {
+                    const data = individualReportDisplay.hasReportData && individualReportData?.data?.length
+                      ? individualReportData.data
+                      : [{
+                          communityId: individualReportDisplay.memberData.communityId,
+                          lastName: individualReportDisplay.memberData.lastName,
+                          firstName: individualReportDisplay.memberData.firstName,
+                          corporateWorshipAttended: individualReportDisplay.memberData.corporateWorshipAttended ?? 0,
+                          corporateWorshipPercentage: individualReportDisplay.memberData.corporateWorshipPercentage ?? 0,
+                          wordSharingCirclesAttended: individualReportDisplay.memberData.wordSharingCirclesAttended ?? 0,
+                          wordSharingCirclesPercentage: individualReportDisplay.memberData.wordSharingCirclesPercentage ?? 0,
+                          percentage: individualReportDisplay.memberData.percentage ?? 0,
+                        }];
+                    const filename = `individual-attendance-report-${individualReportDisplay.memberData.communityId}-${new Date().toISOString().split('T')[0]}`;
+                    reportsService.exportToExcel(data, filename, 'Attendance');
+                    toast.success('Report Exported to Excel');
+                  }}
+                  className="bg-purple-600 hover:bg-purple-700 text-white"
+                >
                   <LineChart className="w-4 h-4 mr-2" />
                   Export Excel
                 </Button>
-                <Button onClick={() => toast.info('PDF export coming soon')} className="bg-red-600 hover:bg-red-700 text-white">
+                <Button onClick={exportIndividualReportToPDF} className="bg-red-600 hover:bg-red-700 text-white">
                   <FileText className="w-4 h-4 mr-2" />
                   Export PDF
                 </Button>
@@ -3348,6 +3436,10 @@ export default function ReportsPage() {
                 <Button onClick={exportRecurringReportToCSV} className="bg-green-600 hover:bg-green-700">
                   <Download className="w-4 h-4 mr-2" />
                   Export CSV
+                </Button>
+                <Button onClick={exportRecurringReportToExcel} className="bg-purple-600 hover:bg-purple-700 text-white">
+                  <LineChart className="w-4 h-4 mr-2" />
+                  Export Excel
                 </Button>
                 <Button onClick={exportRecurringReportToPDF} className="bg-red-600 hover:bg-red-700">
                   <FileText className="w-4 h-4 mr-2" />

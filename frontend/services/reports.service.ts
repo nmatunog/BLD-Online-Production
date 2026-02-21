@@ -1,5 +1,6 @@
 import { apiClient } from './api-client';
 import { ApiResponse } from '@/types/api.types';
+import * as XLSX from 'xlsx';
 
 export enum ReportType {
   ATTENDANCE = 'ATTENDANCE',
@@ -391,6 +392,20 @@ class ReportsService {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  }
+
+  /**
+   * Export report data to Excel (.xlsx)
+   */
+  exportToExcel(data: any[], filename: string, sheetName = 'Report'): void {
+    if (!data || data.length === 0) {
+      return;
+    }
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    const name = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`;
+    XLSX.writeFile(wb, name);
   }
 }
 
