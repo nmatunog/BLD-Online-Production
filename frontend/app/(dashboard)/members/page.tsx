@@ -489,46 +489,41 @@ export default function MembersPage() {
     }
   };
 
-  /** Export all members' QR codes as a single PDF for ID printing (grid of cards per page) */
+  /** Export all members' QR codes as a single PDF for ID printing (grid of cards per page). Fetches all members (no filters). */
   const [exportingAllQR, setExportingAllQR] = useState(false);
   const exportAllMembersQRForPrinting = async () => {
-    const list = members.length > 0 ? members : [];
-    if (list.length === 0) {
-      toast.error('No members to export', { description: 'Load members first or add members.' });
-      return;
-    }
     setExportingAllQR(true);
-    toast.info('Generating PDF with all member QR codes…', { duration: 5000 });
+    toast.info('Fetching all members and generating PDF…', { duration: 5000 });
     try {
+      const { data: list } = await membersService.getAll({
+        sortBy: 'name',
+        sortOrder: 'asc',
+        page: 1,
+        limit: 5000,
+      });
+      if (!list || list.length === 0) {
+        toast.error('No members to export', { description: 'Add members first.' });
+        return;
+      }
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const pageW = 210;
       const pageH = 297;
       const margin = 10;
       const cols = 3;
       const rows = 4;
+      const cardsPerPage = cols * rows;
       const cardW = (pageW - 2 * margin) / cols;
       const cardH = (pageH - 2 * margin) / rows;
       const qrSize = 28;
       const lineH = 5;
-      let pageIndex = 0;
-      let col = 0;
-      let row = 0;
       for (let i = 0; i < list.length; i++) {
-        if (pageIndex > 0 || col > 0 || row > 0) {
-          col++;
-          if (col >= cols) {
-            col = 0;
-            row++;
-            if (row >= rows) {
-              doc.addPage();
-              pageIndex++;
-              row = 0;
-            }
-          }
-        }
-        const member = list[i];
+        if (i > 0 && i % cardsPerPage === 0) doc.addPage();
+        const indexOnPage = i % cardsPerPage;
+        const col = indexOnPage % cols;
+        const row = Math.floor(indexOnPage / cols);
         const x = margin + col * cardW;
         const y = margin + row * cardH;
+        const member = list[i];
         const memberData: MemberData = {
           communityId: member.communityId,
           firstName: member.firstName,
