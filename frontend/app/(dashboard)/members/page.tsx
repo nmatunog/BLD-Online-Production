@@ -495,13 +495,14 @@ export default function MembersPage() {
     setExportingAllQR(true);
     toast.info('Fetching all members and generating PDF…', { duration: 5000 });
     try {
-      const { data: list } = await membersService.getAll({
+      const result = await membersService.getAll({
         sortBy: 'name',
         sortOrder: 'asc',
         page: 1,
         limit: 5000,
       });
-      if (!list || list.length === 0) {
+      const list = Array.isArray(result?.data) ? result.data : [];
+      if (list.length === 0) {
         toast.error('No members to export', { description: 'Add members first.' });
         return;
       }
