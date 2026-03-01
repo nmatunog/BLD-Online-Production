@@ -34,7 +34,19 @@ export function parseAuthError(error: unknown): ParsedError {
     
     // Handle array of messages (validation errors)
     if (Array.isArray(data.message)) {
-      errorMessage = data.message.join(', ');
+      // message can be an array of strings OR validation objects from Nest/class-validator
+      const messages: string[] = [];
+      for (const item of data.message) {
+        if (!item) continue;
+        if (typeof item === 'string') {
+          messages.push(item);
+        } else if (typeof item === 'object' && 'constraints' in item && item.constraints) {
+          messages.push(...Object.values(item.constraints as Record<string, string>));
+        } else {
+          messages.push(String(item));
+        }
+      }
+      errorMessage = messages.join(', ');
     } else {
       errorMessage = data.message || data.error || '';
     }
@@ -133,7 +145,12 @@ export function parseAuthError(error: unknown): ParsedError {
     };
   }
 
-  if (lowerMessage.includes('password') && lowerMessage.includes('short')) {
+  if (
+    lowerMessage.includes('password') &&
+    (lowerMessage.includes('short') ||
+      lowerMessage.includes('longer than or equal to 6') ||
+      (lowerMessage.includes('at least') && lowerMessage.includes('6')))
+  ) {
     return {
       title: 'Password Too Short',
       message: 'Password must be at least 6 characters long. Please choose a stronger password.',
