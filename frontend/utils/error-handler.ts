@@ -36,12 +36,17 @@ export function parseAuthError(error: unknown): ParsedError {
     if (Array.isArray(data.message)) {
       // message can be an array of strings OR validation objects from Nest/class-validator
       const messages: string[] = [];
-      for (const item of data.message) {
-        if (!item) continue;
+      for (const item of data.message as unknown[]) {
+        if (item == null) continue;
         if (typeof item === 'string') {
           messages.push(item);
-        } else if (typeof item === 'object' && 'constraints' in item && item.constraints) {
-          messages.push(...Object.values(item.constraints as Record<string, string>));
+        } else if (typeof item === 'object' && 'constraints' in item) {
+          const constraints = (item as { constraints?: Record<string, string> }).constraints;
+          if (constraints && typeof constraints === 'object') {
+            messages.push(...Object.values(constraints));
+          } else {
+            messages.push(String(item));
+          }
         } else {
           messages.push(String(item));
         }
