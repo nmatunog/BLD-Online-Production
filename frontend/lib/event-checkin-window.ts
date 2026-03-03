@@ -130,21 +130,45 @@ export function sortEventsForCheckIn<T extends EventWithDates>(events: T[], now:
 }
 
 /**
+ * Window start time using Manila time for consistent sort order across timezones.
+ */
+function getWindowStartManila(e: EventWithDates): number {
+  const start = parseTimeManila(e.startDate, e.startTime);
+  return start.getTime() - 2 * MS_PER_HOUR;
+}
+
+/** Tiebreaker: sort by startDate then startTime then id for deterministic order. */
+function eventOrderTiebreaker(a: EventWithDates & { id?: string }, b: EventWithDates & { id?: string }): number {
+  const aDate = (a.startDate || '').slice(0, 10);
+  const bDate = (b.startDate || '').slice(0, 10);
+  if (aDate !== bDate) return aDate.localeCompare(bDate);
+  const aTime = a.startTime || '';
+  const bTime = b.startTime || '';
+  if (aTime !== bTime) return aTime.localeCompare(bTime);
+  return (a.id || '').localeCompare(b.id || '');
+}
+
+/**
  * Sort so nearest / most relevant events show first for Check-In and Self Check-In:
  * 1) Events in check-in window (happening now / today) first, by start time ascending
  * 2) Upcoming events (window not yet open) by window start ascending (soonest first)
  * 3) Past events (recurring, within 7 days) by window end descending (most recent first)
+ * Uses Manila time for ordering so "closest" is consistent; tiebreaker keeps order deterministic.
  */
 export function sortEventsNearestFirst<T extends EventWithDates>(events: T[], now: Date = new Date()): T[] {
-  const getWindowStart = (e: EventWithDates) => getEventWindowStart(e).getTime();
-  const getStart = (e: EventWithDates) => parseTime(e.startDate, e.startTime).getTime();
+  const getWindowStart = (e: EventWithDates) => getWindowStartManila(e);
+  const getStart = (e: EventWithDates) => parseTimeManila(e.startDate, e.startTime).getTime();
+  const getEnd = (e: EventWithDates) => {
+    const end = parseTimeManila(e.endDate, e.endTime ?? e.startTime);
+    return end.getTime() + 2 * MS_PER_HOUR;
+  };
   return [...events].sort((a, b) => {
     const aIn = isInCheckInWindow(a, now);
     const bIn = isInCheckInWindow(b, now);
     const aStart = getWindowStart(a);
     const bStart = getWindowStart(b);
-    const aEnd = getEventWindowEnd(a).getTime();
-    const bEnd = getEventWindowEnd(b).getTime();
+    const aEnd = getEnd(a);
+    const bEnd = getEnd(b);
     const nowT = now.getTime();
 
     const aUpcoming = aStart > nowT;
@@ -152,9 +176,18 @@ export function sortEventsNearestFirst<T extends EventWithDates>(events: T[], no
 
     if (aIn && !bIn) return -1;
     if (!aIn && bIn) return 1;
-    if (aIn && bIn) return getStart(a) - getStart(b); // both in window: soonest start first
-    if (aUpcoming && bUpcoming) return aStart - bStart; // both upcoming: soonest first
-    if (!aUpcoming && !bUpcoming) return bEnd - aEnd; // both past: most recent first
+    if (aIn && bIn) {
+      const cmp = getStart(a) - getStart(b);
+      return cmp !== 0 ? cmp : eventOrderTiebreaker(a, b);
+    }
+    if (aUpcoming && bUpcoming) {
+      const cmp = aStart - bStart;
+      return cmp !== 0 ? cmp : eventOrderTiebreaker(a, b);
+    }
+    if (!aUpcoming && !bUpcoming) {
+      const cmp = bEnd - aEnd;
+      return cmp !== 0 ? cmp : eventOrderTiebreaker(a, b);
+    }
     return aUpcoming ? -1 : 1; // upcoming before past
   });
 }

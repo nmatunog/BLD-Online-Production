@@ -132,6 +132,21 @@ class EventsService {
     });
     return response.data;
   }
+
+  /** Super User only: get all events (recurring + non-recurring) with creator info */
+  async getAllForSuperUser(): Promise<ApiResponse<{ data: EventWithCreator[] }>> {
+    const response = await apiClient.get<ApiResponse<{ data: EventWithCreator[] }>>('/events/super/all');
+    return response.data;
+  }
+}
+
+export interface EventWithCreator extends Event {
+  createdBy?: {
+    id: string;
+    email: string | null;
+    phone: string | null;
+    member?: { firstName: string; lastName: string; nickname: string | null } | null;
+  } | null;
 }
 
 export const eventsService = new EventsService();

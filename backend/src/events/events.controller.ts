@@ -43,8 +43,9 @@ export class EventsController {
   @ApiResponse({ status: 400, description: 'Invalid event data' })
   async create(
     @Body() createEventDto: CreateEventDto,
+    @CurrentUser() user: { id: string },
   ): Promise<ApiResponseDto<unknown>> {
-    const event = await this.eventsService.create(createEventDto);
+    const event = await this.eventsService.create(createEventDto, user.id);
     return {
       success: true,
       data: event,
@@ -64,6 +65,20 @@ export class EventsController {
       success: true,
       data: result,
       message: 'Events retrieved successfully',
+    };
+  }
+
+  @Get('super/all')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER)
+  @ApiOperation({ summary: 'Super User only: get all events (recurring + non-recurring) with creator info for cleanup' })
+  @ApiResponse({ status: 200, description: 'All events retrieved successfully' })
+  async findAllForSuperUser(): Promise<ApiResponseDto<unknown>> {
+    const result = await this.eventsService.findAllForSuperUser();
+    return {
+      success: true,
+      data: result,
+      message: 'All events retrieved successfully',
     };
   }
 

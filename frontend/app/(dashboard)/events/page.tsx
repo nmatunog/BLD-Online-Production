@@ -3,8 +3,8 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Search, Calendar, Filter, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Clock, MapPin, Users, Loader2, MessageSquare, Sparkles, RefreshCw, CheckCircle, Globe, FolderOpen, UserPlus, UserCheck } from 'lucide-react';
-import { eventsService, type Event, type EventQueryParams } from '@/services/events.service';
+import { Search, Calendar, Filter, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Clock, MapPin, Users, Loader2, MessageSquare, Sparkles, RefreshCw, CheckCircle, Globe, FolderOpen, UserPlus, UserCheck, Shield, List } from 'lucide-react';
+import { eventsService, type Event, type EventQueryParams, type EventWithCreator } from '@/services/events.service';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -64,6 +64,11 @@ export default function EventsPage() {
   const [pastSelectValue, setPastSelectValue] = useState('');
   /** Past events user added via dropdown (so we show them in completed section even after 7 days) */
   const [addedPastEventIds, setAddedPastEventIds] = useState<Set<string>>(new Set<string>());
+  /** Super User: view all events (recurring + non-recurring) for cleanup */
+  const [showSuperAllDialog, setShowSuperAllDialog] = useState(false);
+  const [superAllEvents, setSuperAllEvents] = useState<EventWithCreator[]>([]);
+  const [superAllLoading, setSuperAllLoading] = useState(false);
+  const [superAllDeletingId, setSuperAllDeletingId] = useState<string | null>(null);
   // Event categories from old system
   const eventCategories = [
     'Community Worship',
@@ -226,6 +231,37 @@ export default function EventsPage() {
 
     return () => clearTimeout(timeoutId);
   }, [searchTerm, filterStatus, filterType, includeAllMinistryEvents, userRole]);
+
+  const loadSuperAllEvents = useCallback(async () => {
+    setSuperAllLoading(true);
+    try {
+      const res = await eventsService.getAllForSuperUser();
+      if (res.success && res.data?.data) {
+        setSuperAllEvents(Array.isArray(res.data.data) ? res.data.data : []);
+      } else {
+        setSuperAllEvents([]);
+      }
+    } catch (e) {
+      toast.error('Failed to load all events', { description: e instanceof Error ? e.message : 'Unknown error' });
+      setSuperAllEvents([]);
+    } finally {
+      setSuperAllLoading(false);
+    }
+  }, []);
+
+  const handleSuperAllDelete = async (id: string) => {
+    if (!confirm('Delete this event? Events with check-ins or registrations will be marked CANCELLED.')) return;
+    setSuperAllDeletingId(id);
+    try {
+      await eventsService.delete(id);
+      toast.success('Event removed');
+      await loadSuperAllEvents();
+    } catch (e) {
+      toast.error('Delete failed', { description: e instanceof Error ? e.message : 'Unknown error' });
+    } finally {
+      setSuperAllDeletingId(null);
+    }
+  };
 
   const loadPastEvents = useCallback(async () => {
     if (pastEventsLoaded) return;
@@ -1010,10 +1046,109 @@ export default function EventsPage() {
                   <Sparkles className="w-5 h-5" />
                   <span>AI Assistant</span>
                 </Button>
+                {userRole === 'SUPER_USER' && (
+                  <Button
+                    onClick={() => {
+                      setShowSuperAllDialog(true);
+                      loadSuperAllEvents();
+                    }}
+                    variant="outline"
+                    className="border-amber-500 text-amber-700 hover:bg-amber-50 px-5 py-2.5 rounded-lg shadow-sm flex items-center justify-center space-x-2 text-sm md:text-base font-medium"
+                  >
+                    <Shield className="w-5 h-5" />
+                    <span>View all events (cleanup)</span>
+                  </Button>
+                )}
               </>
             )}
           </div>
         </div>
+
+        {/* Super User: All events dialog */}
+        <Dialog open={showSuperAllDialog} onOpenChange={setShowSuperAllDialog}>
+          <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <List className="w-5 h-5" />
+                All events (Super User – cleanup duplicates)
+              </DialogTitle>
+              <DialogDescription>
+                Every event (recurring and non-recurring). Shows who created it and when. Use delete to remove duplicates.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex-1 overflow-auto border rounded-md">
+              {superAllLoading ? (
+                <div className="p-8 flex items-center justify-center">
+                  <Loader2 className="w-8 h-8 animate-spin text-red-600" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Category</TableHead>
+                      <TableHead>Start</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Recurring</TableHead>
+                      <TableHead>Created by</TableHead>
+                      <TableHead>Created at</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {superAllEvents.map((ev) => (
+                      <TableRow key={ev.id}>
+                        <TableCell className="font-medium">{ev.title}</TableCell>
+                        <TableCell>{ev.category}</TableCell>
+                        <TableCell>
+                          {formatDate(ev.startDate)}
+                          {ev.startTime ? ` ${formatTime(ev.startTime)}` : ''}
+                        </TableCell>
+                        <TableCell>{ev.status}</TableCell>
+                        <TableCell>{ev.isRecurring ? 'Yes' : 'No'}</TableCell>
+                        <TableCell>
+                          {ev.createdBy
+                            ? (ev.createdBy.member
+                                ? [ev.createdBy.member.firstName, ev.createdBy.member.lastName].filter(Boolean).join(' ') || ev.createdBy.email || ev.createdBy.phone || '—'
+                                : ev.createdBy.email || ev.createdBy.phone || '—')
+                            : '—'}
+                        </TableCell>
+                        <TableCell>
+                          {ev.createdAt
+                            ? new Date(ev.createdAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })
+                            : '—'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                            disabled={superAllDeletingId === ev.id}
+                            onClick={() => handleSuperAllDelete(ev.id)}
+                          >
+                            {superAllDeletingId === ev.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-4 h-4" />
+                            )}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setShowSuperAllDialog(false)}>
+                Close
+              </Button>
+              <Button onClick={loadSuperAllEvents} disabled={superAllLoading}>
+                Refresh list
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Filters */}
         <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-200 mb-6">

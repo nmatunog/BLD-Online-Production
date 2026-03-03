@@ -22,7 +22,7 @@ export class EventsService {
     private bunnyCDN: BunnyCDNService,
   ) {}
 
-  async create(createEventDto: CreateEventDto) {
+  async create(createEventDto: CreateEventDto, createdById?: string) {
     // Validate dates and times
     const startDate = new Date(createEventDto.startDate);
     const endDate = new Date(createEventDto.endDate);
@@ -107,6 +107,7 @@ export class EventsService {
         monthlyWeekOfMonth: createEventDto.monthlyWeekOfMonth || null,
         monthlyDayOfWeek: createEventDto.monthlyDayOfWeek || null,
         ministry: createEventDto.ministry?.trim() || null,
+        createdById: createdById || null,
       },
       include: {
         _count: {
@@ -248,6 +249,37 @@ export class EventsService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  /**
+   * Super User only: return all events (recurring and non-recurring), no status/ministry filter.
+   * Includes creator (who created and when) for cleanup/audit.
+   */
+  async findAllForSuperUser() {
+    await this.updateEventStatuses();
+    const data = await this.prisma.event.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        _count: {
+          select: { attendances: true, registrations: true },
+        },
+        createdBy: {
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            member: {
+              select: {
+                firstName: true,
+                lastName: true,
+                nickname: true,
+              },
+            },
+          },
+        },
+      },
+    });
+    return { data };
   }
 
   async findOne(id: string, user?: { role: string; ministry?: string }) {

@@ -66,6 +66,7 @@ model User {
   member       Member?
   sessions     Session[]
   eventClassShepherds EventClassShepherd[]
+  eventsCreated Event[] @relation("EventCreatedBy")
 
   @@index([email])
   @@index([phone])
@@ -159,6 +160,8 @@ model Event {
   monthlyDayOfWeek   String?
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
+  createdById       String?
+  createdBy         User?        @relation("EventCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
 
   attendances       Attendance[]
   registrations     EventRegistration[]
