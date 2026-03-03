@@ -146,13 +146,11 @@ export class EventsService {
       await this.generateQRCode(event.id);
     }
 
-    // Auto-create future occurrence rows for recurring templates (visible only within week; Super User sees all)
+    // Auto-create future occurrence rows in background so create response returns quickly (avoids timeout)
     if (event.isRecurring && !event.recurrenceTemplateId) {
-      try {
-        await this.generateRecurringOccurrences(event.id, RECURRING_OCCURRENCE_WEEKS_AHEAD);
-      } catch (err) {
+      void this.generateRecurringOccurrences(event.id, RECURRING_OCCURRENCE_WEEKS_AHEAD).catch((err) => {
         console.error('[EventsService] generateRecurringOccurrences failed:', err);
-      }
+      });
     }
 
     return event;

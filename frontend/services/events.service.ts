@@ -102,7 +102,7 @@ class EventsService {
   }
 
   async create(data: CreateEventRequest): Promise<ApiResponse<Event>> {
-    const response = await apiClient.post<ApiResponse<Event>>('/events', data);
+    const response = await apiClient.post<ApiResponse<Event>>('/events', data, { timeout: 30000 });
     return response.data;
   }
 
