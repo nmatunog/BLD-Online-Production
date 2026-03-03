@@ -137,6 +137,20 @@ function getWindowStartManila(e: EventWithDates): number {
   return start.getTime() - 2 * MS_PER_HOUR;
 }
 
+/** Window end (event end + 2h) in Manila time. */
+function getWindowEndManila(e: EventWithDates): number {
+  const end = parseTimeManila(e.endDate, e.endTime ?? e.startTime);
+  return end.getTime() + 2 * MS_PER_HOUR;
+}
+
+/** True if now is within the check-in window [start-2h, end+2h] in Manila time. Use for sorting so closest (ongoing) event is first regardless of client timezone. */
+function isInCheckInWindowManila(event: EventWithDates, now: Date): boolean {
+  const windowStart = getWindowStartManila(event);
+  const windowEnd = getWindowEndManila(event);
+  const t = now.getTime();
+  return t >= windowStart && t <= windowEnd;
+}
+
 /** Tiebreaker: sort by startDate then startTime then id for deterministic order. */
 function eventOrderTiebreaker(a: EventWithDates & { id?: string }, b: EventWithDates & { id?: string }): number {
   const aDate = (a.startDate || '').slice(0, 10);
@@ -158,13 +172,10 @@ function eventOrderTiebreaker(a: EventWithDates & { id?: string }, b: EventWithD
 export function sortEventsNearestFirst<T extends EventWithDates>(events: T[], now: Date = new Date()): T[] {
   const getWindowStart = (e: EventWithDates) => getWindowStartManila(e);
   const getStart = (e: EventWithDates) => parseTimeManila(e.startDate, e.startTime).getTime();
-  const getEnd = (e: EventWithDates) => {
-    const end = parseTimeManila(e.endDate, e.endTime ?? e.startTime);
-    return end.getTime() + 2 * MS_PER_HOUR;
-  };
+  const getEnd = (e: EventWithDates) => getWindowEndManila(e);
   return [...events].sort((a, b) => {
-    const aIn = isInCheckInWindow(a, now);
-    const bIn = isInCheckInWindow(b, now);
+    const aIn = isInCheckInWindowManila(a, now);
+    const bIn = isInCheckInWindowManila(b, now);
     const aStart = getWindowStart(a);
     const bStart = getWindowStart(b);
     const aEnd = getEnd(a);
@@ -186,7 +197,11 @@ export function sortEventsNearestFirst<T extends EventWithDates>(events: T[], no
     }
     if (!aUpcoming && !bUpcoming) {
       const cmp = bEnd - aEnd;
-      return cmp !== 0 ? cmp : eventOrderTiebreaker(a, b);
+      if (cmp !== 0) return cmp;
+      // Same window end: put later start date first (most recent past first)
+      const aStart = getStart(a);
+      const bStart = getStart(b);
+      return bStart - aStart;
     }
     return aUpcoming ? -1 : 1; // upcoming before past
   });

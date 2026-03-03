@@ -146,14 +146,14 @@ function CheckInContent() {
         ? (Array.isArray(completedResult.data.data) ? completedResult.data.data : []).filter((e: { isRecurring?: boolean }) => e.isRecurring === true)
         : [];
 
-      // Merge, dedupe by id, sort so nearest events (today / in check-in window) show first
+      // Merge, dedupe by id, sort so nearest events (today / in check-in window) show first (Manila time)
       const seen = new Set<string>();
       const merged = [...ongoingList, ...upcomingList, ...completedList].filter((e) => {
         if (seen.has(e.id)) return false;
         seen.add(e.id);
         return true;
       });
-      const eventList = sortEventsNearestFirst(merged);
+      const eventList = sortEventsNearestFirst(merged, new Date());
 
       setEvents(eventList);
 
