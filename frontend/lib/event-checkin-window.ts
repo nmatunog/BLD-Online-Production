@@ -143,12 +143,20 @@ function getWindowEndManila(e: EventWithDates): number {
   return end.getTime() + 2 * MS_PER_HOUR;
 }
 
-/** True if now is within the check-in window [start-2h, end+2h] in Manila time. Use for sorting so closest (ongoing) event is first regardless of client timezone. */
-function isInCheckInWindowManila(event: EventWithDates, now: Date): boolean {
+/** True if now is within the check-in window [start-2h, end+2h] in Manila time. Use for sorting and filtering so closest (ongoing) event is first regardless of client timezone. */
+export function isInCheckInWindowManila(event: EventWithDates, now: Date): boolean {
   const windowStart = getWindowStartManila(event);
   const windowEnd = getWindowEndManila(event);
   const t = now.getTime();
   return t >= windowStart && t <= windowEnd;
+}
+
+/** True if event is relevant for check-in: in window (Manila) or recurring and within 7 days after window end. Use same logic in Check-in and Self Check-in so both show closest/ongoing first. */
+export function isRelevantForCheckIn(event: EventWithDates, now: Date = new Date()): boolean {
+  return (
+    isInCheckInWindowManila(event, now) ||
+    (isCompletedPastWindow(event, now) && !!event.isRecurring && isWithin7DaysOfEnd(event, now))
+  );
 }
 
 /** Tiebreaker: sort by startDate then startTime then id for deterministic order. */

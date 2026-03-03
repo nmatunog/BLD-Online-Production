@@ -24,7 +24,7 @@ import {
 import { attendanceService, type Attendance } from '@/services/attendance.service';
 import { eventsService, type Event } from '@/services/events.service';
 import { membersService } from '@/services/members.service';
-import { sortEventsNearestFirst } from '@/lib/event-checkin-window';
+import { sortEventsNearestFirst, isRelevantForCheckIn } from '@/lib/event-checkin-window';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -146,14 +146,16 @@ function CheckInContent() {
         ? (Array.isArray(completedResult.data.data) ? completedResult.data.data : []).filter((e: { isRecurring?: boolean }) => e.isRecurring === true)
         : [];
 
-      // Merge, dedupe by id, sort so nearest events (today / in check-in window) show first (Manila time)
+      // Same logic as Self Check-in: merge order upcoming → ongoing → completed, dedupe, filter to relevant-for-check-in, sort nearest first (Manila)
       const seen = new Set<string>();
-      const merged = [...ongoingList, ...upcomingList, ...completedList].filter((e) => {
+      const merged = [...upcomingList, ...ongoingList, ...completedList].filter((e) => {
         if (seen.has(e.id)) return false;
         seen.add(e.id);
         return true;
       });
-      const eventList = sortEventsNearestFirst(merged, new Date());
+      const now = new Date();
+      const relevant = merged.filter((e) => isRelevantForCheckIn(e, now));
+      const eventList = sortEventsNearestFirst(relevant, now);
 
       setEvents(eventList);
 

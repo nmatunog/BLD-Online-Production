@@ -30,13 +30,13 @@ import { QRScanner, qrUtils } from '@/lib/qr-scanner-service';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import CheckInChatbot, { type CheckInChatbotHandle } from '@/components/chatbot/CheckInChatbot';
 import {
-  isInCheckInWindow,
   isOngoingForDisplay,
   isCompletedPastWindow,
   isWithin7DaysOfEnd,
   canCheckInToEvent,
   sortEventsNearestFirst,
   isPastEventCategory,
+  isRelevantForCheckIn,
 } from '@/lib/event-checkin-window';
 
 const qrCodeRegionId = 'qr-reader-self';
@@ -96,11 +96,7 @@ function SelfCheckInContent() {
       });
 
       const now = new Date();
-      const mainList = all.filter(
-        (e) =>
-          isInCheckInWindow(e, now) ||
-          (isCompletedPastWindow(e, now) && e.isRecurring && isWithin7DaysOfEnd(e, now))
-      );
+      const mainList = all.filter((e) => isRelevantForCheckIn(e, now));
       const sorted = sortEventsNearestFirst(mainList, now);
       const checkedInIds = new Set(attendances.map((a) => a.eventId));
       const reSorted = [
