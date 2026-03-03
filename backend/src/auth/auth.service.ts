@@ -183,26 +183,30 @@ export class AuthService {
       throw new BadRequestException('Either email or phone is required');
     }
 
-    // Normalize phone number if provided
+    // Normalize: email to lowercase (matches profile update), phone to E.164
+    const emailLookup = loginDto.email?.trim()
+      ? loginDto.email.trim().toLowerCase()
+      : null;
     const normalizedPhone = loginDto.phone
       ? normalizePhoneNumber(loginDto.phone)
       : null;
 
-    // Find user - try both original and normalized phone formats
+    // Build where: only non-empty conditions so Prisma OR behaves correctly
+    const orConditions: Array<{ email?: string; phone?: string }> = [];
+    if (emailLookup) orConditions.push({ email: emailLookup });
+    if (normalizedPhone) {
+      orConditions.push({ phone: normalizedPhone });
+      if (loginDto.phone && loginDto.phone !== normalizedPhone) {
+        orConditions.push({ phone: loginDto.phone });
+      }
+    }
+    const where =
+      orConditions.length === 1
+        ? orConditions[0]
+        : { OR: orConditions };
+
     const user = await this.prisma.user.findFirst({
-      where: {
-        OR: [
-          loginDto.email ? { email: loginDto.email } : {},
-          normalizedPhone
-            ? {
-                OR: [
-                  { phone: normalizedPhone },
-                  { phone: loginDto.phone }, // Also try original format
-                ],
-              }
-            : {},
-        ],
-      },
+      where,
       include: {
         member: true,
       },
