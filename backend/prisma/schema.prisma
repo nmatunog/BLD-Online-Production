@@ -162,6 +162,9 @@ model Event {
   updatedAt         DateTime     @updatedAt
   createdById       String?
   createdBy         User?        @relation("EventCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  recurrenceTemplateId String?   // occurrence of template when set; template has null
+  recurrenceTemplate   Event?     @relation("RecurrenceOccurrences", fields: [recurrenceTemplateId], references: [id], onDelete: Cascade)
+  recurrenceOccurrences Event[]   @relation("RecurrenceOccurrences")
 
   attendances       Attendance[]
   registrations     EventRegistration[]
@@ -173,6 +176,7 @@ model Event {
   @@index([startDate])
   @@index([eventType])
   @@index([ministry])
+  @@index([recurrenceTemplateId])
 }
 
 model Attendance {

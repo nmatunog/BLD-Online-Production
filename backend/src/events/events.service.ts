@@ -15,6 +15,28 @@ import QRCode from 'qrcode';
 import { BunnyCDNService } from '../common/services/bunnycdn.service';
 import { MINISTRIES_BY_APOSTOLATE } from '../common/constants/organization.constants';
 
+/** Number of weeks ahead to auto-create recurring occurrence rows */
+const RECURRING_OCCURRENCE_WEEKS_AHEAD = 24;
+
+/** Monday 00:00:00 UTC for the week containing d */
+function getStartOfWeekUTC(d: Date): Date {
+  const date = new Date(d);
+  const day = date.getUTCDay();
+  const diff = date.getUTCDate() - day + (day === 0 ? -6 : 1); // Monday = 1
+  date.setUTCDate(diff);
+  date.setUTCHours(0, 0, 0, 0);
+  return date;
+}
+
+/** Sunday 23:59:59.999 UTC for the week containing d */
+function getEndOfWeekUTC(d: Date): Date {
+  const start = getStartOfWeekUTC(d);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 6);
+  end.setUTCHours(23, 59, 59, 999);
+  return end;
+}
+
 @Injectable()
 export class EventsService {
   constructor(
@@ -124,7 +146,127 @@ export class EventsService {
       await this.generateQRCode(event.id);
     }
 
+    // Auto-create future occurrence rows for recurring templates (visible only within week; Super User sees all)
+    if (event.isRecurring && !event.recurrenceTemplateId) {
+      try {
+        await this.generateRecurringOccurrences(event.id, RECURRING_OCCURRENCE_WEEKS_AHEAD);
+      } catch (err) {
+        console.error('[EventsService] generateRecurringOccurrences failed:', err);
+      }
+    }
+
     return event;
+  }
+
+  /**
+   * Generate future occurrence rows for a recurring template.
+   * Each occurrence is a copy of the template with that week's startDate/endDate and recurrenceTemplateId set.
+   */
+  async generateRecurringOccurrences(templateId: string, weeksAhead: number = RECURRING_OCCURRENCE_WEEKS_AHEAD): Promise<number> {
+    const template = await this.prisma.event.findUnique({
+      where: { id: templateId, isRecurring: true, recurrenceTemplateId: null },
+    });
+    if (!template) return 0;
+
+    const pattern = (template.recurrencePattern || '').toLowerCase();
+    const recurrenceDays = (template.recurrenceDays || []).map((d) => String(d).toLowerCase());
+    const interval = template.recurrenceInterval ?? 1;
+
+    const templateStart = new Date(template.startDate);
+    const templateEnd = new Date(template.endDate);
+    const durationMs = templateEnd.getTime() - templateStart.getTime();
+
+    const now = new Date();
+    let count = 0;
+
+    if (pattern === 'weekly' && recurrenceDays.length > 0) {
+      // Day of week: 0 = Sunday, 1 = Monday, ... 6 = Saturday
+      const dayNumbers = recurrenceDays.map((d) => {
+        const map: Record<string, number> = {
+          sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
+        };
+        return map[d] ?? 1;
+      });
+
+      const weekStart = getStartOfWeekUTC(templateStart > now ? templateStart : now);
+
+      for (let w = 0; w < weeksAhead; w++) {
+        const baseWeek = new Date(weekStart);
+        baseWeek.setUTCDate(baseWeek.getUTCDate() + w * 7 * interval);
+
+        for (const dayNum of dayNumbers) {
+          const occStart = new Date(baseWeek);
+          occStart.setUTCDate(baseWeek.getUTCDate() + (dayNum === 0 ? 6 : dayNum - 1));
+          occStart.setUTCHours(
+            templateStart.getUTCHours(),
+            templateStart.getUTCMinutes(),
+            templateStart.getUTCSeconds(),
+            templateStart.getUTCMilliseconds(),
+          );
+          if (occStart < now) continue;
+
+          const occEnd = new Date(occStart.getTime() + durationMs);
+
+          const existing = await this.prisma.event.findFirst({
+            where: {
+              recurrenceTemplateId: templateId,
+              startDate: { gte: new Date(occStart.getTime() - 1000), lte: new Date(occStart.getTime() + 1000) },
+            },
+          });
+          if (existing) continue;
+
+          await this.prisma.event.create({
+            data: {
+              title: template.title,
+              eventType: template.eventType,
+              category: template.category,
+              description: template.description,
+              startDate: occStart,
+              endDate: occEnd,
+              startTime: template.startTime,
+              endTime: template.endTime,
+              location: template.location,
+              venue: template.venue,
+              status: occEnd < now ? EventStatus.COMPLETED : occStart <= now && occEnd >= now ? EventStatus.ONGOING : EventStatus.UPCOMING,
+              hasRegistration: template.hasRegistration,
+              registrationFee: template.registrationFee,
+              maxParticipants: template.maxParticipants,
+              encounterType: template.encounterType,
+              classNumber: template.classNumber,
+              ministry: template.ministry,
+              isRecurring: true,
+              recurrencePattern: template.recurrencePattern,
+              recurrenceDays: template.recurrenceDays,
+              recurrenceInterval: template.recurrenceInterval,
+              monthlyType: template.monthlyType,
+              monthlyDayOfMonth: template.monthlyDayOfMonth,
+              monthlyWeekOfMonth: template.monthlyWeekOfMonth,
+              monthlyDayOfWeek: template.monthlyDayOfWeek,
+              recurrenceTemplateId: templateId,
+            },
+          });
+          count++;
+        }
+      }
+    }
+
+    return count;
+  }
+
+  /**
+   * Ensure all recurring templates have future occurrence rows. Call after deploy or periodically.
+   * Super User only.
+   */
+  async ensureRecurringOccurrencesForAllTemplates(weeksAhead: number = RECURRING_OCCURRENCE_WEEKS_AHEAD): Promise<{ templatesProcessed: number; occurrencesCreated: number }> {
+    const templates = await this.prisma.event.findMany({
+      where: { isRecurring: true, recurrenceTemplateId: null },
+      select: { id: true },
+    });
+    let totalCreated = 0;
+    for (const t of templates) {
+      totalCreated += await this.generateRecurringOccurrences(t.id, weeksAhead);
+    }
+    return { templatesProcessed: templates.length, occurrencesCreated: totalCreated };
   }
 
   async findAll(
@@ -205,6 +347,22 @@ export class EventsService {
       if (startDateTo) {
         where.startDate.lte = new Date(startDateTo);
       }
+    }
+
+    // Normal users: only events within this week (recurring occurrences) OR all non-recurring events. Super User sees all via super/all.
+    const isSuperUser = user?.role === UserRole.SUPER_USER;
+    if (!isSuperUser && user) {
+      const startOfWeek = getStartOfWeekUTC(new Date());
+      const endOfWeek = getEndOfWeekUTC(new Date());
+      const visibilityClause: Prisma.EventWhereInput = {
+        OR: [
+          { recurrenceTemplateId: { not: null }, startDate: { gte: startOfWeek, lte: endOfWeek } },
+          { isRecurring: false },
+        ],
+      };
+      const andClauses: Prisma.EventWhereInput[] = Array.isArray(where.AND) ? [...where.AND] : where.AND ? [where.AND] : [];
+      andClauses.push(visibilityClause);
+      where.AND = andClauses;
     }
 
     // Build orderBy

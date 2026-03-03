@@ -68,6 +68,21 @@ export class EventsController {
     };
   }
 
+  @Post('recurring/ensure-occurrences')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Super User only: generate future occurrence rows for all recurring templates' })
+  @ApiResponse({ status: 200, description: 'Occurrences generated' })
+  async ensureRecurringOccurrences(): Promise<ApiResponseDto<unknown>> {
+    const result = await this.eventsService.ensureRecurringOccurrencesForAllTemplates();
+    return {
+      success: true,
+      data: result,
+      message: `Processed ${result.templatesProcessed} templates, created ${result.occurrencesCreated} occurrences`,
+    };
+  }
+
   @Get('super/all')
   @UseGuards(RolesGuard)
   @Roles(UserRole.SUPER_USER)
