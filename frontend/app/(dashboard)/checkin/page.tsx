@@ -24,6 +24,7 @@ import {
 import { attendanceService, type Attendance } from '@/services/attendance.service';
 import { eventsService, type Event } from '@/services/events.service';
 import { membersService } from '@/services/members.service';
+import { sortEventsNearestFirst } from '@/lib/event-checkin-window';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -145,15 +146,14 @@ function CheckInContent() {
         ? (Array.isArray(completedResult.data.data) ? completedResult.data.data : []).filter((e: { isRecurring?: boolean }) => e.isRecurring === true)
         : [];
 
-      // Merge, dedupe by id, sort: ongoing first, then upcoming, then completed recurring (by startDate desc)
+      // Merge, dedupe by id, sort so nearest events (today / in check-in window) show first
       const seen = new Set<string>();
-      const eventList = [...ongoingList, ...upcomingList, ...completedList]
-        .filter((e) => {
-          if (seen.has(e.id)) return false;
-          seen.add(e.id);
-          return true;
-        })
-        .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+      const merged = [...ongoingList, ...upcomingList, ...completedList].filter((e) => {
+        if (seen.has(e.id)) return false;
+        seen.add(e.id);
+        return true;
+      });
+      const eventList = sortEventsNearestFirst(merged);
 
       setEvents(eventList);
 

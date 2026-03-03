@@ -129,6 +129,36 @@ export function sortEventsForCheckIn<T extends EventWithDates>(events: T[], now:
   });
 }
 
+/**
+ * Sort so nearest / most relevant events show first for Check-In and Self Check-In:
+ * 1) Events in check-in window (happening now / today) first, by start time ascending
+ * 2) Upcoming events (window not yet open) by window start ascending (soonest first)
+ * 3) Past events (recurring, within 7 days) by window end descending (most recent first)
+ */
+export function sortEventsNearestFirst<T extends EventWithDates>(events: T[], now: Date = new Date()): T[] {
+  const getWindowStart = (e: EventWithDates) => getEventWindowStart(e).getTime();
+  const getStart = (e: EventWithDates) => parseTime(e.startDate, e.startTime).getTime();
+  return [...events].sort((a, b) => {
+    const aIn = isInCheckInWindow(a, now);
+    const bIn = isInCheckInWindow(b, now);
+    const aStart = getWindowStart(a);
+    const bStart = getWindowStart(b);
+    const aEnd = getEventWindowEnd(a).getTime();
+    const bEnd = getEventWindowEnd(b).getTime();
+    const nowT = now.getTime();
+
+    const aUpcoming = aStart > nowT;
+    const bUpcoming = bStart > nowT;
+
+    if (aIn && !bIn) return -1;
+    if (!aIn && bIn) return 1;
+    if (aIn && bIn) return getStart(a) - getStart(b); // both in window: soonest start first
+    if (aUpcoming && bUpcoming) return aStart - bStart; // both upcoming: soonest first
+    if (!aUpcoming && !bUpcoming) return bEnd - aEnd; // both past: most recent first
+    return aUpcoming ? -1 : 1; // upcoming before past
+  });
+}
+
 /** Categories allowed in "past events" search (Community Worship, Word Sharing Circle) */
 export const PAST_EVENT_CATEGORIES = ['Community Worship', 'Word Sharing Circle'] as const;
 

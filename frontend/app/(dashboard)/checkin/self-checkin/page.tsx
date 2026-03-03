@@ -35,7 +35,7 @@ import {
   isCompletedPastWindow,
   isWithin7DaysOfEnd,
   canCheckInToEvent,
-  sortEventsForCheckIn,
+  sortEventsNearestFirst,
   isPastEventCategory,
 } from '@/lib/event-checkin-window';
 
@@ -101,7 +101,7 @@ function SelfCheckInContent() {
           isInCheckInWindow(e, now) ||
           (isCompletedPastWindow(e, now) && e.isRecurring && isWithin7DaysOfEnd(e, now))
       );
-      const sorted = sortEventsForCheckIn(mainList, now);
+      const sorted = sortEventsNearestFirst(mainList, now);
       const checkedInIds = new Set(attendances.map((a) => a.eventId));
       const reSorted = [
         ...sorted.filter((e) => !checkedInIds.has(e.id)),
