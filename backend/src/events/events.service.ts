@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateEventDto } from './dto/create-event.dto';
@@ -26,15 +27,6 @@ function getStartOfWeekUTC(d: Date): Date {
   date.setUTCDate(diff);
   date.setUTCHours(0, 0, 0, 0);
   return date;
-}
-
-/** Sunday 23:59:59.999 UTC for the week containing d */
-function getEndOfWeekUTC(d: Date): Date {
-  const start = getStartOfWeekUTC(d);
-  const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + 6);
-  end.setUTCHours(23, 59, 59, 999);
-  return end;
 }
 
 /** Serialize event to JSON for audit snapshot (dates to ISO string, Decimal to number) */
@@ -87,11 +79,24 @@ function eventToSnapshot(event: {
 }
 
 @Injectable()
-export class EventsService {
+export class EventsService implements OnModuleInit {
   constructor(
     private prisma: PrismaService,
     private bunnyCDN: BunnyCDNService,
   ) {}
+
+  onModuleInit() {
+    // Auto-generate future recurring occurrences (Community Worship, WSC, etc.) so they show every week without manual creation
+    setTimeout(() => {
+      void this.ensureRecurringOccurrencesForAllTemplates(RECURRING_OCCURRENCE_WEEKS_AHEAD).then((r) => {
+        if (r.occurrencesCreated > 0) {
+          console.log(`[EventsService] Auto-generated ${r.occurrencesCreated} recurring occurrence(s) for ${r.templatesProcessed} template(s)`);
+        }
+      }).catch((err) => {
+        console.error('[EventsService] Auto ensureRecurringOccurrences failed:', err);
+      });
+    }, 5000);
+  }
 
   async create(createEventDto: CreateEventDto, createdById?: string) {
     // Validate dates and times
@@ -412,14 +417,13 @@ export class EventsService {
       }
     }
 
-    // Normal users: only events within this week (recurring occurrences) OR all non-recurring events. Super User sees all via super/all.
+    // Normal users: recurring occurrences from this week onward (so nearest upcoming shows) OR all non-recurring events. Super User sees all via super/all.
     const isSuperUser = user?.role === UserRole.SUPER_USER;
     if (!isSuperUser && user) {
       const startOfWeek = getStartOfWeekUTC(new Date());
-      const endOfWeek = getEndOfWeekUTC(new Date());
       const visibilityClause: Prisma.EventWhereInput = {
         OR: [
-          { recurrenceTemplateId: { not: null }, startDate: { gte: startOfWeek, lte: endOfWeek } },
+          { recurrenceTemplateId: { not: null }, startDate: { gte: startOfWeek } },
           { isRecurring: false },
         ],
       };
