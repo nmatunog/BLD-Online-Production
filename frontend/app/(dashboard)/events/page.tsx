@@ -3,8 +3,8 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Search, Calendar, Filter, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Clock, MapPin, Users, Loader2, MessageSquare, Sparkles, RefreshCw, CheckCircle, Globe, FolderOpen, UserPlus, UserCheck, Shield, List } from 'lucide-react';
-import { eventsService, type Event, type EventQueryParams, type EventWithCreator } from '@/services/events.service';
+import { Search, Calendar, Filter, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Clock, MapPin, Users, Loader2, MessageSquare, Sparkles, RefreshCw, CheckCircle, Globe, FolderOpen, UserPlus, UserCheck, Shield, List, History, Copy, Undo2 } from 'lucide-react';
+import { eventsService, type Event, type EventQueryParams, type EventWithCreator, type EventAuditLogEntry, type DuplicateGroup } from '@/services/events.service';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -69,6 +69,17 @@ export default function EventsPage() {
   const [superAllEvents, setSuperAllEvents] = useState<EventWithCreator[]>([]);
   const [superAllLoading, setSuperAllLoading] = useState(false);
   const [superAllDeletingId, setSuperAllDeletingId] = useState<string | null>(null);
+  /** Super User: event audit log (who created, edited, deleted; revert) */
+  const [showAuditLogDialog, setShowAuditLogDialog] = useState(false);
+  const [auditLogEntries, setAuditLogEntries] = useState<EventAuditLogEntry[]>([]);
+  const [auditLogTotal, setAuditLogTotal] = useState(0);
+  const [auditLogLoading, setAuditLogLoading] = useState(false);
+  const [revertingId, setRevertingId] = useState<string | null>(null);
+  /** Super User: duplicate events for cleanup */
+  const [showDuplicatesDialog, setShowDuplicatesDialog] = useState(false);
+  const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
+  const [duplicatesLoading, setDuplicatesLoading] = useState(false);
+  const [duplicateDeletingId, setDuplicateDeletingId] = useState<string | null>(null);
   // Event categories from old system
   const eventCategories = [
     'Community Worship',
@@ -260,6 +271,69 @@ export default function EventsPage() {
       toast.error('Delete failed', { description: e instanceof Error ? e.message : 'Unknown error' });
     } finally {
       setSuperAllDeletingId(null);
+    }
+  };
+
+  const loadAuditLog = useCallback(async () => {
+    setAuditLogLoading(true);
+    try {
+      const res = await eventsService.getAuditLog(50, 0);
+      if (res.success && res.data) {
+        setAuditLogEntries(Array.isArray(res.data.data) ? res.data.data : []);
+        setAuditLogTotal(res.data.total ?? 0);
+      } else {
+        setAuditLogEntries([]);
+        setAuditLogTotal(0);
+      }
+    } catch (e) {
+      toast.error('Failed to load audit log', { description: e instanceof Error ? e.message : 'Unknown error' });
+      setAuditLogEntries([]);
+    } finally {
+      setAuditLogLoading(false);
+    }
+  }, []);
+
+  const handleRevert = async (auditLogId: string) => {
+    setRevertingId(auditLogId);
+    try {
+      await eventsService.revertAuditEntry(auditLogId);
+      toast.success('Reverted successfully');
+      await loadAuditLog();
+    } catch (e) {
+      toast.error('Revert failed', { description: e instanceof Error ? e.message : 'Unknown error' });
+    } finally {
+      setRevertingId(null);
+    }
+  };
+
+  const loadDuplicates = useCallback(async () => {
+    setDuplicatesLoading(true);
+    try {
+      const res = await eventsService.findDuplicates();
+      if (res.success && res.data?.groups) {
+        setDuplicateGroups(res.data.groups);
+      } else {
+        setDuplicateGroups([]);
+      }
+    } catch (e) {
+      toast.error('Failed to load duplicates', { description: e instanceof Error ? e.message : 'Unknown error' });
+      setDuplicateGroups([]);
+    } finally {
+      setDuplicatesLoading(false);
+    }
+  }, []);
+
+  const handleDuplicateDelete = async (eventId: string) => {
+    if (!confirm('Remove this duplicate event? It will be deleted (or marked CANCELLED if it has check-ins/registrations).')) return;
+    setDuplicateDeletingId(eventId);
+    try {
+      await eventsService.delete(eventId);
+      toast.success('Duplicate removed');
+      await loadDuplicates();
+    } catch (e) {
+      toast.error('Remove failed', { description: e instanceof Error ? e.message : 'Unknown error' });
+    } finally {
+      setDuplicateDeletingId(null);
     }
   };
 
@@ -1047,17 +1121,41 @@ export default function EventsPage() {
                   <span>AI Assistant</span>
                 </Button>
                 {userRole === 'SUPER_USER' && (
-                  <Button
-                    onClick={() => {
-                      setShowSuperAllDialog(true);
-                      loadSuperAllEvents();
-                    }}
-                    variant="outline"
-                    className="border-amber-500 text-amber-700 hover:bg-amber-50 px-5 py-2.5 rounded-lg shadow-sm flex items-center justify-center space-x-2 text-sm md:text-base font-medium"
-                  >
-                    <Shield className="w-5 h-5" />
-                    <span>View all events (cleanup)</span>
-                  </Button>
+                  <>
+                    <Button
+                      onClick={() => {
+                        setShowSuperAllDialog(true);
+                        loadSuperAllEvents();
+                      }}
+                      variant="outline"
+                      className="border-amber-500 text-amber-700 hover:bg-amber-50 px-5 py-2.5 rounded-lg shadow-sm flex items-center justify-center space-x-2 text-sm md:text-base font-medium"
+                    >
+                      <Shield className="w-5 h-5" />
+                      <span>View all events (cleanup)</span>
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setShowAuditLogDialog(true);
+                        loadAuditLog();
+                      }}
+                      variant="outline"
+                      className="border-slate-500 text-slate-700 hover:bg-slate-50 px-5 py-2.5 rounded-lg shadow-sm flex items-center justify-center space-x-2 text-sm md:text-base font-medium"
+                    >
+                      <History className="w-5 h-5" />
+                      <span>Event audit log</span>
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setShowDuplicatesDialog(true);
+                        loadDuplicates();
+                      }}
+                      variant="outline"
+                      className="border-orange-500 text-orange-700 hover:bg-orange-50 px-5 py-2.5 rounded-lg shadow-sm flex items-center justify-center space-x-2 text-sm md:text-base font-medium"
+                    >
+                      <Copy className="w-5 h-5" />
+                      <span>Find duplicates</span>
+                    </Button>
+                  </>
                 )}
               </>
             )}
@@ -1146,6 +1244,180 @@ export default function EventsPage() {
               <Button onClick={loadSuperAllEvents} disabled={superAllLoading}>
                 Refresh list
               </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Super User: Event audit log dialog */}
+        <Dialog open={showAuditLogDialog} onOpenChange={setShowAuditLogDialog}>
+          <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <History className="w-5 h-5" />
+                Event audit log
+              </DialogTitle>
+              <DialogDescription>
+                Who created, edited, or deleted events. For edits, see what changed. You can revert deletions and edits.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex-1 overflow-auto border rounded-md">
+              {auditLogLoading ? (
+                <div className="p-8 flex items-center justify-center">
+                  <Loader2 className="w-8 h-8 animate-spin text-slate-600" />
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Action</TableHead>
+                      <TableHead>Who</TableHead>
+                      <TableHead>When</TableHead>
+                      <TableHead>Event / What changed</TableHead>
+                      <TableHead className="text-right">Revert</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {auditLogEntries.map((entry) => (
+                      <TableRow key={entry.id}>
+                        <TableCell>
+                          <Badge variant={entry.action === 'CREATE' ? 'default' : entry.action === 'UPDATE' ? 'secondary' : 'destructive'}>
+                            {entry.action}
+                          </Badge>
+                          {entry.restoredAt && (
+                            <span className="ml-2 text-xs text-muted-foreground">(reverted)</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {entry.user?.member
+                            ? [entry.user.member.firstName, entry.user.member.lastName].filter(Boolean).join(' ') || entry.userEmail || entry.user?.phone || '—'
+                            : entry.userEmail || entry.user?.phone || '—'}
+                        </TableCell>
+                        <TableCell>
+                          {new Date(entry.performedAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}
+                        </TableCell>
+                        <TableCell className="max-w-md">
+                          {entry.action === 'UPDATE' && entry.changedFields && Object.keys(entry.changedFields).length > 0 ? (
+                            <div className="text-xs space-y-1">
+                              {Object.entries(entry.changedFields).map(([field, v]) => (
+                                <div key={field}>
+                                  <span className="font-medium">{field}</span>: {String((v as { old: unknown }).old)} → {String((v as { new: unknown }).new)}
+                                </div>
+                              ))}
+                            </div>
+                          ) : entry.previousSnapshot && typeof entry.previousSnapshot === 'object' && 'title' in entry.previousSnapshot ? (
+                            <span className="truncate block">{(entry.previousSnapshot as { title?: string }).title ?? entry.eventId ?? '—'}</span>
+                          ) : entry.eventId ? (
+                            <span className="text-muted-foreground">Event ID: {entry.eventId.slice(0, 8)}…</span>
+                          ) : (
+                            '—'
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {!entry.restoredAt && (entry.action === 'DELETE' || entry.action === 'UPDATE') && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="text-slate-600 hover:text-slate-800"
+                              disabled={revertingId === entry.id}
+                              onClick={() => handleRevert(entry.id)}
+                            >
+                              {revertingId === entry.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Undo2 className="w-4 h-4" />
+                              )}
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </div>
+            <div className="flex justify-between items-center pt-2">
+              <span className="text-sm text-muted-foreground">Total: {auditLogTotal}</span>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setShowAuditLogDialog(false)}>Close</Button>
+                <Button onClick={loadAuditLog} disabled={auditLogLoading}>Refresh</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Super User: Duplicate events dialog */}
+        <Dialog open={showDuplicatesDialog} onOpenChange={setShowDuplicatesDialog}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Copy className="w-5 h-5" />
+                Duplicate events
+              </DialogTitle>
+              <DialogDescription>
+                Recurring events with the same title, category, date, time, and location. Keep one and remove the rest.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex-1 overflow-auto border rounded-md">
+              {duplicatesLoading ? (
+                <div className="p-8 flex items-center justify-center">
+                  <Loader2 className="w-8 h-8 animate-spin text-orange-600" />
+                </div>
+              ) : duplicateGroups.length === 0 ? (
+                <div className="p-8 text-center text-muted-foreground">No duplicate groups found.</div>
+              ) : (
+                <div className="divide-y">
+                  {duplicateGroups.map((group, gIdx) => (
+                    <div key={gIdx} className="p-4">
+                      <div className="text-sm font-medium text-muted-foreground mb-2">Same: {group.keys}</div>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Title</TableHead>
+                            <TableHead>Start</TableHead>
+                            <TableHead>Created by</TableHead>
+                            <TableHead className="text-right">Remove duplicate</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {group.events.map((ev) => (
+                            <TableRow key={ev.id}>
+                              <TableCell className="font-medium">{ev.title}</TableCell>
+                              <TableCell>
+                                {new Date(ev.startDate).toLocaleDateString()}
+                                {ev.startTime ? ` ${ev.startTime}` : ''}
+                              </TableCell>
+                              <TableCell>
+                                {ev.createdBy?.member
+                                  ? [ev.createdBy.member.firstName, ev.createdBy.member.lastName].filter(Boolean).join(' ') || ev.createdBy.email || ev.createdBy.phone || '—'
+                                  : ev.createdBy?.email || ev.createdBy?.phone || '—'}
+                              </TableCell>
+                              <TableCell className="text-right">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  disabled={duplicateDeletingId === ev.id}
+                                  onClick={() => handleDuplicateDelete(ev.id)}
+                                >
+                                  {duplicateDeletingId === ev.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4" />
+                                  )}
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" onClick={() => setShowDuplicatesDialog(false)}>Close</Button>
+              <Button onClick={loadDuplicates} disabled={duplicatesLoading}>Refresh</Button>
             </div>
           </DialogContent>
         </Dialog>

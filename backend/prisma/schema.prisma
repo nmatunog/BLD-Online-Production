@@ -67,6 +67,7 @@ model User {
   sessions     Session[]
   eventClassShepherds EventClassShepherd[]
   eventsCreated Event[] @relation("EventCreatedBy")
+  eventAuditLogs EventAuditLog[]
 
   @@index([email])
   @@index([phone])
@@ -177,6 +178,31 @@ model Event {
   @@index([eventType])
   @@index([ministry])
   @@index([recurrenceTemplateId])
+}
+
+enum EventAuditAction {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+model EventAuditLog {
+  id                String           @id @default(uuid())
+  eventId           String?          // null when event was deleted (for restore we use previousSnapshot)
+  action            EventAuditAction
+  userId            String
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userEmail         String?          // Denormalized for display
+  performedAt       DateTime         @default(now())
+  previousSnapshot  Json?             // Full event state before change (for UPDATE/DELETE); used to revert
+  changedFields     Json?             // For UPDATE: { "fieldName": { "old": value, "new": value }, ... }
+  restoredAt        DateTime?        // When this change was reverted (Super User undo)
+  restoredBy        String?          // User ID who reverted
+
+  @@index([eventId])
+  @@index([userId])
+  @@index([performedAt])
+  @@index([action])
 }
 
 model Attendance {

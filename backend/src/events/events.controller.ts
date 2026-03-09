@@ -97,6 +97,47 @@ export class EventsController {
     };
   }
 
+  @Get('super/audit-log')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER)
+  @ApiOperation({ summary: 'Super User only: get event audit log (who created, edited, deleted; what changed)' })
+  @ApiResponse({ status: 200, description: 'Audit log retrieved' })
+  async getAuditLog(
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ): Promise<ApiResponseDto<unknown>> {
+    const result = await this.eventsService.getAuditLog(
+      limit ? parseInt(limit, 10) : 50,
+      offset ? parseInt(offset, 10) : 0,
+    );
+    return { success: true, data: result, message: 'Audit log retrieved' };
+  }
+
+  @Post('super/audit-log/:auditLogId/revert')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Super User only: revert an event deletion or edit' })
+  @ApiResponse({ status: 200, description: 'Reverted successfully' })
+  @ApiResponse({ status: 400, description: 'Already reverted or cannot revert' })
+  async revertAuditEntry(
+    @Param('auditLogId') auditLogId: string,
+    @CurrentUser() user: { id: string },
+  ): Promise<ApiResponseDto<unknown>> {
+    const result = await this.eventsService.revertAuditEntry(auditLogId, user.id);
+    return { success: true, data: result, message: result.message };
+  }
+
+  @Get('super/duplicates')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER)
+  @ApiOperation({ summary: 'Super User only: find duplicate events for cleanup' })
+  @ApiResponse({ status: 200, description: 'Duplicate groups retrieved' })
+  async findDuplicates(): Promise<ApiResponseDto<unknown>> {
+    const result = await this.eventsService.findDuplicates();
+    return { success: true, data: result, message: 'Duplicate groups retrieved' };
+  }
+
   @Get('upcoming')
   @ApiOperation({ summary: 'Get upcoming events (general + user ministry by default)' })
   @ApiResponse({ status: 200, description: 'Upcoming events retrieved successfully' })
@@ -174,8 +215,9 @@ export class EventsController {
   async update(
     @Param('id') id: string,
     @Body() updateEventDto: UpdateEventDto,
+    @CurrentUser() user: { id: string },
   ): Promise<ApiResponseDto<unknown>> {
-    const event = await this.eventsService.update(id, updateEventDto);
+    const event = await this.eventsService.update(id, updateEventDto, user.id);
     return {
       success: true,
       data: event,
@@ -190,8 +232,11 @@ export class EventsController {
   @ApiOperation({ summary: 'Delete an event (soft delete if has dependencies)' })
   @ApiResponse({ status: 200, description: 'Event deleted successfully' })
   @ApiResponse({ status: 404, description: 'Event not found' })
-  async remove(@Param('id') id: string): Promise<ApiResponseDto<unknown>> {
-    const result = await this.eventsService.remove(id);
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string },
+  ): Promise<ApiResponseDto<unknown>> {
+    const result = await this.eventsService.remove(id, user.id);
     return {
       success: true,
       data: result,

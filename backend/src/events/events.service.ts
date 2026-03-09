@@ -10,7 +10,7 @@ import { UpdateEventDto } from './dto/update-event.dto';
 import { EventQueryDto } from './dto/event-query.dto';
 import { AssignClassShepherdDto } from './dto/assign-class-shepherd.dto';
 import { CancelEventDto } from './dto/cancel-event.dto';
-import { Prisma, EventStatus, UserRole } from '@prisma/client';
+import { Prisma, EventStatus, UserRole, EventAuditAction } from '@prisma/client';
 import QRCode from 'qrcode';
 import { BunnyCDNService } from '../common/services/bunnycdn.service';
 import { MINISTRIES_BY_APOSTOLATE } from '../common/constants/organization.constants';
@@ -35,6 +35,55 @@ function getEndOfWeekUTC(d: Date): Date {
   end.setUTCDate(end.getUTCDate() + 6);
   end.setUTCHours(23, 59, 59, 999);
   return end;
+}
+
+/** Serialize event to JSON for audit snapshot (dates to ISO string, Decimal to number) */
+function eventToSnapshot(event: {
+  id: string;
+  title: string;
+  eventType: string;
+  category: string;
+  description?: string | null;
+  startDate: Date;
+  endDate: Date;
+  startTime?: string | null;
+  endTime?: string | null;
+  location: string;
+  venue?: string | null;
+  status: string;
+  [key: string]: unknown;
+}): Record<string, unknown> {
+  const snap: Record<string, unknown> = {
+    id: event.id,
+    title: event.title,
+    eventType: event.eventType,
+    category: event.category,
+    description: event.description ?? null,
+    startDate: event.startDate instanceof Date ? event.startDate.toISOString() : event.startDate,
+    endDate: event.endDate instanceof Date ? event.endDate.toISOString() : event.endDate,
+    startTime: event.startTime ?? null,
+    endTime: event.endTime ?? null,
+    location: event.location,
+    venue: event.venue ?? null,
+    status: event.status,
+    hasRegistration: event.hasRegistration ?? false,
+    registrationFee: event.registrationFee != null ? Number(event.registrationFee) : null,
+    maxParticipants: event.maxParticipants ?? null,
+    encounterType: event.encounterType ?? null,
+    classNumber: event.classNumber ?? null,
+    ministry: event.ministry ?? null,
+    isRecurring: event.isRecurring ?? false,
+    recurrencePattern: event.recurrencePattern ?? null,
+    recurrenceDays: event.recurrenceDays ?? [],
+    recurrenceInterval: event.recurrenceInterval ?? null,
+    monthlyType: event.monthlyType ?? null,
+    monthlyDayOfMonth: event.monthlyDayOfMonth ?? null,
+    monthlyWeekOfMonth: event.monthlyWeekOfMonth ?? null,
+    monthlyDayOfWeek: event.monthlyDayOfWeek ?? null,
+    recurrenceTemplateId: event.recurrenceTemplateId ?? null,
+    cancellationReason: event.cancellationReason ?? null,
+  };
+  return snap;
 }
 
 @Injectable()
@@ -144,6 +193,22 @@ export class EventsService {
     // Generate QR code
     if (event.id) {
       await this.generateQRCode(event.id);
+    }
+
+    // Audit log (CREATE)
+    if (createdById) {
+      const user = await this.prisma.user.findUnique({ where: { id: createdById }, select: { email: true, phone: true } });
+      const userEmail = user?.email ?? user?.phone ?? null;
+      await this.prisma.eventAuditLog.create({
+        data: {
+          eventId: event.id,
+          action: EventAuditAction.CREATE,
+          userId: createdById,
+          userEmail: userEmail ?? undefined,
+          previousSnapshot: Prisma.JsonNull,
+          changedFields: Prisma.JsonNull,
+        },
+      });
     }
 
     // Auto-create future occurrence rows in background so create response returns quickly (avoids timeout)
@@ -489,7 +554,7 @@ export class EventsService {
     return event;
   }
 
-  async update(id: string, updateEventDto: UpdateEventDto) {
+  async update(id: string, updateEventDto: UpdateEventDto, userId?: string) {
     const existingEvent = await this.findOne(id);
 
     // Helper function to combine date and time
@@ -588,6 +653,35 @@ export class EventsService {
       }
     }
 
+    const previousSnapshot = eventToSnapshot(existingEvent as Parameters<typeof eventToSnapshot>[0]);
+    const changedFields: Record<string, { old: unknown; new: unknown }> = {};
+    const fieldMap: Array<[keyof UpdateEventDto, string]> = [
+      ['title', 'title'],
+      ['eventType', 'eventType'],
+      ['category', 'category'],
+      ['description', 'description'],
+      ['startDate', 'startDate'],
+      ['endDate', 'endDate'],
+      ['startTime', 'startTime'],
+      ['endTime', 'endTime'],
+      ['location', 'location'],
+      ['venue', 'venue'],
+      ['status', 'status'],
+      ['hasRegistration', 'hasRegistration'],
+      ['registrationFee', 'registrationFee'],
+      ['maxParticipants', 'maxParticipants'],
+      ['ministry', 'ministry'],
+    ];
+    for (const [dtoKey, snapKey] of fieldMap) {
+      const val = updateEventDto[dtoKey];
+      if (val === undefined) continue;
+      const oldVal = (previousSnapshot as Record<string, unknown>)[snapKey];
+      const newVal = val instanceof Date ? val.toISOString() : val;
+      if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+        changedFields[snapKey] = { old: oldVal, new: newVal };
+      }
+    }
+
     const event = await this.prisma.event.update({
       where: { id },
       data: {
@@ -625,10 +719,27 @@ export class EventsService {
       },
     });
 
+    if (userId && Object.keys(changedFields).length > 0) {
+      const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true, phone: true } });
+      const userEmail = user?.email ?? user?.phone ?? null;
+      await this.prisma.eventAuditLog.create({
+        data: {
+          eventId: event.id,
+          action: EventAuditAction.UPDATE,
+          userId,
+          userEmail: userEmail ?? undefined,
+          previousSnapshot: previousSnapshot as Prisma.InputJsonValue,
+          changedFields: changedFields as Prisma.InputJsonValue,
+          restoredAt: null,
+          restoredBy: null,
+        },
+      });
+    }
+
     return event;
   }
 
-  async remove(id: string) {
+  async remove(id: string, userId?: string) {
     await this.findOne(id);
 
     // Check if event has attendances or registrations
@@ -644,18 +755,191 @@ export class EventsService {
       },
     });
 
+    const snapshot = event ? (eventToSnapshot(event as Parameters<typeof eventToSnapshot>[0]) as Prisma.InputJsonValue) : null;
+
+    let result: { id: string };
     if (event && (event._count.attendances > 0 || event._count.registrations > 0)) {
       // Soft delete: Update status to CANCELLED
-      return this.prisma.event.update({
+      result = await this.prisma.event.update({
         where: { id },
         data: { status: EventStatus.CANCELLED },
       });
+    } else {
+      // Hard delete if no dependencies
+      result = await this.prisma.event.delete({
+        where: { id },
+      });
     }
 
-    // Hard delete if no dependencies
-    return this.prisma.event.delete({
-      where: { id },
+    if (userId && snapshot) {
+      const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true, phone: true } });
+      const userEmail = user?.email ?? user?.phone ?? null;
+      await this.prisma.eventAuditLog.create({
+        data: {
+          eventId: result.id, // for soft delete; for hard delete event no longer exists but we store id in snapshot
+          action: EventAuditAction.DELETE,
+          userId,
+          userEmail: userEmail ?? undefined,
+          previousSnapshot: snapshot,
+          changedFields: Prisma.JsonNull,
+        },
+      });
+    }
+
+    return result;
+  }
+
+  /**
+   * Super User only: get event audit log (who created, edited, deleted; what was changed).
+   */
+  async getAuditLog(limit = 50, offset = 0) {
+    const [data, total] = await Promise.all([
+      this.prisma.eventAuditLog.findMany({
+        orderBy: { performedAt: 'desc' },
+        take: limit,
+        skip: offset,
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              phone: true,
+              member: { select: { firstName: true, lastName: true, nickname: true } },
+            },
+          },
+        },
+      }),
+      this.prisma.eventAuditLog.count(),
+    ]);
+    return { data, total, limit, offset };
+  }
+
+  /**
+   * Super User only: revert a DELETE (restore event from snapshot) or an UPDATE (restore previous state).
+   */
+  async revertAuditEntry(auditLogId: string, revertedBy: string) {
+    const entry = await this.prisma.eventAuditLog.findUnique({
+      where: { id: auditLogId },
     });
+    if (!entry) throw new NotFoundException('Audit log entry not found');
+    if (entry.restoredAt) throw new BadRequestException('This change was already reverted');
+
+    if (entry.action === EventAuditAction.DELETE && entry.previousSnapshot) {
+      const snap = entry.previousSnapshot as Record<string, unknown>;
+      const { id: _oldId, ...rest } = snap;
+      await this.prisma.event.create({
+        data: {
+          title: rest.title as string,
+          eventType: rest.eventType as string,
+          category: rest.category as string,
+          description: (rest.description as string | null) ?? undefined,
+          startDate: new Date(rest.startDate as string),
+          endDate: new Date(rest.endDate as string),
+          startTime: (rest.startTime as string | null) ?? undefined,
+          endTime: (rest.endTime as string | null) ?? undefined,
+          location: rest.location as string,
+          venue: (rest.venue as string | null) ?? undefined,
+          status: (rest.status as EventStatus) ?? EventStatus.UPCOMING,
+          hasRegistration: (rest.hasRegistration as boolean) ?? false,
+          registrationFee: rest.registrationFee != null ? (rest.registrationFee as number) : undefined,
+          maxParticipants: (rest.maxParticipants as number | null) ?? undefined,
+          encounterType: (rest.encounterType as string | null) ?? undefined,
+          classNumber: (rest.classNumber as number | null) ?? undefined,
+          ministry: (rest.ministry as string | null) ?? undefined,
+          isRecurring: (rest.isRecurring as boolean) ?? false,
+          recurrencePattern: (rest.recurrencePattern as string | null) ?? undefined,
+          recurrenceDays: ((rest.recurrenceDays as string[]) ?? []) as string[],
+          recurrenceInterval: (rest.recurrenceInterval as number | null) ?? undefined,
+          monthlyType: (rest.monthlyType as string | null) ?? undefined,
+          monthlyDayOfMonth: (rest.monthlyDayOfMonth as number | null) ?? undefined,
+          monthlyWeekOfMonth: (rest.monthlyWeekOfMonth as number | null) ?? undefined,
+          monthlyDayOfWeek: (rest.monthlyDayOfWeek as string | null) ?? undefined,
+          recurrenceTemplateId: (rest.recurrenceTemplateId as string | null) ?? undefined,
+          cancellationReason: (rest.cancellationReason as string | null) ?? undefined,
+          createdById: revertedBy,
+        },
+      });
+    } else if (entry.action === EventAuditAction.UPDATE && entry.eventId && entry.previousSnapshot) {
+      const snap = entry.previousSnapshot as Record<string, unknown>;
+      await this.prisma.event.update({
+        where: { id: entry.eventId },
+        data: {
+          title: snap.title as string,
+          eventType: snap.eventType as string,
+          category: snap.category as string,
+          description: (snap.description as string | null) ?? null,
+          startDate: new Date(snap.startDate as string),
+          endDate: new Date(snap.endDate as string),
+          startTime: (snap.startTime as string | null) ?? null,
+          endTime: (snap.endTime as string | null) ?? null,
+          location: snap.location as string,
+          venue: (snap.venue as string | null) ?? null,
+          status: (snap.status as EventStatus) ?? EventStatus.UPCOMING,
+          hasRegistration: (snap.hasRegistration as boolean) ?? false,
+          registrationFee: snap.registrationFee != null ? (snap.registrationFee as number) : null,
+          maxParticipants: (snap.maxParticipants as number | null) ?? null,
+          ministry: (snap.ministry as string | null) ?? null,
+          isRecurring: (snap.isRecurring as boolean) ?? false,
+          recurrencePattern: (snap.recurrencePattern as string | null) ?? null,
+          recurrenceDays: ((snap.recurrenceDays as string[]) ?? []) as string[],
+          recurrenceInterval: (snap.recurrenceInterval as number | null) ?? null,
+          monthlyType: (snap.monthlyType as string | null) ?? null,
+          monthlyDayOfMonth: (snap.monthlyDayOfMonth as number | null) ?? null,
+          monthlyWeekOfMonth: (snap.monthlyWeekOfMonth as number | null) ?? null,
+          monthlyDayOfWeek: (snap.monthlyDayOfWeek as string | null) ?? null,
+          recurrenceTemplateId: (snap.recurrenceTemplateId as string | null) ?? null,
+          cancellationReason: (snap.cancellationReason as string | null) ?? null,
+        },
+      });
+    } else {
+      throw new BadRequestException('This audit entry cannot be reverted');
+    }
+
+    await this.prisma.eventAuditLog.update({
+      where: { id: auditLogId },
+      data: { restoredAt: new Date(), restoredBy: revertedBy },
+    });
+    return { success: true, message: 'Reverted successfully' };
+  }
+
+  /**
+   * Super User only: find potential duplicate events (same title, category, start date, time, location).
+   * Returns groups of events that look like duplicates for cleanup.
+   */
+  async findDuplicates() {
+    const events = await this.prisma.event.findMany({
+      orderBy: { startDate: 'asc' },
+      select: {
+        id: true,
+        title: true,
+        category: true,
+        startDate: true,
+        endDate: true,
+        startTime: true,
+        endTime: true,
+        location: true,
+        isRecurring: true,
+        recurrenceTemplateId: true,
+        createdAt: true,
+        createdBy: { select: { id: true, email: true, phone: true, member: { select: { firstName: true, lastName: true } } } },
+      },
+    });
+
+    const key = (e: { title: string; category: string; startDate: Date; startTime?: string | null; location: string }) =>
+      `${e.title}|${e.category}|${e.startDate.toISOString().slice(0, 10)}|${e.startTime ?? ''}|${e.location}`;
+
+    const byKey = new Map<string, typeof events>();
+    for (const e of events) {
+      const k = key(e);
+      if (!byKey.has(k)) byKey.set(k, []);
+      byKey.get(k)!.push(e);
+    }
+
+    const groups = Array.from(byKey.entries())
+      .filter(([, list]) => list.length > 1)
+      .map(([keys, list]) => ({ keys, events: list }));
+
+    return { groups };
   }
 
   async regenerateQRCode(id: string) {
