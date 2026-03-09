@@ -160,6 +160,16 @@ class EventsService {
     const response = await apiClient.get<ApiResponse<{ groups: DuplicateGroup[] }>>('/events/super/duplicates');
     return response.data;
   }
+
+  /** Super User only: correct all duplicates – keep one per group, merge check-ins, remove the rest */
+  async correctAllDuplicates(): Promise<
+    ApiResponse<{ groupsProcessed: number; eventsRemoved: number; attendancesMerged: number }>
+  > {
+    const response = await apiClient.post<
+      ApiResponse<{ groupsProcessed: number; eventsRemoved: number; attendancesMerged: number }>
+    >('/events/super/duplicates/correct-all');
+    return response.data;
+  }
 }
 
 export interface EventAuditLogEntry {

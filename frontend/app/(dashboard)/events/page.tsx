@@ -80,6 +80,7 @@ export default function EventsPage() {
   const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
   const [duplicatesLoading, setDuplicatesLoading] = useState(false);
   const [duplicateDeletingId, setDuplicateDeletingId] = useState<string | null>(null);
+  const [correctAllLoading, setCorrectAllLoading] = useState(false);
   // Event categories from old system
   const eventCategories = [
     'Community Worship',
@@ -334,6 +335,34 @@ export default function EventsPage() {
       toast.error('Remove failed', { description: e instanceof Error ? e.message : 'Unknown error' });
     } finally {
       setDuplicateDeletingId(null);
+    }
+  };
+
+  const handleCorrectAllDuplicates = async () => {
+    if (duplicateGroups.length === 0) return;
+    const totalDuplicates = duplicateGroups.reduce((s, g) => s + g.events.length - 1, 0);
+    if (
+      !confirm(
+        `Correct all duplicates? For each group the earliest-created event will be kept. ${totalDuplicates} duplicate event(s) will be removed. Any check-ins on duplicates will be merged into the kept event.`,
+      )
+    )
+      return;
+    setCorrectAllLoading(true);
+    try {
+      const res = await eventsService.correctAllDuplicates();
+      if (res.success && res.data) {
+        toast.success(
+          res.message ??
+            `Corrected: ${res.data.eventsRemoved} duplicate(s) removed, ${res.data.attendancesMerged} check-in(s) kept.`,
+        );
+        await loadDuplicates();
+      } else {
+        toast.error('Correct all failed', { description: 'Please try again.' });
+      }
+    } catch (e) {
+      toast.error('Correct all failed', { description: e instanceof Error ? e.message : 'Unknown error' });
+    } finally {
+      setCorrectAllLoading(false);
     }
   };
 
@@ -1418,6 +1447,16 @@ export default function EventsPage() {
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="outline" onClick={() => setShowDuplicatesDialog(false)}>Close</Button>
               <Button onClick={loadDuplicates} disabled={duplicatesLoading}>Refresh</Button>
+              <Button
+                onClick={handleCorrectAllDuplicates}
+                disabled={duplicatesLoading || correctAllLoading || duplicateGroups.length === 0}
+                className="bg-orange-600 hover:bg-orange-700 text-white"
+              >
+                {correctAllLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin mr-2 inline" />
+                ) : null}
+                Correct all (keep one per group, merge check-ins)
+              </Button>
             </div>
           </DialogContent>
         </Dialog>

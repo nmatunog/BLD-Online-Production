@@ -138,6 +138,21 @@ export class EventsController {
     return { success: true, data: result, message: 'Duplicate groups retrieved' };
   }
 
+  @Post('super/duplicates/correct-all')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Super User only: keep one event per duplicate group, merge check-ins, remove the rest' })
+  @ApiResponse({ status: 200, description: 'Duplicates corrected' })
+  async correctAllDuplicates(@CurrentUser() user: { id: string }): Promise<ApiResponseDto<unknown>> {
+    const result = await this.eventsService.correctAllDuplicates(user.id);
+    return {
+      success: true,
+      data: result,
+      message: `Corrected ${result.groupsProcessed} group(s): ${result.eventsRemoved} duplicate(s) removed, ${result.attendancesMerged} check-in(s) kept.`,
+    };
+  }
+
   @Get('upcoming')
   @ApiOperation({ summary: 'Get upcoming events (general + user ministry by default)' })
   @ApiResponse({ status: 200, description: 'Upcoming events retrieved successfully' })

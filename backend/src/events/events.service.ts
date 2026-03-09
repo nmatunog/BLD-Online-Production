@@ -946,6 +946,61 @@ export class EventsService implements OnModuleInit {
     return { groups };
   }
 
+  /**
+   * Super User only: correct all duplicate groups by retaining one event per group and deleting the rest.
+   * For each duplicate event that has check-ins, merges those attendances into the retained event (so no attendance is lost), then removes the duplicate.
+   */
+  async correctAllDuplicates(userId?: string): Promise<{ groupsProcessed: number; eventsRemoved: number; attendancesMerged: number }> {
+    const { groups } = await this.findDuplicates();
+    let eventsRemoved = 0;
+    let attendancesMerged = 0;
+
+    for (const group of groups) {
+      const events = group.events as Array<{ id: string; createdAt: Date }>;
+      if (events.length < 2) continue;
+
+      // Retain the earliest-created event (original)
+      const sorted = [...events].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
+      const retainId = sorted[0].id;
+      const duplicateIds = sorted.slice(1).map((e) => e.id);
+
+      const retainedAttendances = await this.prisma.attendance.findMany({
+        where: { eventId: retainId },
+        select: { memberId: true },
+      });
+      const retainedMemberIds = new Set(retainedAttendances.map((a) => a.memberId));
+
+      for (const duplicateId of duplicateIds) {
+        const dupAttendances = await this.prisma.attendance.findMany({
+          where: { eventId: duplicateId },
+          select: { memberId: true, checkInTime: true, method: true },
+        });
+
+        for (const att of dupAttendances) {
+          if (retainedMemberIds.has(att.memberId)) continue;
+          await this.prisma.attendance.create({
+            data: {
+              eventId: retainId,
+              memberId: att.memberId,
+              checkInTime: att.checkInTime,
+              method: att.method,
+            },
+          });
+          retainedMemberIds.add(att.memberId);
+          attendancesMerged++;
+        }
+
+        await this.prisma.attendance.deleteMany({ where: { eventId: duplicateId } });
+        await this.remove(duplicateId, userId);
+        eventsRemoved++;
+      }
+    }
+
+    return { groupsProcessed: groups.length, eventsRemoved, attendancesMerged };
+  }
+
   async regenerateQRCode(id: string) {
     await this.findOne(id);
     return this.generateQRCode(id);
