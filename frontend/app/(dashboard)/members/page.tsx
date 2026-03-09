@@ -76,6 +76,7 @@ export default function MembersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRole, setFilterRole] = useState<string>('ALL');
   const [filterStatus, setFilterStatus] = useState<string>('Active');
+  const [filterApostolate, setFilterApostolate] = useState<string>('ALL');
   const [filterMinistry, setFilterMinistry] = useState<string>('ALL');
   const [sortAlphabetically, setSortAlphabetically] = useState(false);
   const [userRole, setUserRole] = useState<string>('');
@@ -155,6 +156,7 @@ export default function MembersPage() {
     try {
       const params: MemberQueryParams = {
         search: searchTerm || undefined,
+        apostolate: filterApostolate !== 'ALL' ? filterApostolate : undefined,
         ministry: filterMinistry !== 'ALL' ? filterMinistry : (userRole === 'MINISTRY_COORDINATOR' ? userMinistry : undefined),
         role: filterRole !== 'ALL' ? filterRole : undefined,
         ...(filterStatus !== 'ALL' && { isActive: filterStatus === 'Active' }),
@@ -185,41 +187,61 @@ export default function MembersPage() {
 
       return () => clearTimeout(timeoutId);
     }
-  }, [searchTerm, filterRole, filterStatus, filterMinistry, authLoading]);
+  }, [searchTerm, filterRole, filterStatus, filterApostolate, filterMinistry, authLoading]);
 
-  // Get unique ministries for filter dropdown
-  const uniqueMinistries = useMemo(() => {
-    if (!members || members.length === 0) return [];
+  // Ministry options: when apostolate selected, list ministries under that apostolate (coordinators first, then alphabetical)
+  const ministryOptions = useMemo(() => {
+    if (filterApostolate !== 'ALL') {
+      const list = getMinistriesForApostolate(filterApostolate);
+      if (list.length === 0) return [];
+      const coordinatorMinistries = new Set(
+        members.filter(m => m.user?.role === 'MINISTRY_COORDINATOR' && m.user?.ministry).map(m => m.user!.ministry!),
+      );
+      const withCoordinators = list.filter(m => coordinatorMinistries.has(m));
+      const rest = list.filter(m => !coordinatorMinistries.has(m));
+      return [...withCoordinators, ...rest.sort((a, b) => a.localeCompare(b))];
+    }
     const ministries = new Set<string>();
     members.forEach(member => {
-      if (member.ministry && member.ministry.trim()) {
-        ministries.add(member.ministry);
-      }
+      if (member.ministry && member.ministry.trim()) ministries.add(member.ministry);
     });
-    return Array.from(ministries).sort();
-  }, [members]);
+    const list = Array.from(ministries).sort((a, b) => a.localeCompare(b));
+    const coordinatorMinistries = new Set(
+      members.filter(m => m.user?.role === 'MINISTRY_COORDINATOR' && m.user?.ministry).map(m => m.user!.ministry!),
+    );
+    const withCoordinators = list.filter(m => coordinatorMinistries.has(m));
+    const rest = list.filter(m => !coordinatorMinistries.has(m));
+    return [...withCoordinators, ...rest];
+  }, [members, filterApostolate]);
 
-  // Filtered (by search/ministry) and sorted members; role/status applied server-side
+  // Filtered (by search, apostolate, ministry) and sorted: Ministry Coordinators first, then rest alphabetically
   const filteredMembers = useMemo(() => {
     let filtered = members.filter(member => {
       const fullName = `${member.firstName || ''} ${member.lastName || ''}`.toLowerCase();
       const communityId = (member.communityId || '').toLowerCase();
       const term = searchTerm.toLowerCase();
       const matchesSearch = !term || fullName.includes(term) || communityId.includes(term);
+      const matchesApostolate = filterApostolate === 'ALL' || (member.apostolate || '') === filterApostolate;
       const matchesMinistry = filterMinistry === 'ALL' || member.ministry === filterMinistry;
-      return matchesSearch && matchesMinistry;
+      return matchesSearch && matchesApostolate && matchesMinistry;
     });
 
-    if (sortAlphabetically) {
-      filtered = [...filtered].sort((a, b) => {
-        const aLastName = (a.lastName || '').toLowerCase();
-        const bLastName = (b.lastName || '').toLowerCase();
-        if (aLastName !== bLastName) return aLastName.localeCompare(bLastName);
-        return (a.firstName || '').toLowerCase().localeCompare((b.firstName || '').toLowerCase());
-      });
-    }
+    const nameSort = (a: Member, b: Member) => {
+      const aLastName = (a.lastName || '').toLowerCase();
+      const bLastName = (b.lastName || '').toLowerCase();
+      if (aLastName !== bLastName) return aLastName.localeCompare(bLastName);
+      return (a.firstName || '').toLowerCase().localeCompare((b.firstName || '').toLowerCase());
+    };
+    const isCoordinator = (m: Member) => m.user?.role === 'MINISTRY_COORDINATOR';
+    filtered = [...filtered].sort((a, b) => {
+      const aCoord = isCoordinator(a);
+      const bCoord = isCoordinator(b);
+      if (aCoord && !bCoord) return -1;
+      if (!aCoord && bCoord) return 1;
+      return sortAlphabetically ? nameSort(a, b) : nameSort(a, b);
+    });
     return filtered;
-  }, [members, searchTerm, filterMinistry, sortAlphabetically]);
+  }, [members, searchTerm, filterApostolate, filterMinistry, sortAlphabetically]);
 
   // Permission checks
   const canEditMember = (member: Member): boolean => {
@@ -759,7 +781,7 @@ export default function MembersPage() {
           </div>
 
           {/* Filters */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Search Members</label>
               <div className="flex space-x-2">
@@ -771,6 +793,40 @@ export default function MembersPage() {
                   className="flex-1"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Apostolate</label>
+              <Select value={filterApostolate} onValueChange={(v) => { setFilterApostolate(v); setFilterMinistry('ALL'); }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Apostolates" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Apostolates</SelectItem>
+                  {APOSTOLATES.map(ap => (
+                    <SelectItem key={ap} value={ap}>{ap}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Ministry</label>
+              <Select
+                value={filterMinistry}
+                onValueChange={setFilterMinistry}
+                disabled={filterApostolate !== 'ALL' && ministryOptions.length === 0}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={filterApostolate !== 'ALL' ? `Ministries in ${filterApostolate}` : 'All Ministries'} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ALL">All Ministries</SelectItem>
+                  {ministryOptions.map(ministry => (
+                    <SelectItem key={ministry} value={ministry}>{ministry}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div>
@@ -802,26 +858,12 @@ export default function MembersPage() {
                 </SelectContent>
               </Select>
             </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Ministry</label>
-              <Select value={filterMinistry} onValueChange={setFilterMinistry}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Ministries" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ALL">All Ministries</SelectItem>
-                  {uniqueMinistries.map(ministry => (
-                    <SelectItem key={ministry} value={ministry}>{ministry}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
           </div>
 
           {/* Sort Toggle */}
           <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-3 flex-wrap gap-y-2">
+              <span className="text-sm text-gray-600">Ministry Coordinators at top, then A–Z by name.</span>
               <label className="flex items-center space-x-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -833,12 +875,13 @@ export default function MembersPage() {
               </label>
             </div>
 
-            {(filterRole !== 'ALL' || filterStatus !== 'ALL' || filterMinistry !== 'ALL' || searchTerm.trim() || sortAlphabetically) && (
+            {(filterRole !== 'ALL' || filterStatus !== 'ALL' || filterApostolate !== 'ALL' || filterMinistry !== 'ALL' || searchTerm.trim() || sortAlphabetically) && (
               <Button
                 variant="outline"
                 onClick={() => {
                   setFilterRole('ALL');
                   setFilterStatus('ALL');
+                  setFilterApostolate('ALL');
                   setFilterMinistry('ALL');
                   setSearchTerm('');
                   setSortAlphabetically(false);
