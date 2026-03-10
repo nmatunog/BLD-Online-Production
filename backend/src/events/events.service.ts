@@ -155,6 +155,22 @@ export class EventsService implements OnModuleInit {
       }
     }
 
+    // Prevent creating obvious duplicate events with same title, date, time, and location
+    const existingSameSlot = await this.prisma.event.findFirst({
+      where: {
+        title: createEventDto.title.trim(),
+        location: createEventDto.location.trim(),
+        startDate: startDate,
+        startTime: createEventDto.startTime || null,
+        status: { in: [EventStatus.UPCOMING, EventStatus.ONGOING] },
+      },
+    });
+    if (existingSameSlot) {
+      throw new BadRequestException(
+        'An event with the same title, date, time, and location already exists. Please edit the existing event instead of creating a new one.',
+      );
+    }
+
     // Create event
     const event = await this.prisma.event.create({
       data: {
@@ -268,17 +284,29 @@ export class EventsService implements OnModuleInit {
           occStart.setUTCHours(
             templateStart.getUTCHours(),
             templateStart.getUTCMinutes(),
-            templateStart.getUTCSeconds(),
-            templateStart.getUTCMilliseconds(),
+            0,
+            0,
           );
           if (occStart < now) continue;
 
           const occEnd = new Date(occStart.getTime() + durationMs);
 
+          // Prevent duplicate occurrences even if timestamps drift slightly across environments:
+          // treat "same day + same startTime + same template" as the same occurrence.
+          const dayStart = new Date(Date.UTC(
+            occStart.getUTCFullYear(),
+            occStart.getUTCMonth(),
+            occStart.getUTCDate(),
+            0, 0, 0, 0,
+          ));
+          const dayEnd = new Date(dayStart);
+          dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+
           const existing = await this.prisma.event.findFirst({
             where: {
               recurrenceTemplateId: templateId,
-              startDate: { gte: new Date(occStart.getTime() - 1000), lte: new Date(occStart.getTime() + 1000) },
+              startTime: template.startTime,
+              startDate: { gte: dayStart, lt: dayEnd },
             },
           });
           if (existing) continue;
