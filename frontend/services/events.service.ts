@@ -167,7 +167,7 @@ class EventsService {
   > {
     const response = await apiClient.post<
       ApiResponse<{ groupsProcessed: number; eventsRemoved: number; attendancesMerged: number }>
-    >('/events/super/duplicates/correct-all', undefined, { timeout: 60000 });
+    >('/events/super/duplicates/correct-all', undefined, { timeout: 18000 * 1000 });
     return response.data;
   }
 }
