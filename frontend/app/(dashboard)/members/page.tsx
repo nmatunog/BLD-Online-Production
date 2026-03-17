@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Search, Users, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Loader2, RefreshCw, Download, Save } from 'lucide-react';
@@ -73,6 +73,10 @@ export default function MembersPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [membersLoading, setMembersLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalMembers, setTotalMembers] = useState<number>(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRole, setFilterRole] = useState<string>('ALL');
   const [filterStatus, setFilterStatus] = useState<string>('Active');
@@ -124,6 +128,10 @@ export default function MembersPage() {
     dateOfEncounter: '',
   });
 
+  const PAGE_SIZE = 50;
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const loadMembersRequestIdRef = useRef(0);
+
   // Load user role and data (auth redirect handled by dashboard layout)
   useEffect(() => {
     const checkAuth = async () => {
@@ -141,7 +149,6 @@ export default function MembersPage() {
       }
 
       setAuthLoading(false);
-      loadMembers();
     };
 
     checkAuth();
@@ -150,34 +157,83 @@ export default function MembersPage() {
   const allowedRoles = ['SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR', 'CLASS_SHEPHERD'];
   const canAccess = !authLoading && allowedRoles.includes(userRole);
 
-  const loadMembers = async () => {
-    setMembersLoading(true);
-    setLoading(true);
-    try {
-      const params: MemberQueryParams = {
-        search: searchTerm || undefined,
-        apostolate: filterApostolate !== 'ALL' ? filterApostolate : undefined,
-        ministry: filterMinistry !== 'ALL' ? filterMinistry : (userRole === 'MINISTRY_COORDINATOR' ? userMinistry : undefined),
-        role: filterRole !== 'ALL' ? filterRole : undefined,
-        ...(filterStatus !== 'ALL' && { isActive: filterStatus === 'Active' }),
-        sortBy: 'name',
-        sortOrder: 'asc',
-        page: 1,
-        limit: 1000,
-      };
+  const buildQueryParams = useCallback(
+    (targetPage: number): MemberQueryParams => ({
+      search: searchTerm || undefined,
+      apostolate: filterApostolate !== 'ALL' ? filterApostolate : undefined,
+      ministry:
+        filterMinistry !== 'ALL'
+          ? filterMinistry
+          : userRole === 'MINISTRY_COORDINATOR'
+            ? userMinistry
+            : undefined,
+      role: filterRole !== 'ALL' ? filterRole : undefined,
+      ...(filterStatus !== 'ALL' && { isActive: filterStatus === 'Active' }),
+      sortBy: 'name',
+      sortOrder: 'asc',
+      page: targetPage,
+      limit: PAGE_SIZE,
+    }),
+    [searchTerm, filterApostolate, filterMinistry, userRole, userMinistry, filterRole, filterStatus],
+  );
 
-      const result = await membersService.getAll(params);
-      setMembers(Array.isArray(result.data) ? result.data : []);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to load members';
-      toast.error('Error Loading Members', {
-        description: errorMessage,
-      });
-    } finally {
-      setMembersLoading(false);
-      setLoading(false);
-    }
-  };
+  const loadMembersPage = useCallback(
+    async (targetPage: number, mode: 'replace' | 'append') => {
+      const requestId = ++loadMembersRequestIdRef.current;
+      if (mode === 'replace') {
+        setMembersLoading(true);
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
+
+      try {
+        const params = buildQueryParams(targetPage);
+        const result = await membersService.getAll(params);
+
+        // Ignore stale requests (e.g. typing quickly in search)
+        if (requestId !== loadMembersRequestIdRef.current) return;
+
+        const list = Array.isArray(result.data) ? result.data : [];
+        const pagination = result.pagination;
+
+        setTotalMembers(pagination?.total ?? list.length);
+        setHasMore(pagination ? pagination.page < pagination.totalPages : list.length === PAGE_SIZE);
+        setPage(targetPage);
+
+        setMembers((prev) => {
+          if (mode === 'replace') return list;
+          const seen = new Set(prev.map((m) => m.id));
+          const merged = [...prev];
+          for (const m of list) {
+            if (!seen.has(m.id)) {
+              seen.add(m.id);
+              merged.push(m);
+            }
+          }
+          return merged;
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to load members';
+        toast.error('Error Loading Members', { description: errorMessage });
+      } finally {
+        if (mode === 'replace') {
+          setMembersLoading(false);
+          setLoading(false);
+        } else {
+          setLoadingMore(false);
+        }
+      }
+    },
+    [PAGE_SIZE, buildQueryParams],
+  );
+
+  const loadMembers = useCallback(() => {
+    setMembers([]);
+    setPage(1);
+    setHasMore(true);
+    void loadMembersPage(1, 'replace');
+  }, [loadMembersPage]);
 
   useEffect(() => {
     if (!authLoading) {
@@ -187,7 +243,28 @@ export default function MembersPage() {
 
       return () => clearTimeout(timeoutId);
     }
-  }, [searchTerm, filterRole, filterStatus, filterApostolate, filterMinistry, authLoading]);
+  }, [searchTerm, filterRole, filterStatus, filterApostolate, filterMinistry, authLoading, loadMembers]);
+
+  // Infinite scrolling: load next page when sentinel is near viewport
+  useEffect(() => {
+    if (!canAccess) return;
+    if (!hasMore) return;
+    if (membersLoading || loadingMore) return;
+    const el = loadMoreRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (!first?.isIntersecting) return;
+        void loadMembersPage(page + 1, 'append');
+      },
+      { root: null, rootMargin: '300px', threshold: 0.01 },
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [canAccess, hasMore, membersLoading, loadingMore, loadMembersPage, page]);
 
   // Ministry options: when apostolate selected, list ministries under that apostolate (coordinators first, then alphabetical)
   const ministryOptions = useMemo(() => {
@@ -1058,7 +1135,21 @@ export default function MembersPage() {
           </div>
 
           <div className="mt-4 text-sm text-gray-500">
-            Showing {filteredMembers.length} of {members.length} members
+            Showing {filteredMembers.length} of {totalMembers || members.length} members
+          </div>
+
+          {/* Infinite scroll sentinel */}
+          <div ref={loadMoreRef} className="h-10 flex items-center justify-center mt-2">
+            {loadingMore ? (
+              <div className="flex items-center gap-2 text-sm text-gray-600">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Loading more…
+              </div>
+            ) : hasMore ? (
+              <div className="text-xs text-gray-400">Scroll to load more…</div>
+            ) : (
+              <div className="text-xs text-gray-400">End of list</div>
+            )}
           </div>
         </div>
 
