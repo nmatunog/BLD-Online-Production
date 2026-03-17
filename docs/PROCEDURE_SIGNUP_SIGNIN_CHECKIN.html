@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>BLD Cebu Online Portal — Member Guide</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    :root {
+      --primary: #c53030;
+      --primary-soft: #fed7d7;
+      --bg: #f7fafc;
+      --text-main: #1a202c;
+      --muted: #4a5568;
+      --card-bg: #ffffff;
+      --step-1: #ebf8ff;
+      --step-2: #fefcbf;
+      --step-3: #e6fffa;
+      --border: #e2e8f0;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text-main);
+      background: var(--bg);
+    }
+    .page {
+      max-width: 1040px; /* A4-ish width */
+      margin: 0 auto;
+      padding: 24px;
+      background: #ffffff;
+    }
+    @media print {
+      body {
+        background: #ffffff;
+      }
+      .page {
+        box-shadow: none;
+        padding: 12mm;
+      }
+      .no-print {
+        display: none !important;
+      }
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      border-radius: 16px;
+      padding: 16px 20px;
+      background: linear-gradient(135deg, #fff5f5, #edf2f7);
+      border: 1px solid var(--border);
+      margin-bottom: 20px;
+    }
+    .header-icon {
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      background: var(--primary-soft);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .header-icon svg {
+      width: 40px;
+      height: 40px;
+      color: var(--primary);
+    }
+    .header-title {
+      font-size: 24px;
+      font-weight: 800;
+      margin: 0 0 4px 0;
+    }
+    .header-subtitle {
+      margin: 0;
+      font-size: 14px;
+      color: var(--muted);
+    }
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .pill {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      background: #edf2f7;
+      color: #2d3748;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid #e2e8f0;
+    }
+    .pill--primary {
+      background: var(--primary-soft);
+      color: var(--primary);
+      border-color: #feb2b2;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 900px) {
+      .grid-3 {
+        grid-template-columns: 1fr;
+      }
+    }
+    .step-card {
+      border-radius: 16px;
+      padding: 16px 16px 18px;
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .step-card--1 { background: var(--step-1); }
+    .step-card--2 { background: var(--step-2); }
+    .step-card--3 { background: var(--step-3); }
+    .step-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .step-badge {
+      width: 32px;
+      height: 32px;
+      border-radius: 999px;
+      background: #ffffffcc;
+      border: 1px solid #cbd5e0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 700;
+      color: #2d3748;
+    }
+    .step-title {
+      font-size: 15px;
+      font-weight: 700;
+      margin: 0;
+    }
+    .step-icon {
+      margin-left: auto;
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      background: #ffffff80;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .step-icon svg {
+      width: 20px;
+      height: 20px;
+      color: var(--primary);
+    }
+    .step-list {
+      padding-left: 18px;
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .step-list li + li {
+      margin-top: 2px;
+    }
+    .tip {
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .summary {
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: #faf5ff;
+      padding: 14px 16px 16px;
+      margin-top: 8px;
+    }
+    .summary-title {
+      font-size: 14px;
+      font-weight: 700;
+      margin: 0 0 8px 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #553c9a;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+      font-size: 12px;
+    }
+    @media (max-width: 900px) {
+      .summary-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .summary-col {
+      background: #ffffff;
+      border-radius: 10px;
+      border: 1px solid #e9d8fd;
+      padding: 8px 10px;
+    }
+    .summary-col-title {
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: #44337a;
+    }
+    .summary-col-body {
+      font-size: 12px;
+      color: #4a5568;
+    }
+    .footer-note {
+      margin-top: 12px;
+      font-size: 11px;
+      color: var(--muted);
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="header">
+      <div class="header-icon">
+        <!-- Simple SVG flow icon -->
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <rect x="6" y="8" width="12" height="10" rx="2" fill="currentColor" opacity="0.85"></rect>
+          <rect x="30" y="19" width="12" height="10" rx="2" fill="currentColor" opacity="0.65"></rect>
+          <rect x="12" y="30" width="12" height="10" rx="2" fill="currentColor" opacity="0.5"></rect>
+          <path d="M18 18 L30 19" fill="none" stroke="currentColor" stroke-width="2"></path>
+          <path d="M30 29 L18 30" fill="none" stroke="currentColor" stroke-width="2"></path>
+        </svg>
+      </div>
+      <div>
+        <h1 class="header-title">BLD Cebu Online Portal — Member Guide</h1>
+        <p class="header-subtitle">
+          Quick steps to <strong>Sign up</strong>, <strong>Sign in</strong>, and <strong>Check in</strong> to Community Worship, WSC, and other events.
+        </p>
+        <div class="pill-row">
+          <span class="pill pill--primary">For members</span>
+          <span class="pill">Chatbot + Mobile Number</span>
+          <span class="pill">QR Code Ready</span>
+          <span class="pill">Print-Friendly</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid-3">
+      <!-- Step 1: Sign Up -->
+      <article class="step-card step-card--1">
+        <div class="step-header">
+          <div class="step-badge">1</div>
+          <h2 class="step-title">Sign up with Chatbot (Mobile)</h2>
+          <div class="step-icon">
+            <!-- Chat bubble + phone -->
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-3 3v-3H6a2 2 0 0 1-2-2V5Z" fill="currentColor" opacity="0.9"></path>
+              <rect x="15" y="7" width="5" height="11" rx="1.5" fill="currentColor" opacity="0.6"></rect>
+            </svg>
+          </div>
+        </div>
+        <ol class="step-list">
+          <li>Open the Portal and go to the <strong>Register</strong> / Sign Up page.</li>
+          <li>Choose <strong>Sign up with Chatbot</strong> / <strong>Chatbot Assistant</strong>.</li>
+          <li>When asked, choose <strong>Mobile number</strong> as your sign-up method.</li>
+          <li>Enter your <strong>mobile number</strong> (e.g. 09XX XXX XXXX).</li>
+          <li>Create a <strong>password</strong> (min. 6 characters) and remember it.</li>
+          <li>Provide details the chatbot asks for: name, city, encounter type (ME/SE/YE/SPE), class number.</li>
+          <li>When the chatbot says <strong>“Registration successful”</strong>, your account is ready.</li>
+        </ol>
+        <p class="tip"><strong>Tip:</strong> You may also sign up with your email instead of mobile, if you prefer.</p>
+      </article>
+
+      <!-- Step 2: Sign In -->
+      <article class="step-card step-card--2">
+        <div class="step-header">
+          <div class="step-badge">2</div>
+          <h2 class="step-title">Sign in to the Portal</h2>
+          <div class="step-icon">
+            <!-- Lock / login -->
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="5" y="10" width="14" height="10" rx="2" fill="currentColor" opacity="0.8"></rect>
+              <path d="M8 10V8a4 4 0 0 1 8 0v2" fill="none" stroke="currentColor" stroke-width="1.8"></path>
+              <circle cx="12" cy="15" r="1.4" fill="#ffffff"></circle>
+            </svg>
+          </div>
+        </div>
+        <ol class="step-list">
+          <li>From the Portal home, open the <strong>Login</strong> page.</li>
+          <li>Sign in with either:
+            <ul style="margin: 2px 0 0 14px; padding: 0; list-style: disc;">
+              <li><strong>Mobile number + password</strong>, or</li>
+              <li><strong>Email + password</strong> (if you used email to register).</li>
+            </ul>
+          </li>
+          <li>Click or tap <strong>Sign in</strong>.</li>
+          <li>When your details are correct, you’ll go to your <strong>Dashboard</strong>.</li>
+          <li>Optional: on the Login page, you can use the <strong>Chatbot</strong> and choose “Sign in” instead of the form.</li>
+          <li>Optional: if you have a <strong>member QR code</strong>, scan it on the login screen and then enter your password.</li>
+        </ol>
+      </article>
+
+      <!-- Step 3: Check In -->
+      <article class="step-card step-card--3">
+        <div class="step-header">
+          <div class="step-badge">3</div>
+          <h2 class="step-title">Check in to an event</h2>
+          <div class="step-icon">
+            <!-- QR + calendar -->
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="3" y="10" width="10" height="10" rx="2" fill="currentColor" opacity="0.85"></rect>
+              <path d="M5 12h2v2H5Zm4 0h2v2H9Zm0 4h2v2H9Zm-4 0h2v2H5Z" fill="#ffffff"></path>
+              <rect x="15" y="4" width="7" height="7" rx="1.5" fill="currentColor" opacity="0.8"></rect>
+              <path d="M16.5 6.2h4M16.5 8.2h2" stroke="#ffffff" stroke-width="1.4" stroke-linecap="round"></path>
+            </svg>
+          </div>
+        </div>
+        <ol class="step-list">
+          <li><strong>Sign in</strong> to the Portal (see Step 2).</li>
+          <li>Open <strong>Self Check-in</strong> (members) or <strong>Check-in</strong> (staff).</li>
+          <li>Select the event (e.g. <strong>Community Worship</strong> or <strong>Word Sharing Circle</strong>). The nearest / today’s event usually appears at the top.</li>
+          <li>Choose how to check in:
+            <ul style="margin: 2px 0 0 14px; padding: 0; list-style: disc;">
+              <li><strong>Scan member QR code:</strong> allow camera, point at your QR (from profile or printed ID), wait for success.</li>
+              <li><strong>Use Check-in Chatbot:</strong> open the chatbot on the Self Check-in page, confirm the event and your identity, then wait for the confirmation message.</li>
+            </ul>
+          </li>
+          <li>Once you see a <strong>success</strong> / “You are checked in” message, you’re done.</li>
+        </ol>
+        <p class="tip">
+          <strong>When you can check in:</strong> from <strong>2 hours before</strong> the event starts until <strong>2 hours after</strong> it ends.<br />
+          For weekly events (like Community Worship / WSC), you can also check in within <strong>7 days after</strong> the event.
+        </p>
+      </article>
+    </section>
+
+    <section class="summary">
+      <h2 class="summary-title">
+        <!-- small icon -->
+        <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
+          <circle cx="10" cy="10" r="9" fill="#9f7aea"></circle>
+          <path d="M6 10h2l1-3 2 6 1-3h2" fill="none" stroke="#f7fafc" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+        One-glance summary (for infographic)
+      </h2>
+      <div class="summary-grid">
+        <div class="summary-col">
+          <div class="summary-col-title">Sign up</div>
+          <div class="summary-col-body">
+            Open Portal → <strong>Register</strong> → Chatbot → choose <strong>Mobile number</strong> → enter phone &amp; password → give name, city, encounter, class → chatbot confirms <strong>“Registration successful”</strong>.
+          </div>
+        </div>
+        <div class="summary-col">
+          <div class="summary-col-title">Sign in</div>
+          <div class="summary-col-body">
+            Open Portal → <strong>Login</strong> → enter <strong>mobile (or email) + password</strong> → Sign in → see your <strong>Dashboard</strong>. Chatbot and QR login are also available from the Login page.
+          </div>
+        </div>
+        <div class="summary-col">
+          <div class="summary-col-title">Check in</div>
+          <div class="summary-col-body">
+            Sign in → <strong>Self Check-in</strong> → select event (e.g. Community Worship / WSC) → scan <strong>member QR</strong> or use <strong>Check-in Chatbot</strong> → wait for success message → you’re checked in.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <p class="footer-note">
+      BLD Cebu Community Online Portal — Member procedure v1 · Print this page or export as PDF for infographics.
+    </p>
+  </div>
+</body>
+</html>
+
