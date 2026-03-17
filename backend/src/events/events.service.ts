@@ -945,50 +945,115 @@ export class EventsService implements OnModuleInit {
    * Returns groups of events that look like duplicates for cleanup.
    */
   async findDuplicates() {
-    const events = await this.prisma.event.findMany({
-      orderBy: { startDate: 'asc' },
-      select: {
-        id: true,
-        title: true,
-        startDate: true,
-        endDate: true,
-        startTime: true,
-        endTime: true,
-        ministry: true,
-        isRecurring: true,
-        recurrenceTemplateId: true,
-        createdAt: true,
-        createdBy: { select: { id: true, email: true, phone: true, member: { select: { firstName: true, lastName: true } } } },
-      },
-    });
-
-    const normalize = (s: string | null | undefined) =>
-      String(s ?? '')
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, ' ');
-
-    const dayKeyUTC = (d: Date) => d.toISOString().slice(0, 10);
-
-    const ministryKey = (m: string | null | undefined) => {
-      const n = normalize(m);
-      return n ? n : 'community';
+    // Use a DB-side grouping query so this stays fast even with lots of events.
+    // Only consider recurring events (duplicates are almost always from recurrence generation).
+    type Row = {
+      keys: string;
+      id: string;
+      title: string;
+      startDate: Date;
+      endDate: Date;
+      startTime: string | null;
+      endTime: string | null;
+      ministry: string | null;
+      isRecurring: boolean;
+      recurrenceTemplateId: string | null;
+      createdAt: Date;
+      createdById: string | null;
+      createdByEmail: string | null;
+      createdByPhone: string | null;
+      createdByFirstName: string | null;
+      createdByLastName: string | null;
     };
 
-    const key = (e: { title: string; startDate: Date; startTime?: string | null; ministry?: string | null }) =>
-      `${normalize(e.title)}|${dayKeyUTC(e.startDate)}|${normalize(e.startTime)}|${ministryKey(e.ministry)}`;
+    const rows = await this.prisma.$queryRaw<Row[]>`
+      WITH normalized AS (
+        SELECT
+          e.id,
+          e.title,
+          e."startDate",
+          e."endDate",
+          e."startTime",
+          e."endTime",
+          e.ministry,
+          e."isRecurring",
+          e."recurrenceTemplateId",
+          e."createdAt",
+          e."createdById",
+          regexp_replace(lower(btrim(e.title)), '\\s+', ' ', 'g') AS norm_title,
+          (e."startDate")::date AS day_utc,
+          coalesce(nullif(regexp_replace(lower(btrim(coalesce(e.ministry, ''))), '\\s+', ' ', 'g'), ''), ''), 'community') AS norm_ministry,
+          coalesce(e."startTime", '') AS norm_start_time
+        FROM "Event" e
+        WHERE e."isRecurring" = true
+      ),
+      dup_keys AS (
+        SELECT
+          norm_title,
+          day_utc,
+          norm_start_time,
+          norm_ministry
+        FROM normalized
+        GROUP BY norm_title, day_utc, norm_start_time, norm_ministry
+        HAVING count(*) > 1
+      )
+      SELECT
+        (n.norm_title || '|' || n.day_utc::text || '|' || n.norm_start_time || '|' || n.norm_ministry) AS keys,
+        n.id,
+        n.title,
+        n."startDate" as "startDate",
+        n."endDate" as "endDate",
+        n."startTime" as "startTime",
+        n."endTime" as "endTime",
+        n.ministry,
+        n."isRecurring" as "isRecurring",
+        n."recurrenceTemplateId" as "recurrenceTemplateId",
+        n."createdAt" as "createdAt",
+        u.id as "createdById",
+        u.email as "createdByEmail",
+        u.phone as "createdByPhone",
+        m."firstName" as "createdByFirstName",
+        m."lastName" as "createdByLastName"
+      FROM normalized n
+      JOIN dup_keys d
+        ON d.norm_title = n.norm_title
+       AND d.day_utc = n.day_utc
+       AND d.norm_start_time = n.norm_start_time
+       AND d.norm_ministry = n.norm_ministry
+      LEFT JOIN "User" u ON u.id = n."createdById"
+      LEFT JOIN "Member" m ON m."userId" = u.id
+      ORDER BY n."startDate" ASC, n."createdAt" ASC
+    `;
 
-    const byKey = new Map<string, typeof events>();
-    for (const e of events) {
-      const k = key(e);
-      if (!byKey.has(k)) byKey.set(k, []);
-      byKey.get(k)!.push(e);
+    const byKey = new Map<string, any[]>();
+    for (const r of rows) {
+      if (!byKey.has(r.keys)) byKey.set(r.keys, []);
+      byKey.get(r.keys)!.push({
+        id: r.id,
+        title: r.title,
+        startDate: r.startDate,
+        endDate: r.endDate,
+        startTime: r.startTime,
+        endTime: r.endTime,
+        location: '', // not used for grouping anymore; UI can still display from events list elsewhere
+        isRecurring: r.isRecurring,
+        recurrenceTemplateId: r.recurrenceTemplateId,
+        createdAt: r.createdAt,
+        createdBy: r.createdById
+          ? {
+              id: r.createdById,
+              email: r.createdByEmail,
+              phone: r.createdByPhone,
+              member:
+                r.createdByFirstName || r.createdByLastName
+                  ? { firstName: r.createdByFirstName, lastName: r.createdByLastName }
+                  : null,
+            }
+          : null,
+      });
     }
 
-    const groups = Array.from(byKey.entries())
-      .filter(([, list]) => list.length > 1)
-      .map(([keys, list]) => ({ keys, events: list }));
-
+    const groups = Array.from(byKey.entries()).map(([keys, list]) => ({ keys, events: list }));
     return { groups };
   }
 
@@ -1012,31 +1077,18 @@ export class EventsService implements OnModuleInit {
       const retainId = sorted[0].id;
       const duplicateIds = sorted.slice(1).map((e) => e.id);
 
-      const retainedAttendances = await this.prisma.attendance.findMany({
-        where: { eventId: retainId },
-        select: { memberId: true },
-      });
-      const retainedMemberIds = new Set(retainedAttendances.map((a) => a.memberId));
-
       for (const duplicateId of duplicateIds) {
-        const dupAttendances = await this.prisma.attendance.findMany({
-          where: { eventId: duplicateId },
-          select: { memberId: true, checkInTime: true, method: true },
-        });
-
-        for (const att of dupAttendances) {
-          if (retainedMemberIds.has(att.memberId)) continue;
-          await this.prisma.attendance.create({
-            data: {
-              eventId: retainId,
-              memberId: att.memberId,
-              checkInTime: att.checkInTime,
-              method: att.method,
-            },
-          });
-          retainedMemberIds.add(att.memberId);
-          attendancesMerged++;
-        }
+        // Bulk-merge check-ins using a single INSERT..SELECT with ON CONFLICT DO NOTHING
+        // Attendance has @@unique([memberId, eventId]) so duplicates won't be created.
+        const inserted = await this.prisma.$executeRaw`
+          INSERT INTO "Attendance" ("id", "memberId", "eventId", "checkInTime", "method", "createdAt")
+          SELECT gen_random_uuid(), a."memberId", ${retainId}, a."checkInTime", a."method", now()
+          FROM "Attendance" a
+          WHERE a."eventId" = ${duplicateId}
+          ON CONFLICT ("memberId", "eventId") DO NOTHING
+        `;
+        // $executeRaw returns number of affected rows for INSERT in Postgres
+        attendancesMerged += Number(inserted || 0);
 
         await this.prisma.attendance.deleteMany({ where: { eventId: duplicateId } });
         await this.remove(duplicateId, userId);
