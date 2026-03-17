@@ -39,8 +39,8 @@ export function getApiBaseUrl(): string {
     // If we're on Vercel (vercel.app) or custom domain, use environment variable
     // For Railway backend, we need to set NEXT_PUBLIC_API_BASE_URL
     if (hostname.includes('.vercel.app') || hostname.includes('BLDCebu.com') || hostname.includes('app.BLDCebu.com')) {
-      // Environment variable should be set for these domains
-      // Fallback handled by environment variable check at top
+      // If env vars are missing/misconfigured, fall back to same-origin and rely on the /api/v1 proxy route.
+      return window.location.origin;
     }
     
     // If we're on Firebase Hosting (web.app), we need to get backend from env or use a known URL
