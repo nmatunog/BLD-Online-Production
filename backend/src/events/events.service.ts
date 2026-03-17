@@ -982,7 +982,13 @@ export class EventsService implements OnModuleInit {
           e."createdById",
           regexp_replace(lower(btrim(e.title)), '\\s+', ' ', 'g') AS norm_title,
           (e."startDate")::date AS day_utc,
-          coalesce(nullif(regexp_replace(lower(btrim(coalesce(e.ministry, ''))), '\\s+', ' ', 'g'), ''), ''), 'community') AS norm_ministry,
+          coalesce(
+            nullif(
+              regexp_replace(lower(btrim(coalesce(e.ministry, ''))), '\\s+', ' ', 'g'),
+              ''
+            ),
+            'community'
+          ) AS norm_ministry,
           coalesce(e."startTime", '') AS norm_start_time
         FROM "Event" e
         WHERE e."isRecurring" = true
