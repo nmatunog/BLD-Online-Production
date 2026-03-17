@@ -128,9 +128,28 @@ export default function MembersPage() {
     dateOfEncounter: '',
   });
 
-  const PAGE_SIZE = 50;
+  const getPageSize = (width: number): number => {
+    // Mobile-first defaults; table rows are relatively heavy (selects/buttons), so keep pages smaller on phones.
+    if (width < 640) return 25; // phones
+    if (width < 1024) return 40; // tablets / small laptops
+    return 60; // desktop
+  };
+
+  const [pageSize, setPageSize] = useState<number>(50);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const loadMembersRequestIdRef = useRef(0);
+
+  // Responsive page size (auto-pick per device / viewport)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const apply = () => {
+      const next = getPageSize(window.innerWidth);
+      setPageSize((prev) => (prev === next ? prev : next));
+    };
+    apply();
+    window.addEventListener('resize', apply);
+    return () => window.removeEventListener('resize', apply);
+  }, []);
 
   // Load user role and data (auth redirect handled by dashboard layout)
   useEffect(() => {
@@ -172,9 +191,9 @@ export default function MembersPage() {
       sortBy: 'name',
       sortOrder: 'asc',
       page: targetPage,
-      limit: PAGE_SIZE,
+      limit: pageSize,
     }),
-    [searchTerm, filterApostolate, filterMinistry, userRole, userMinistry, filterRole, filterStatus],
+    [searchTerm, filterApostolate, filterMinistry, userRole, userMinistry, filterRole, filterStatus, pageSize],
   );
 
   const loadMembersPage = useCallback(
@@ -198,7 +217,7 @@ export default function MembersPage() {
         const pagination = result.pagination;
 
         setTotalMembers(pagination?.total ?? list.length);
-        setHasMore(pagination ? pagination.page < pagination.totalPages : list.length === PAGE_SIZE);
+        setHasMore(pagination ? pagination.page < pagination.totalPages : list.length === pageSize);
         setPage(targetPage);
 
         setMembers((prev) => {
@@ -225,7 +244,7 @@ export default function MembersPage() {
         }
       }
     },
-    [PAGE_SIZE, buildQueryParams],
+    [buildQueryParams, pageSize],
   );
 
   const loadMembers = useCallback(() => {
@@ -234,6 +253,12 @@ export default function MembersPage() {
     setHasMore(true);
     void loadMembersPage(1, 'replace');
   }, [loadMembersPage]);
+
+  // If the device/viewport changes enough to change page size, restart pagination to keep "hasMore" correct.
+  useEffect(() => {
+    if (authLoading) return;
+    loadMembers();
+  }, [pageSize]);
 
   useEffect(() => {
     if (!authLoading) {
