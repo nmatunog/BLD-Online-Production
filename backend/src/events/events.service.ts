@@ -935,7 +935,13 @@ export class EventsService implements OnModuleInit {
   }
 
   /**
-   * Super User only: find potential duplicate events (same title, category, start date, time, location).
+   * Super User only: find potential duplicate events.
+   * Loosened matching rules:
+   * - same (normalized) title
+   * - same day (UTC date)
+   * - same startTime
+   * - same ministry OR both community-wide (ministry is null/empty)
+   * Venue/location differences are ignored.
    * Returns groups of events that look like duplicates for cleanup.
    */
   async findDuplicates() {
@@ -944,12 +950,11 @@ export class EventsService implements OnModuleInit {
       select: {
         id: true,
         title: true,
-        category: true,
         startDate: true,
         endDate: true,
         startTime: true,
         endTime: true,
-        location: true,
+        ministry: true,
         isRecurring: true,
         recurrenceTemplateId: true,
         createdAt: true,
@@ -957,8 +962,21 @@ export class EventsService implements OnModuleInit {
       },
     });
 
-    const key = (e: { title: string; category: string; startDate: Date; startTime?: string | null; location: string }) =>
-      `${e.title}|${e.category}|${e.startDate.toISOString().slice(0, 10)}|${e.startTime ?? ''}|${e.location}`;
+    const normalize = (s: string | null | undefined) =>
+      String(s ?? '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+
+    const dayKeyUTC = (d: Date) => d.toISOString().slice(0, 10);
+
+    const ministryKey = (m: string | null | undefined) => {
+      const n = normalize(m);
+      return n ? n : 'community';
+    };
+
+    const key = (e: { title: string; startDate: Date; startTime?: string | null; ministry?: string | null }) =>
+      `${normalize(e.title)}|${dayKeyUTC(e.startDate)}|${normalize(e.startTime)}|${ministryKey(e.ministry)}`;
 
     const byKey = new Map<string, typeof events>();
     for (const e of events) {
