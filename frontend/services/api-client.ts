@@ -6,6 +6,7 @@ import { getApiUrl } from '@/lib/runtime-config';
 
 class ApiClient {
   private client: AxiosInstance;
+  private refreshPromise: Promise<string | null> | null = null;
 
   constructor() {
     const apiBaseUrl = getApiUrl();
@@ -78,24 +79,79 @@ class ApiClient {
           }
         }
         
-        if (error.response?.status === 401) {
-          // Handle token refresh or redirect to login
-          // Don't redirect if we're already on the login page (to avoid clearing error messages)
-          if (typeof window !== 'undefined') {
-            const currentPath = window.location.pathname;
-            // Only redirect if not already on login/register pages
-            if (!currentPath.includes('/login') && !currentPath.includes('/register')) {
-              this.clearToken();
-              window.location.href = '/login';
-            } else {
-              // Just clear the token, don't redirect
-              this.clearToken();
+        if (error.response?.status === 401 && typeof window !== 'undefined') {
+          const originalConfig = error.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined;
+          const url = String(originalConfig?.url || '');
+
+          // Never try to refresh if we are already refreshing, or if this 401 came from auth endpoints.
+          const isAuthEndpoint =
+            url.includes('/auth/login') ||
+            url.includes('/auth/register') ||
+            url.includes('/auth/refresh') ||
+            url.includes('/auth/login-by-qr');
+
+          const currentPath = window.location.pathname;
+          const isOnAuthPage = currentPath.includes('/login') || currentPath.includes('/register') || currentPath.includes('/reset-password');
+
+          // Attempt one silent refresh + retry to avoid "random logouts" when access token expires.
+          if (!isAuthEndpoint && originalConfig && !originalConfig._retry) {
+            originalConfig._retry = true;
+            const refreshToken = localStorage.getItem('refreshToken');
+            if (refreshToken) {
+              try {
+                const newAccessToken = await this.refreshAccessToken(refreshToken);
+                if (newAccessToken) {
+                  originalConfig.headers = originalConfig.headers || {};
+                  (originalConfig.headers as any).Authorization = `Bearer ${newAccessToken}`;
+                  return this.client.request(originalConfig);
+                }
+              } catch {
+                // Fall through to logout below
+              }
             }
+          }
+
+          // If we can't refresh, clear tokens (and authData) and redirect to login (unless already there).
+          this.clearToken();
+          localStorage.removeItem('authData');
+          if (!isOnAuthPage) {
+            window.location.href = '/login';
           }
         }
         return Promise.reject(error);
       },
     );
+  }
+
+  private async refreshAccessToken(refreshToken: string): Promise<string | null> {
+    if (this.refreshPromise) return this.refreshPromise;
+
+    this.refreshPromise = (async () => {
+      try {
+        // Use a separate axios instance to avoid interceptor loops
+        const baseURL = getApiUrl();
+        const res = await axios.post(
+          `${baseURL}/auth/refresh`,
+          { refreshToken },
+          { headers: { 'Content-Type': 'application/json' }, timeout: 15000 },
+        );
+        const data = (res?.data as any)?.data;
+        const accessToken = typeof data?.accessToken === 'string' ? data.accessToken : null;
+        const nextRefresh = typeof data?.refreshToken === 'string' ? data.refreshToken : null;
+        if (accessToken) {
+          this.setToken(accessToken);
+          if (nextRefresh) this.setRefreshToken(nextRefresh);
+          return accessToken;
+        }
+        return null;
+      } catch {
+        return null;
+      } finally {
+        this.refreshPromise = null;
+      }
+    })();
+
+    return this.refreshPromise;
   }
 
   private getToken(): string | null {

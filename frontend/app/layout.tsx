@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/theme-provider";
 import RedirectToHttps from "@/components/RedirectToHttps";
+import IdleSessionWarning from "@/components/IdleSessionWarning";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -37,6 +38,7 @@ export default function RootLayout({
           enableSystem={false}
           storageKey="bld-theme"
         >
+          <IdleSessionWarning />
           {children}
           <Toaster />
         </ThemeProvider>
