@@ -163,7 +163,7 @@ const ChatbotSignUp = forwardRef<ChatbotSignUpHandle, ChatbotSignUpProps>(
       const loginData: { email?: string; phone?: string; password: string } = { password };
 
       if (identifier.includes('@')) {
-        loginData.email = identifier.trim();
+        loginData.email = identifier.trim().toLowerCase();
       } else {
         const normalizedPhone = normalizePhoneNumber(identifier);
         if (!normalizedPhone) {
@@ -355,7 +355,7 @@ const ChatbotSignUp = forwardRef<ChatbotSignUpHandle, ChatbotSignUpProps>(
   }
 
   return (
-    <div className="fixed inset-0 md:inset-auto md:bottom-4 md:right-4 md:top-auto z-50 flex items-center justify-center p-0 md:p-4 overflow-hidden">
+    <div className="fixed inset-0 md:inset-auto md:bottom-4 md:right-4 md:top-auto z-50 flex items-end md:items-center justify-center p-0 md:p-4 overflow-hidden">
       {/* Mobile: Full screen overlay with backdrop */}
       <div 
         className="fixed inset-0 bg-black/30 md:hidden"
@@ -366,7 +366,7 @@ const ChatbotSignUp = forwardRef<ChatbotSignUpHandle, ChatbotSignUpProps>(
       {/* Chat Container - Mobile: Full screen, Desktop: Fixed size with max-height */}
       <div
         ref={chatContainerRef}
-        className="bg-white rounded-none md:rounded-2xl shadow-2xl w-full h-full md:w-[500px] md:max-w-[90vw] md:h-[85vh] md:max-h-[700px] flex flex-col border-0 md:border-2 border-gray-300 relative overflow-hidden"
+        className="bg-white rounded-none md:rounded-2xl shadow-2xl w-full h-[100dvh] max-h-[100dvh] md:w-[500px] md:max-w-[90vw] md:h-[85vh] md:max-h-[700px] flex flex-col border-0 md:border-2 border-gray-300 relative overflow-hidden overscroll-contain"
       >
         {/* Header - Light mode, larger touch targets */}
         <div className="bg-blue-600 text-white px-6 py-5 md:px-4 md:py-4 rounded-t-none md:rounded-t-lg flex justify-between items-center">
@@ -404,7 +404,7 @@ const ChatbotSignUp = forwardRef<ChatbotSignUpHandle, ChatbotSignUpProps>(
         )}
 
         {/* Messages - Larger padding, better spacing */}
-        <div className="flex-1 overflow-y-auto px-4 md:px-4 py-4 md:py-4 space-y-4 md:space-y-2 bg-white min-h-0">
+        <div className="flex-1 overflow-y-auto px-4 md:px-4 py-4 md:py-4 space-y-4 md:space-y-2 bg-white min-h-0 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {mode === 'welcome' ? (
             <div className="space-y-4">
               {messages.map((msg, idx) => (

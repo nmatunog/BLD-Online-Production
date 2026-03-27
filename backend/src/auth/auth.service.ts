@@ -202,8 +202,16 @@ export class AuthService {
     }
     const where =
       orConditions.length === 1
-        ? orConditions[0]
-        : { OR: orConditions };
+        ? (emailLookup
+            ? { email: { equals: emailLookup, mode: 'insensitive' as const } }
+            : orConditions[0])
+        : {
+            OR: orConditions.map((cond) =>
+              cond.email
+                ? { email: { equals: cond.email, mode: 'insensitive' as const } }
+                : cond,
+            ),
+          };
 
     const user = await this.prisma.user.findFirst({
       where,
@@ -338,23 +346,42 @@ export class AuthService {
   async requestPasswordReset(
     requestDto: RequestPasswordResetDto,
   ): Promise<{ message: string; resetLink?: string }> {
-    if (!requestDto.email && !requestDto.phone) {
-      throw new BadRequestException('Either email or phone is required');
+    const normalizedPhone = normalizePhoneNumber(requestDto.phone);
+    if (!normalizedPhone) {
+      throw new BadRequestException('Invalid mobile number');
     }
 
-    const user = await this.prisma.user.findFirst({
+    const normalizedLastName = requestDto.lastName.trim().toLowerCase();
+    const normalizedDob = this.normalizeDateOfBirth(requestDto.dateOfBirth);
+
+    // Verify identity using required fields:
+    // last name + phone + date of birth
+    const member = await this.prisma.member.findFirst({
       where: {
-        OR: [
-          requestDto.email ? { email: requestDto.email } : {},
-          requestDto.phone ? { phone: requestDto.phone } : {},
-        ],
+        lastName: { equals: normalizedLastName, mode: 'insensitive' },
+        dateOfBirth: {
+          in: [
+            normalizedDob.iso,
+            normalizedDob.input, // keep compatibility if old data was stored in mm/dd/yyyy
+          ],
+        },
+        user: {
+          phone: {
+            in: [normalizedPhone, requestDto.phone.trim()],
+          },
+        },
       },
+      include: { user: true },
     });
 
-    if (!user) {
+    if (!member?.user) {
       // Don't reveal if user exists for security
-      return { message: 'If the account exists, a password reset link has been sent' };
+      return {
+        message:
+          'If the account exists and details match, a password reset link has been sent',
+      };
     }
+    const user = member.user;
 
     // Generate reset token
     const resetToken = this.jwtService.sign(
@@ -371,13 +398,13 @@ export class AuthService {
     // Send email/SMS with reset token
     try {
       // Get user's name for email personalization
-      const member = await this.prisma.member.findUnique({
+      const memberProfile = await this.prisma.member.findUnique({
         where: { userId: user.id },
         select: { firstName: true, lastName: true, nickname: true },
       });
 
-      const userName = member
-        ? member.nickname || `${member.firstName} ${member.lastName}`
+      const userName = memberProfile
+        ? memberProfile.nickname || `${memberProfile.firstName} ${memberProfile.lastName}`
         : 'User';
 
       // Send email if available
@@ -419,7 +446,10 @@ export class AuthService {
       }
     }
 
-    return { message: 'If the account exists, a password reset link has been sent' };
+    return {
+      message:
+        'If the account exists and details match, a password reset link has been sent',
+    };
   }
 
   async resetPassword(resetDto: ResetPasswordDto): Promise<{ message: string }> {
@@ -592,6 +622,29 @@ export class AuthService {
     
     // Combine: CITY-ENCOUNTERTYPE + CLASS (2 digits) + SEQUENCE (2 digits)
     return `${cityCode}-${encounterCode}${formattedClassNumber}${formattedSequence}`;
+  }
+
+  private normalizeDateOfBirth(dateOfBirth: string): { input: string; iso: string } {
+    const input = dateOfBirth.trim();
+    const match = input.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!match) {
+      throw new BadRequestException('Date of birth must be in mm/dd/yyyy format');
+    }
+    const month = Number(match[1]);
+    const day = Number(match[2]);
+    const year = Number(match[3]);
+    const dt = new Date(year, month - 1, day);
+    if (
+      dt.getFullYear() !== year ||
+      dt.getMonth() !== month - 1 ||
+      dt.getDate() !== day
+    ) {
+      throw new BadRequestException('Invalid date of birth');
+    }
+    const iso = `${year.toString().padStart(4, '0')}-${month
+      .toString()
+      .padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
+    return { input, iso };
   }
 }
 

@@ -1,13 +1,20 @@
-import { IsEmail, IsString, IsOptional, MinLength, IsNotEmpty } from 'class-validator';
+import { IsString, Matches, MinLength, IsNotEmpty } from 'class-validator';
 
 export class RequestPasswordResetDto {
-  @IsEmail()
-  @IsOptional()
-  email?: string;
+  @IsString()
+  @IsNotEmpty()
+  lastName!: string;
 
   @IsString()
-  @IsOptional()
-  phone?: string;
+  @IsNotEmpty()
+  phone!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/\d{4}$/, {
+    message: 'dateOfBirth must be in mm/dd/yyyy format',
+  })
+  dateOfBirth!: string;
 }
 
 export class ResetPasswordDto {

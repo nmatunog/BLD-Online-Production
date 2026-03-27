@@ -52,8 +52,9 @@ export interface RefreshTokenRequest {
 }
 
 export interface RequestPasswordResetRequest {
-  email?: string;
-  phone?: string;
+  lastName: string;
+  phone: string;
+  dateOfBirth: string; // mm/dd/yyyy
 }
 
 export interface ResetPasswordRequest {

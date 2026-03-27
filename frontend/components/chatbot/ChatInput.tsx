@@ -50,7 +50,10 @@ export default function ChatInput({ onSend, disabled = false, placeholder = 'Typ
   };
 
   return (
-    <form onSubmit={handleSubmit} className="border-t-2 border-gray-300 p-4 md:p-4 bg-white">
+    <form
+      onSubmit={handleSubmit}
+      className="border-t-2 border-gray-300 p-4 md:p-4 bg-white pb-[max(1rem,env(safe-area-inset-bottom))]"
+    >
       <div className="flex gap-3 md:gap-2 items-center">
         <Input
           ref={inputRef}

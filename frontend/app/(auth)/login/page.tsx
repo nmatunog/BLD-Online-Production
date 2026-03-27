@@ -164,7 +164,7 @@ export default function LoginPage() {
         toast.error('Invalid email', { description: 'Please enter a valid email address.' });
         return;
       }
-      loginData.email = identifier.trim();
+      loginData.email = identifier.trim().toLowerCase();
     } else {
       const normalizedPhone = normalizePhoneNumber(identifier);
       if (!normalizedPhone) {

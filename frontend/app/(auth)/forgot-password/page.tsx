@@ -1,12 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import Link from 'next/link';
-import { Mail, Phone, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
+import { User, Phone, CalendarDays, ArrowLeft, ArrowRight, Loader2 } from 'lucide-react';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,25 +13,20 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { normalizePhoneNumber } from '@/utils/phone.util';
 
 const forgotPasswordSchema = z.object({
-  email: z.string().email().optional().or(z.literal('')),
-  phone: z.string().optional().or(z.literal('')),
-}).refine((data) => {
-  const hasEmail = data.email && data.email.trim().length > 0;
-  const hasPhone = data.phone && data.phone.trim().length > 0;
-  return hasEmail || hasPhone;
-}, {
-  message: 'Either email or phone is required',
-  path: ['email'],
+  lastName: z.string().min(2, 'Last name is required'),
+  phone: z.string().min(10, 'Mobile number is required'),
+  dateOfBirth: z
+    .string()
+    .regex(/^(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/\d{4}$/, 'Use mm/dd/yyyy format'),
 });
 
 type ForgotPasswordFormValues = z.infer<typeof forgotPasswordSchema>;
 
 export default function ForgotPasswordPage() {
-  const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
-  const [authMethod, setAuthMethod] = useState<'email' | 'phone'>('email');
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [resetLink, setResetLink] = useState<string | null>(null);
 
@@ -40,31 +34,31 @@ export default function ForgotPasswordPage() {
     register,
     handleSubmit,
     formState: { errors },
-    setValue,
-    watch,
   } = useForm<ForgotPasswordFormValues>({
     resolver: zodResolver(forgotPasswordSchema),
     defaultValues: {
-      email: '',
+      lastName: '',
       phone: '',
+      dateOfBirth: '',
     },
   });
-
-  const emailValue = watch('email');
-  const phoneValue = watch('phone');
 
   const onSubmit = async (data: ForgotPasswordFormValues) => {
     setIsLoading(true);
     try {
-      const requestData: { email?: string; phone?: string } = {};
-      
-      if (authMethod === 'email' && data.email) {
-        requestData.email = data.email.trim();
-      } else if (authMethod === 'phone' && data.phone) {
-        requestData.phone = data.phone.trim();
+      const normalizedPhone = normalizePhoneNumber(data.phone);
+      if (!normalizedPhone) {
+        toast.error('Invalid mobile number', {
+          description: 'Please enter a valid Philippine mobile number.',
+        });
+        return;
       }
 
-      const result = await authService.requestPasswordReset(requestData);
+      const result = await authService.requestPasswordReset({
+        lastName: data.lastName.trim(),
+        phone: normalizedPhone,
+        dateOfBirth: data.dateOfBirth.trim(),
+      });
       setIsSubmitted(true);
       
       // If reset link is provided (dev mode), store it
@@ -75,7 +69,7 @@ export default function ForgotPasswordPage() {
         });
       } else {
         toast.success('Password Reset Requested', {
-          description: 'If an account exists with that email or phone, a password reset link has been sent.',
+          description: 'If details match an account, a password reset link has been sent.',
         });
       }
     } catch (error: unknown) {
@@ -100,91 +94,59 @@ export default function ForgotPasswordPage() {
             Forgot Password
           </CardTitle>
           <CardDescription className="text-lg">
-            Enter your email or phone number to receive a password reset link
+            Verify your identity using last name, mobile number, and birth date
           </CardDescription>
         </CardHeader>
         <CardContent>
           {!isSubmitted ? (
             <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-              {/* Auth Method Toggle */}
-              <div className="flex gap-2 p-1 bg-gray-100 rounded-lg">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthMethod('email');
-                    setValue('phone', '');
-                  }}
-                  className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
-                    authMethod === 'email'
-                      ? 'bg-white text-purple-600 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  <Mail className="w-4 h-4 inline mr-2" />
-                  Email
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setAuthMethod('phone');
-                    setValue('email', '');
-                  }}
-                  className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all ${
-                    authMethod === 'phone'
-                      ? 'bg-white text-purple-600 shadow-sm'
-                      : 'text-gray-600 hover:text-gray-900'
-                  }`}
-                >
-                  <Phone className="w-4 h-4 inline mr-2" />
-                  Phone
-                </button>
+              <div className="space-y-2">
+                <Label htmlFor="lastName" className="text-base font-semibold">Last Name</Label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                  <Input
+                    id="lastName"
+                    type="text"
+                    placeholder="Your last name"
+                    className="pl-10 h-12 text-lg"
+                    {...register('lastName')}
+                    disabled={isLoading}
+                  />
+                </div>
+                {errors.lastName && <p className="text-sm text-red-600">{errors.lastName.message}</p>}
               </div>
 
-              {/* Email Input */}
-              {authMethod === 'email' && (
-                <div className="space-y-2">
-                  <Label htmlFor="email" className="text-base font-semibold">
-                    Email Address
-                  </Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="your.email@example.com"
-                      className="pl-10 h-12 text-lg"
-                      {...register('email')}
-                      disabled={isLoading}
-                    />
-                  </div>
-                  {errors.email && (
-                    <p className="text-sm text-red-600">{errors.email.message}</p>
-                  )}
+              <div className="space-y-2">
+                <Label htmlFor="phone" className="text-base font-semibold">Mobile Number</Label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                  <Input
+                    id="phone"
+                    type="tel"
+                    placeholder="09XXXXXXXXX"
+                    className="pl-10 h-12 text-lg"
+                    {...register('phone')}
+                    disabled={isLoading}
+                  />
                 </div>
-              )}
+                {errors.phone && <p className="text-sm text-red-600">{errors.phone.message}</p>}
+              </div>
 
-              {/* Phone Input */}
-              {authMethod === 'phone' && (
-                <div className="space-y-2">
-                  <Label htmlFor="phone" className="text-base font-semibold">
-                    Phone Number
-                  </Label>
-                  <div className="relative">
-                    <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                    <Input
-                      id="phone"
-                      type="tel"
-                      placeholder="09XX XXX XXXX"
-                      className="pl-10 h-12 text-lg"
-                      {...register('phone')}
-                      disabled={isLoading}
-                    />
-                  </div>
-                  {errors.phone && (
-                    <p className="text-sm text-red-600">{errors.phone.message}</p>
-                  )}
+              <div className="space-y-2">
+                <Label htmlFor="dateOfBirth" className="text-base font-semibold">Date of Birth (mm/dd/yyyy)</Label>
+                <div className="relative">
+                  <CalendarDays className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                  <Input
+                    id="dateOfBirth"
+                    type="text"
+                    placeholder="mm/dd/yyyy"
+                    className="pl-10 h-12 text-lg"
+                    {...register('dateOfBirth')}
+                    disabled={isLoading}
+                  />
                 </div>
-              )}
+                {errors.dateOfBirth && <p className="text-sm text-red-600">{errors.dateOfBirth.message}</p>}
+              </div>
 
               <Button
                 type="submit"
@@ -194,11 +156,11 @@ export default function ForgotPasswordPage() {
                 {isLoading ? (
                   <>
                     <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                    Sending...
+                    Verifying...
                   </>
                 ) : (
                   <>
-                    Send Reset Link
+                    Verify and Send Reset Link
                     <ArrowRight className="w-5 h-5 ml-2" />
                   </>
                 )}
@@ -217,11 +179,11 @@ export default function ForgotPasswordPage() {
           ) : (
             <div className="space-y-6 text-center">
               <div className="w-16 h-16 mx-auto bg-green-100 rounded-full flex items-center justify-center">
-                <Mail className="w-8 h-8 text-green-600" />
+                <CalendarDays className="w-8 h-8 text-green-600" />
               </div>
               <div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                  {resetLink ? 'Password Reset Link Generated' : `Check Your ${authMethod === 'email' ? 'Email' : 'Phone'}`}
+                  {resetLink ? 'Password Reset Link Generated' : 'Check your email or messages'}
                 </h3>
                 {resetLink ? (
                   <>
@@ -254,12 +216,10 @@ export default function ForgotPasswordPage() {
                 ) : (
                   <>
                     <p className="text-gray-600">
-                      If an account exists with that {authMethod === 'email' ? 'email' : 'phone number'}, 
-                      a password reset link has been sent.
+                      If details match an account, a password reset link has been sent.
                     </p>
                     <p className="text-sm text-gray-500 mt-2">
-                      Please check your {authMethod === 'email' ? 'inbox' : 'messages'} and follow the instructions 
-                      to reset your password.
+                      Please check your inbox or messages and follow the instructions to reset your password.
                     </p>
                   </>
                 )}
@@ -276,8 +236,6 @@ export default function ForgotPasswordPage() {
                   onClick={() => {
                     setIsSubmitted(false);
                     setResetLink(null);
-                    setValue('email', '');
-                    setValue('phone', '');
                   }}
                   variant="outline"
                   className="w-full"
