@@ -19,6 +19,9 @@ export const validateName = (name: string): ValidationResult => {
 
 /** Inputs that map to Cebu (Community ID CEB) */
 const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
+const LOCATION_ALIASES: Record<string, string> = {
+  balambam: 'Balamban',
+};
 
 export const validateLocation = (location: string): ValidationResult => {
   if (!location || !location.trim()) {
@@ -30,6 +33,9 @@ export const validateLocation = (location: string): ValidationResult => {
 
   const raw = location.trim();
   const lower = raw.toLowerCase();
+  if (LOCATION_ALIASES[lower]) {
+    return { valid: true, normalized: LOCATION_ALIASES[lower] };
+  }
   // Normalize Cebu aliases to "Cebu" so Community ID is CEB-...
   if (CEBU_ALIASES.some((alias) => lower.includes(alias))) {
     return { valid: true, normalized: 'Cebu' };

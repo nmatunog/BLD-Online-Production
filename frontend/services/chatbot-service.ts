@@ -146,6 +146,9 @@ class ChatbotService {
       case 'collectingLocation':
         response = this.handleLocation(normalizedInput, extracted);
         break;
+      case 'collectingLocationOther':
+        response = this.handleLocationOther(normalizedInput);
+        break;
       case 'collectingEncounterNumber':
         response = this.handleEncounterNumber(normalizedInput, extracted);
         break;
@@ -401,7 +404,7 @@ class ChatbotService {
       this.state.step = 'collectingEncounterType';
       return {
         role: 'bot',
-        content: `No problem! I'll call you ${this.state.data.firstName}. What type of Encounter Weekend did you attend? (ME, SE, SPE, or YE)`,
+        content: `No problem! I'll call you ${this.state.data.firstName}.\n\nWhich Encounter Weekend did you attend? Tap a button below or type ME, SE, SPE, or YE.`,
         timestamp: new Date(),
       };
     }
@@ -433,7 +436,7 @@ class ChatbotService {
     this.state.step = 'collectingEncounterType';
     return {
       role: 'bot',
-      content: `Perfect, ${this.state.data.nickname}! What type of Encounter Weekend did you attend? (ME, SE, SPE, or YE)`,
+      content: `Perfect, ${this.state.data.nickname}!\n\nWhich Encounter Weekend did you attend? Tap a button below or type ME, SE, SPE, or YE.`,
       timestamp: new Date(),
     };
   }
@@ -464,7 +467,7 @@ class ChatbotService {
       this.state.step = 'collectingLocation';
       return {
         role: 'bot',
-        content: `Perfect, ${nickname}! You attended ${mappedType}. Which BLD District or location (Outreach/ DIP) did you have your ${mappedType}?\n\nYou can type one of: **Cebu**, **Balamban**, **Danao-Compostela**, **Dumaguete**, **Ormoc**, **Manila**, or **Others** (then specify). Talisay, Don Bosco, Holy Family, and Schoenstatt are counted as Cebu.`,
+        content: `Perfect, ${nickname}! You attended ${mappedType}.\n\nWhere was your Encounter held? Tap a button below or type the place (e.g. Cebu). Talisay, Don Bosco, Holy Family, and Schoenstatt count as Cebu.`,
         timestamp: new Date(),
       };
     }
@@ -488,13 +491,23 @@ class ChatbotService {
     this.state.step = 'collectingLocation';
     return {
       role: 'bot',
-      content: `Perfect, ${nickname}! You attended ${validation.normalized}. Which BLD District or location (Outreach/ DIP) did you have your ${validation.normalized}?\n\nYou can type one of: **Cebu**, **Balamban**, **Danao-Compostela**, **Dumaguete**, **Ormoc**, **Manila**, or **Others** (then specify). Talisay, Don Bosco, Holy Family, and Schoenstatt are counted as Cebu.`,
+      content: `Perfect, ${nickname}! You attended ${validation.normalized}.\n\nWhere was your Encounter held? Tap a button below or type the place. Talisay, Don Bosco, Holy Family, and Schoenstatt count as Cebu.`,
       timestamp: new Date(),
     };
   }
 
   private handleLocation(input: string, extracted: ReturnType<typeof extractInformation>): ChatMessage {
     const nickname = this.state.data.nickname || this.state.data.firstName || 'User';
+    const lowerInput = input.toLowerCase().trim();
+
+    if (lowerInput === 'others' || lowerInput === 'other') {
+      this.state.step = 'collectingLocationOther';
+      return {
+        role: 'bot',
+        content: `Please type the city or place where you attended (for example: Iloilo or Bacolod).`,
+        timestamp: new Date(),
+      };
+    }
 
     if (extracted.location) {
       this.state.data.location = extracted.location;
@@ -516,6 +529,43 @@ class ChatbotService {
     }
 
       this.state.data.location = validation.normalized ?? null;
+
+    if (this.shouldReturnToReview()) {
+      this.state.step = 'reviewingRegistration';
+      return this.getReviewSummary();
+    }
+
+    this.state.step = 'collectingEncounterNumber';
+    return {
+      role: 'bot',
+      content: `Excellent, ${nickname}! I have your location as ${this.state.data.location}. What's your encounter class number? (e.g., 30, 1801)`,
+      timestamp: new Date(),
+    };
+  }
+
+  private handleLocationOther(input: string): ChatMessage {
+    const nickname = this.state.data.nickname || this.state.data.firstName || 'User';
+    const raw = input.trim();
+    const lowerInput = raw.toLowerCase();
+
+    if (!raw || raw.length < 2 || lowerInput === 'others' || lowerInput === 'other') {
+      return {
+        role: 'bot',
+        content: `Please specify the encounter location (example: Iloilo, Bacolod, Cagayan de Oro).`,
+        timestamp: new Date(),
+      };
+    }
+
+    const validation = validateLocation(raw);
+    if (!validation.valid) {
+      return {
+        role: 'bot',
+        content: validation.error || 'Invalid location. Please try again.',
+        timestamp: new Date(),
+      };
+    }
+
+    this.state.data.location = validation.normalized ?? null;
 
     if (this.shouldReturnToReview()) {
       this.state.step = 'reviewingRegistration';
@@ -887,7 +937,7 @@ class ChatbotService {
       this.state.step = 'collectingEncounterType';
       return {
         role: 'bot',
-        content: `Let's update your Encounter information. What type of Encounter Weekend did you attend? (ME, SE, SPE, or YE)`,
+        content: `Let's update your Encounter information.\n\nWhich Encounter Weekend? Tap a button below or type ME, SE, SPE, or YE.`,
         timestamp: new Date(),
       };
     }
@@ -898,7 +948,7 @@ class ChatbotService {
       this.state.step = 'collectingLocation';
       return {
         role: 'bot',
-        content: `Which BLD District or location (Outreach/ DIP) did you have your ${this.state.data.encounterType}?\n\nYou can type one of: **Cebu**, **Balamban**, **Danao-Compostela**, **Dumaguete**, **Ormoc**, **Manila**, or **Others** (then specify). Talisay, Don Bosco, Holy Family, and Schoenstatt are counted as Cebu.`,
+        content: `Where was your ${this.state.data.encounterType} Encounter held? Tap a button below or type the place. Talisay, Don Bosco, Holy Family, and Schoenstatt count as Cebu.`,
         timestamp: new Date(),
       };
     }
@@ -972,6 +1022,10 @@ class ChatbotService {
       phone: this.state.data.phone || null,
       password: this.state.data.password || null,
     };
+  }
+
+  getCurrentStep(): string {
+    return this.state.step;
   }
 
   getProgress(): { completed: number; total: number; percentage: number } {

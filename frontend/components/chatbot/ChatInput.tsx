@@ -11,9 +11,17 @@ interface ChatInputProps {
   placeholder?: string;
   /** Pre-fill input (e.g. when editing a previous answer) */
   defaultValue?: string;
+  /** Extra bottom inset (px) for on-screen keyboard/toolbars on mobile */
+  bottomInset?: number;
 }
 
-export default function ChatInput({ onSend, disabled = false, placeholder = 'Type your message...', defaultValue }: ChatInputProps) {
+export default function ChatInput({
+  onSend,
+  disabled = false,
+  placeholder = 'Type your message...',
+  defaultValue,
+  bottomInset = 0,
+}: ChatInputProps) {
   const [input, setInput] = useState(defaultValue ?? '');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -53,6 +61,7 @@ export default function ChatInput({ onSend, disabled = false, placeholder = 'Typ
     <form
       onSubmit={handleSubmit}
       className="border-t-2 border-gray-300 p-4 md:p-4 bg-white pb-[max(1rem,env(safe-area-inset-bottom))]"
+      style={{ paddingBottom: `calc(max(1rem, env(safe-area-inset-bottom)) + ${Math.max(0, bottomInset)}px)` }}
     >
       <div className="flex gap-3 md:gap-2 items-center">
         <Input

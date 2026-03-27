@@ -15,6 +15,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { toast } from 'sonner';
 import ChatbotSignUp from '@/components/chatbot/ChatbotSignUp';
 import { parseAuthError } from '@/utils/error-handler';
+import { ENCOUNTER_TYPES } from '@/lib/member-constants';
+
+const ENCOUNTER_LOCATION_OPTIONS = [
+  'Cebu',
+  'Balamban',
+  'Danao-Compostela',
+  'Dumaguete',
+  'Ormoc',
+  'Manila',
+  'OTHERS',
+] as const;
 
 const registerSchema = z.object({
   email: z.string().email().optional().or(z.literal('')),
@@ -25,7 +36,8 @@ const registerSchema = z.object({
   lastName: z.string().min(1, 'Last name is required'),
   middleName: z.string().optional().or(z.literal('')),
   nickname: z.string().optional().or(z.literal('')),
-  city: z.string().min(1, 'City is required'),
+  city: z.string().min(1, 'Encounter location is required'),
+  cityOther: z.string().optional().or(z.literal('')),
   encounterType: z.string().min(1, 'Encounter type is required'),
   classNumber: z.string().min(1, 'Class number is required').regex(/^\d+$/, 'Class number must be numeric'),
 }).refine((data) => data.email || data.phone, {
@@ -34,6 +46,9 @@ const registerSchema = z.object({
 }).refine((data) => data.password === data.confirmPassword, {
   message: 'Passwords do not match',
   path: ['confirmPassword'],
+}).refine((data) => data.city !== 'OTHERS' || !!data.cityOther?.trim(), {
+  message: 'Please specify your encounter location',
+  path: ['cityOther'],
 });
 
 type RegisterFormValues = z.infer<typeof registerSchema>;
@@ -56,6 +71,7 @@ export default function RegisterPage() {
   const emailValue = watch('email');
   const phoneValue = watch('phone');
   const passwordValue = watch('password');
+  const cityValue = watch('city');
 
   const onSubmit = async (data: RegisterFormValues) => {
     setIsLoading(true);
@@ -68,7 +84,7 @@ export default function RegisterPage() {
         lastName: data.lastName,
         middleName: data.middleName || undefined,
         nickname: data.nickname || undefined,
-        city: data.city,
+        city: data.city === 'OTHERS' ? data.cityOther?.trim() || 'OTHERS' : data.city,
         encounterType: data.encounterType,
         classNumber: data.classNumber,
       });
@@ -358,56 +374,107 @@ export default function RegisterPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="space-y-2">
-              <Label htmlFor="city" className="text-base font-medium text-gray-800">
-                City *
-              </Label>
-              <Input
-                id="city"
-                placeholder="CEB"
-                className="py-3 text-lg"
-                {...register('city')}
-                disabled={isLoading}
-              />
-              {errors.city && (
-                <p className="text-sm text-red-600">{errors.city.message}</p>
-              )}
+          <div className="rounded-xl border border-purple-100 bg-purple-50/40 p-4 md:p-5 space-y-4">
+            <div>
+              <p className="text-base font-semibold text-purple-900">Encounter weekend details</p>
+              <p className="text-sm text-gray-600 mt-1 leading-relaxed">
+                Pick the same type of Encounter and place you attended. Use the number on your Encounter card (e.g. 18 or 30).
+                Talisay, Don Bosco, Holy Family, and Schoenstatt are counted as Cebu.
+              </p>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="encounterType" className="text-base font-medium text-gray-800">
-                Encounter Type *
-              </Label>
-              <Input
-                id="encounterType"
-                placeholder="ME, SE, SPE, YE"
-                className="py-3 text-lg"
-                {...register('encounterType')}
-                disabled={isLoading}
-              />
-              {errors.encounterType && (
-                <p className="text-sm text-red-600">{errors.encounterType.message}</p>
-              )}
-            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="space-y-2">
+                <Label htmlFor="encounterType" className="text-base font-medium text-gray-800">
+                  Encounter weekend *
+                </Label>
+                <select
+                  id="encounterType"
+                  className="w-full rounded-md border border-input bg-background px-3 py-3 text-lg ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  {...register('encounterType')}
+                  disabled={isLoading}
+                  defaultValue=""
+                >
+                  <option value="" disabled>
+                    Choose one
+                  </option>
+                  {ENCOUNTER_TYPES.map((type) => (
+                    <option key={type.value} value={type.value}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500">ME = Marriage, SE = Singles, SPE = Single Parents, YE = Youth</p>
+                {errors.encounterType && (
+                  <p className="text-sm text-red-600">{errors.encounterType.message}</p>
+                )}
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="classNumber" className="text-base font-medium text-gray-800">
-                Class Number *
-              </Label>
-              <Input
-                id="classNumber"
-                type="text"
-                placeholder="18"
-                className="py-3 text-lg"
-                {...register('classNumber')}
-                disabled={isLoading}
-              />
-              {errors.classNumber && (
-                <p className="text-sm text-red-600">{errors.classNumber.message}</p>
-              )}
+              <div className="space-y-2">
+                <Label htmlFor="city" className="text-base font-medium text-gray-800">
+                  Encounter location *
+                </Label>
+                <select
+                  id="city"
+                  className="w-full rounded-md border border-input bg-background px-3 py-3 text-lg ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  {...register('city')}
+                  disabled={isLoading}
+                  defaultValue=""
+                >
+                  <option value="" disabled>
+                    Choose one
+                  </option>
+                  {ENCOUNTER_LOCATION_OPTIONS.map((location) => (
+                    <option key={location} value={location}>
+                      {location === 'OTHERS' ? 'Others — specify below' : location}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500">Where was your Encounter held?</p>
+                {errors.city && (
+                  <p className="text-sm text-red-600">{errors.city.message}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="classNumber" className="text-base font-medium text-gray-800">
+                  Class number *
+                </Label>
+                <Input
+                  id="classNumber"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="e.g. 18 or 30"
+                  className="py-3 text-lg"
+                  {...register('classNumber')}
+                  disabled={isLoading}
+                />
+                <p className="text-xs text-gray-500">Numbers only, as on your Encounter record</p>
+                {errors.classNumber && (
+                  <p className="text-sm text-red-600">{errors.classNumber.message}</p>
+                )}
+              </div>
             </div>
           </div>
+
+          {cityValue === 'OTHERS' && (
+            <div className="space-y-2 rounded-xl border border-amber-100 bg-amber-50/50 p-4">
+              <Label htmlFor="cityOther" className="text-base font-medium text-gray-800">
+                Specify location *
+              </Label>
+              <Input
+                id="cityOther"
+                placeholder="e.g. Iloilo, Bacolod, Cagayan de Oro"
+                className="py-3 text-lg bg-white"
+                {...register('cityOther')}
+                disabled={isLoading}
+              />
+              <p className="text-xs text-gray-600">Type the city or area where you attended your Encounter.</p>
+              {errors.cityOther && (
+                <p className="text-sm text-red-600">{errors.cityOther.message}</p>
+              )}
+            </div>
+          )}
 
           <Button
             type="submit"

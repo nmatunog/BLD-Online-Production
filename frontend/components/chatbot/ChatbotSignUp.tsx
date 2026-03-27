@@ -14,6 +14,24 @@ import { normalizePhoneNumber } from '@/utils/phone.util';
 
 type ChatMode = 'welcome' | 'signup' | 'signin';
 
+/** Sent to chatbot; labels help non-technical users */
+const ENCOUNTER_WEEKEND_CHIPS = [
+  { value: 'ME', short: 'ME', hint: 'Marriage Encounter' },
+  { value: 'SE', short: 'SE', hint: 'Singles Encounter' },
+  { value: 'SPE', short: 'SPE', hint: 'Single Parents' },
+  { value: 'YE', short: 'YE', hint: 'Youth Encounter' },
+] as const;
+
+const ENCOUNTER_LOCATION_CHIPS = [
+  { value: 'Cebu', hint: 'includes Talisay area' },
+  { value: 'Balamban', hint: '' },
+  { value: 'Danao-Compostela', hint: '' },
+  { value: 'Dumaguete', hint: '' },
+  { value: 'Ormoc', hint: '' },
+  { value: 'Manila', hint: '' },
+  { value: 'Others', hint: 'Others — specify next' },
+] as const;
+
 export interface ChatbotSignUpHandle {
   open: (mode?: Exclude<ChatMode, 'welcome'>) => void;
   close: () => void;
@@ -37,6 +55,8 @@ const ChatbotSignUp = forwardRef<ChatbotSignUpHandle, ChatbotSignUpProps>(
   const [mode, setMode] = useState<ChatMode>('welcome');
   const [signinStep, setSigninStep] = useState<'askIdentifier' | 'askPassword' | 'complete'>('askIdentifier');
   const [signinData, setSigninData] = useState<{ identifier?: string; password?: string }>({});
+  const [mobileViewportHeight, setMobileViewportHeight] = useState<number | null>(null);
+  const [keyboardInset, setKeyboardInset] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
@@ -69,6 +89,56 @@ const ChatbotSignUp = forwardRef<ChatbotSignUpHandle, ChatbotSignUpProps>(
   useEffect(() => {
     scrollToBottom();
   }, [messages, isTyping]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!isOpen) return;
+
+    const isMobile = window.matchMedia('(max-width: 767px)').matches;
+    if (!isMobile) {
+      setMobileViewportHeight(null);
+      setKeyboardInset(0);
+      return;
+    }
+
+    const originalBodyOverflow = document.body.style.overflow;
+    const originalBodyPosition = document.body.style.position;
+    const originalBodyWidth = document.body.style.width;
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.width = '100%';
+
+    const updateViewportMetrics = () => {
+      const vv = window.visualViewport;
+      if (!vv) {
+        setMobileViewportHeight(window.innerHeight);
+        setKeyboardInset(0);
+        return;
+      }
+
+      const nextHeight = Math.round(vv.height);
+      // Keyboard + browser toolbar overlap from bottom
+      const overlap = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
+      setMobileViewportHeight(nextHeight);
+      setKeyboardInset(Math.min(Math.round(overlap), 220));
+    };
+
+    updateViewportMetrics();
+    window.addEventListener('resize', updateViewportMetrics);
+    window.visualViewport?.addEventListener('resize', updateViewportMetrics);
+    window.visualViewport?.addEventListener('scroll', updateViewportMetrics);
+
+    return () => {
+      window.removeEventListener('resize', updateViewportMetrics);
+      window.visualViewport?.removeEventListener('resize', updateViewportMetrics);
+      window.visualViewport?.removeEventListener('scroll', updateViewportMetrics);
+      document.body.style.overflow = originalBodyOverflow;
+      document.body.style.position = originalBodyPosition;
+      document.body.style.width = originalBodyWidth;
+      setKeyboardInset(0);
+      setMobileViewportHeight(null);
+    };
+  }, [isOpen]);
 
   const scrollToBottom = () => {
     if (messagesEndRef.current) {
@@ -337,6 +407,25 @@ const ChatbotSignUp = forwardRef<ChatbotSignUpHandle, ChatbotSignUpProps>(
   }), []);
 
   const progress = chatbotService.getProgress();
+  const currentStep = mode === 'signup' ? chatbotService.getCurrentStep() : '';
+
+  const signupInputPlaceholder =
+    mode === 'signin' && signinStep === 'askPassword'
+      ? 'Enter your password'
+      : currentStep === 'collectingEncounterType'
+        ? 'Or type ME, SE, SPE, or YE…'
+        : currentStep === 'collectingLocation'
+          ? 'Or type the place name…'
+          : currentStep === 'collectingLocationOther'
+            ? 'Type city or place (e.g. Iloilo)…'
+            : 'Type your message…';
+
+  const quickChips =
+    currentStep === 'collectingEncounterType'
+      ? ENCOUNTER_WEEKEND_CHIPS
+      : currentStep === 'collectingLocation'
+        ? ENCOUNTER_LOCATION_CHIPS
+        : null;
 
   if (!isOpen) {
     return (
@@ -367,6 +456,11 @@ const ChatbotSignUp = forwardRef<ChatbotSignUpHandle, ChatbotSignUpProps>(
       <div
         ref={chatContainerRef}
         className="bg-white rounded-none md:rounded-2xl shadow-2xl w-full h-[100dvh] max-h-[100dvh] md:w-[500px] md:max-w-[90vw] md:h-[85vh] md:max-h-[700px] flex flex-col border-0 md:border-2 border-gray-300 relative overflow-hidden overscroll-contain"
+        style={
+          mobileViewportHeight
+            ? { height: `${mobileViewportHeight}px`, maxHeight: `${mobileViewportHeight}px` }
+            : undefined
+        }
       >
         {/* Header - Light mode, larger touch targets */}
         <div className="bg-blue-600 text-white px-6 py-5 md:px-4 md:py-4 rounded-t-none md:rounded-t-lg flex justify-between items-center">
@@ -488,11 +582,59 @@ const ChatbotSignUp = forwardRef<ChatbotSignUpHandle, ChatbotSignUpProps>(
 
         {/* Input - Larger, more accessible */}
         {!registrationComplete && !authComplete && mode !== 'welcome' && (
-          <ChatInput
-            onSend={handleSendMessage}
-            disabled={isProcessing || registrationComplete || authComplete}
-            placeholder={mode === 'signin' && signinStep === 'askPassword' ? 'Enter your password' : 'Type your message...'}
-          />
+          <>
+            {quickChips && (
+              <div className="px-3 sm:px-4 pt-3 pb-2 border-t border-gray-200 bg-gradient-to-b from-slate-50 to-gray-50">
+                <p className="text-sm font-medium text-gray-800 mb-0.5">
+                  {currentStep === 'collectingEncounterType'
+                    ? 'Which Encounter Weekend did you attend?'
+                    : 'Where was your Encounter held?'}
+                </p>
+                <p className="text-xs text-gray-600 mb-3">
+                  Tap a button — or type your answer in the box below.
+                </p>
+                <div
+                  className={`grid gap-2 ${
+                    currentStep === 'collectingEncounterType' ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3'
+                  }`}
+                >
+                  {quickChips.map((chip) => (
+                    <Button
+                      key={chip.value}
+                      type="button"
+                      variant="outline"
+                      disabled={isProcessing}
+                      className={`h-auto min-h-[3rem] py-2 px-2 flex flex-col items-center justify-center gap-0.5 rounded-xl border-2 border-blue-200 bg-white text-center shadow-sm hover:bg-blue-50 hover:border-blue-400 active:scale-[0.98] transition-transform ${
+                        chip.value === 'Others' && currentStep === 'collectingLocation' ? 'col-span-2 sm:col-span-1' : ''
+                      }`}
+                      aria-label={[
+                        'short' in chip ? chip.short : chip.value,
+                        chip.hint,
+                      ]
+                        .filter(Boolean)
+                        .join('. ')}
+                      onClick={() => void handleSendMessage(chip.value)}
+                    >
+                      <span className="text-base font-bold text-blue-800 leading-tight">
+                        {'short' in chip ? chip.short : chip.value}
+                      </span>
+                      {chip.hint ? (
+                        <span className="text-[11px] leading-snug text-gray-600 font-normal">
+                          {chip.hint}
+                        </span>
+                      ) : null}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+            <ChatInput
+              onSend={handleSendMessage}
+              disabled={isProcessing || registrationComplete || authComplete}
+              placeholder={signupInputPlaceholder}
+              bottomInset={keyboardInset}
+            />
+          </>
         )}
       </div>
     </div>
