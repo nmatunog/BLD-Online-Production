@@ -11,10 +11,10 @@ export class RequestPasswordResetDto {
 
   @IsString()
   @IsNotEmpty()
-  @Matches(/^(0[1-9]|1[0-2])\/(0[1-9]|[12]\d|3[01])\/\d{4}$/, {
-    message: 'dateOfBirth must be in mm/dd/yyyy format',
+  @Matches(/^\d{1,3}$/, {
+    message: 'encounterNumber must be a number (e.g. 18 or 101)',
   })
-  dateOfBirth!: string;
+  encounterNumber!: string;
 }
 
 export class ResetPasswordDto {

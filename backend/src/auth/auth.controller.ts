@@ -1,9 +1,13 @@
 import {
   Controller,
   Post,
+  Get,
+  Delete,
+  Param,
   Body,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
@@ -18,6 +22,11 @@ import {
 import { AuthResult } from './interfaces/auth-result.interface';
 import { ApiResponse as ApiResponseDto } from '../common/interfaces/api-response.interface';
 import { Public } from './decorators/public.decorator';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RolesGuard } from './guards/roles.guard';
+import { Roles } from './decorators/roles.decorator';
+import { CurrentUser } from './decorators/current-user.decorator';
+import { UserRole } from '@prisma/client';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -113,11 +122,11 @@ export class AuthController {
   @ApiOperation({ summary: 'Request password reset' })
   @ApiResponse({
     status: 200,
-    description: 'Password reset email sent',
+    description: 'Identity verified for password reset',
   })
   async requestPasswordReset(
     @Body() requestDto: RequestPasswordResetDto,
-  ): Promise<ApiResponseDto<{ message: string }>> {
+  ): Promise<ApiResponseDto<{ message: string; resetToken?: string }>> {
     const result = await this.authService.requestPasswordReset(requestDto);
     return {
       success: true,
@@ -142,6 +151,36 @@ export class AuthController {
     @Body() resetDto: ResetPasswordDto,
   ): Promise<ApiResponseDto<{ message: string }>> {
     const result = await this.authService.resetPassword(resetDto);
+    return {
+      success: true,
+      data: result,
+      message: result.message,
+    };
+  }
+
+  @Get('admin/incomplete-signups')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @ApiOperation({ summary: 'Admin: list incomplete signups (orphan MEMBER users without member profile)' })
+  async getIncompleteSignups(): Promise<ApiResponseDto<unknown>> {
+    const data = await this.authService.getIncompleteSignups();
+    return {
+      success: true,
+      data,
+      message: 'Incomplete signups retrieved',
+    };
+  }
+
+  @Delete('admin/incomplete-signups/:userId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Admin: delete/reset an incomplete signup record' })
+  async deleteIncompleteSignup(
+    @Param('userId') userId: string,
+    @CurrentUser() _user: { id: string },
+  ): Promise<ApiResponseDto<{ message: string }>> {
+    const result = await this.authService.deleteIncompleteSignup(userId);
     return {
       success: true,
       data: result,

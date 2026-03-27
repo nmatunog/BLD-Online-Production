@@ -15,7 +15,6 @@ import { RequestPasswordResetDto, ResetPasswordDto } from './dto/reset-password.
 import { AuthResult } from './interfaces/auth-result.interface';
 import { UserRole } from '@prisma/client';
 import { normalizePhoneNumber } from '../common/utils/phone.util';
-import { EmailService } from '../common/services/email.service';
 
 /** Inputs that map to Cebu (Community ID starts with CEB) */
 const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
@@ -37,7 +36,6 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
-    private emailService: EmailService,
   ) {}
 
   async register(registerDto: RegisterDto): Promise<AuthResult> {
@@ -345,26 +343,24 @@ export class AuthService {
 
   async requestPasswordReset(
     requestDto: RequestPasswordResetDto,
-  ): Promise<{ message: string; resetLink?: string }> {
+  ): Promise<{ message: string; resetToken?: string }> {
     const normalizedPhone = normalizePhoneNumber(requestDto.phone);
     if (!normalizedPhone) {
       throw new BadRequestException('Invalid mobile number');
     }
 
     const normalizedLastName = requestDto.lastName.trim().toLowerCase();
-    const normalizedDob = this.normalizeDateOfBirth(requestDto.dateOfBirth);
+    const encounterNumber = parseInt(requestDto.encounterNumber.trim(), 10);
+    if (Number.isNaN(encounterNumber) || encounterNumber < 1 || encounterNumber > 999) {
+      throw new BadRequestException('Encounter number must be between 1 and 999');
+    }
 
     // Verify identity using required fields:
-    // last name + phone + date of birth
+    // last name + phone + encounter number
     const member = await this.prisma.member.findFirst({
       where: {
         lastName: { equals: normalizedLastName, mode: 'insensitive' },
-        dateOfBirth: {
-          in: [
-            normalizedDob.iso,
-            normalizedDob.input, // keep compatibility if old data was stored in mm/dd/yyyy
-          ],
-        },
+        classNumber: encounterNumber,
         user: {
           phone: {
             in: [normalizedPhone, requestDto.phone.trim()],
@@ -378,7 +374,7 @@ export class AuthService {
       // Don't reveal if user exists for security
       return {
         message:
-          'If the account exists and details match, a password reset link has been sent',
+          'If details match an account, password reset can continue',
       };
     }
     const user = member.user;
@@ -392,63 +388,9 @@ export class AuthService {
       },
     );
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    const resetLink = `${frontendUrl}/reset-password?token=${resetToken}`;
-
-    // Send email/SMS with reset token
-    try {
-      // Get user's name for email personalization
-      const memberProfile = await this.prisma.member.findUnique({
-        where: { userId: user.id },
-        select: { firstName: true, lastName: true, nickname: true },
-      });
-
-      const userName = memberProfile
-        ? memberProfile.nickname || `${memberProfile.firstName} ${memberProfile.lastName}`
-        : 'User';
-
-      // Send email if available
-      if (user.email) {
-        const result = await this.emailService.sendPasswordResetEmail(
-          user.email,
-          resetToken,
-          userName,
-        );
-        // If email wasn't sent (dev mode), return the reset link
-        if (!result.sent && result.resetLink) {
-          return { 
-            message: 'Password reset link generated (email not configured)', 
-            resetLink: result.resetLink 
-          };
-        }
-      }
-
-      // Send SMS if phone is available and email is not
-      if (!user.email && user.phone) {
-        const result = await this.emailService.sendPasswordResetSMS(user.phone, resetToken);
-        // If SMS wasn't sent (dev mode), return the reset link
-        if (!result.sent && result.resetLink) {
-          return { 
-            message: 'Password reset link generated (SMS not configured)', 
-            resetLink: result.resetLink 
-          };
-        }
-      }
-    } catch (error) {
-      // Log error but don't fail the request (security: don't reveal if user exists)
-      console.error('Error sending password reset notification:', error);
-      // In development, return the reset link if email/SMS failed
-      if (process.env.NODE_ENV !== 'production') {
-        return { 
-          message: 'Password reset link generated (notification failed)', 
-          resetLink 
-        };
-      }
-    }
-
     return {
-      message:
-        'If the account exists and details match, a password reset link has been sent',
+      message: 'Identity verified. You can now set a new password.',
+      resetToken,
     };
   }
 
@@ -624,27 +566,62 @@ export class AuthService {
     return `${cityCode}-${encounterCode}${formattedClassNumber}${formattedSequence}`;
   }
 
-  private normalizeDateOfBirth(dateOfBirth: string): { input: string; iso: string } {
-    const input = dateOfBirth.trim();
-    const match = input.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-    if (!match) {
-      throw new BadRequestException('Date of birth must be in mm/dd/yyyy format');
+  async getIncompleteSignups(limit = 100): Promise<Array<{
+    userId: string;
+    email: string | null;
+    phone: string | null;
+    role: UserRole;
+    createdAt: Date;
+    sessionsCount: number;
+  }>> {
+    const users = await this.prisma.user.findMany({
+      where: {
+        role: UserRole.MEMBER,
+        member: null,
+      },
+      select: {
+        id: true,
+        email: true,
+        phone: true,
+        role: true,
+        createdAt: true,
+        _count: { select: { sessions: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(Math.max(limit, 1), 500),
+    });
+
+    return users.map((u) => ({
+      userId: u.id,
+      email: u.email,
+      phone: u.phone,
+      role: u.role,
+      createdAt: u.createdAt,
+      sessionsCount: u._count.sessions,
+    }));
+  }
+
+  async deleteIncompleteSignup(userId: string): Promise<{ message: string }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { member: true },
+    });
+    if (!user) {
+      throw new UnauthorizedException('User not found');
     }
-    const month = Number(match[1]);
-    const day = Number(match[2]);
-    const year = Number(match[3]);
-    const dt = new Date(year, month - 1, day);
-    if (
-      dt.getFullYear() !== year ||
-      dt.getMonth() !== month - 1 ||
-      dt.getDate() !== day
-    ) {
-      throw new BadRequestException('Invalid date of birth');
+    if (user.member) {
+      throw new BadRequestException('This user already has a member profile and is not an incomplete signup.');
     }
-    const iso = `${year.toString().padStart(4, '0')}-${month
-      .toString()
-      .padStart(2, '0')}-${day.toString().padStart(2, '0')}`;
-    return { input, iso };
+    if (user.role !== UserRole.MEMBER) {
+      throw new BadRequestException('Only MEMBER orphan records can be deleted from incomplete signups.');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.session.deleteMany({ where: { userId } });
+      await tx.user.delete({ where: { id: userId } });
+    });
+
+    return { message: 'Incomplete signup record deleted.' };
   }
 }
 

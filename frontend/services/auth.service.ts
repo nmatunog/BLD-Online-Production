@@ -97,8 +97,8 @@ export class AuthService {
 
   async requestPasswordReset(
     data: RequestPasswordResetRequest,
-  ): Promise<{ message: string; resetLink?: string }> {
-    const response = await apiClient.post<ApiResponse<{ message: string; resetLink?: string }>>(
+  ): Promise<{ message: string; resetToken?: string }> {
+    const response = await apiClient.post<ApiResponse<{ message: string; resetToken?: string }>>(
       '/auth/password/reset/request',
       data,
     );
