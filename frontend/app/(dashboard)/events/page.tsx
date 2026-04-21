@@ -85,6 +85,8 @@ export default function EventsPage() {
   const [showDuplicatesDialog, setShowDuplicatesDialog] = useState(false);
   const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup[]>([]);
   const [duplicatesLoading, setDuplicatesLoading] = useState(false);
+  /** Set when the duplicates API fails (e.g. 401) so we do not show a false "none found" empty state */
+  const [duplicatesLoadError, setDuplicatesLoadError] = useState<string | null>(null);
   const [duplicateDeletingId, setDuplicateDeletingId] = useState<string | null>(null);
   const [correctAllLoading, setCorrectAllLoading] = useState(false);
   // Event categories from old system
@@ -323,16 +325,28 @@ export default function EventsPage() {
 
   const loadDuplicates = useCallback(async () => {
     setDuplicatesLoading(true);
+    setDuplicatesLoadError(null);
     try {
       const res = await eventsService.findDuplicates();
       if (res?.success && res.data?.groups) {
         setDuplicateGroups(res.data.groups);
+        setDuplicatesLoadError(null);
       } else {
         setDuplicateGroups([]);
+        setDuplicatesLoadError(
+          typeof res?.error === 'string' && res.error
+            ? res.error
+            : 'Could not load duplicate groups. Try Refresh or sign in again.',
+        );
       }
     } catch (e) {
-      toast.error('Failed to load duplicates', { description: e instanceof Error ? e.message : 'Unknown error' });
+      const unauthorized = isUnauthorizedError(e);
+      const description = unauthorized
+        ? 'Your session is missing or expired. Sign in again, then open Find duplicates.'
+        : getErrorMessage(e, 'Could not load duplicate groups.');
+      toast.error('Failed to load duplicates', { description });
       setDuplicateGroups([]);
+      setDuplicatesLoadError(description);
     } finally {
       setDuplicatesLoading(false);
     }
@@ -1407,6 +1421,17 @@ export default function EventsPage() {
               {duplicatesLoading ? (
                 <div className="p-8 flex items-center justify-center">
                   <Loader2 className="w-8 h-8 animate-spin text-orange-600" />
+                </div>
+              ) : duplicatesLoadError ? (
+                <div className="p-6 space-y-3">
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                    <p className="font-medium">Could not load duplicate data</p>
+                    <p className="mt-1 text-amber-900/90">{duplicatesLoadError}</p>
+                    <p className="mt-2 text-xs text-amber-800/80">
+                      If you see 401 errors in the browser console, the API rejected your session—sign out and sign back
+                      in, then refresh this page before using Find duplicates.
+                    </p>
+                  </div>
                 </div>
               ) : duplicateGroups.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">No duplicate groups found.</div>
