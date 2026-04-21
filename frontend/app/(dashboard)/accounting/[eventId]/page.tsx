@@ -20,13 +20,25 @@ import {
   ClipboardList,
   Info,
 } from 'lucide-react';
-import { accountingService, type EventAccount, type IncomeEntry, type ExpenseEntry, type AdjustmentEntry, type FinancialReport, type CashAdvance, type MonitoredDisbursement } from '@/services/accounting.service';
+import {
+  accountingService,
+  type EventAccount,
+  type IncomeEntry,
+  type ExpenseEntry,
+  type AdjustmentEntry,
+  type FinancialReport,
+  type CashAdvance,
+  type MonitoredDisbursement,
+  type CashReleaseType,
+} from '@/services/accounting.service';
+import { CASH_RELEASE_TYPES, CASH_RELEASE_TYPE_LABELS, labelCashReleaseType } from '@/lib/cash-release-types';
 import { eventsService, type Event } from '@/services/events.service';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
@@ -86,6 +98,7 @@ export default function EventAccountingPage() {
   const [caForm, setCaForm] = useState({
     amount: '',
     disbursedAt: '',
+    releaseType: 'CASH_ADVANCE' as CashReleaseType,
     payeeName: '',
     referenceNumber: '',
     notation: '',
@@ -103,6 +116,7 @@ export default function EventAccountingPage() {
   const [monitoredForm, setMonitoredForm] = useState({
     amount: '',
     disbursedAt: '',
+    releaseType: 'OTHER' as CashReleaseType,
     label: '',
     payeeName: '',
     referenceNumber: '',
@@ -459,6 +473,7 @@ export default function EventAccountingPage() {
       setCaForm({
         amount: String(ca.amount),
         disbursedAt: ca.disbursedAt.split('T')[0],
+        releaseType: (ca.releaseType as CashReleaseType) || 'CASH_ADVANCE',
         payeeName: ca.payeeName || '',
         referenceNumber: ca.referenceNumber || '',
         notation: ca.notation || '',
@@ -468,6 +483,7 @@ export default function EventAccountingPage() {
       setCaForm({
         amount: '',
         disbursedAt: new Date().toISOString().split('T')[0],
+        releaseType: 'CASH_ADVANCE',
         payeeName: '',
         referenceNumber: '',
         notation: '',
@@ -491,6 +507,7 @@ export default function EventAccountingPage() {
         await accountingService.updateCashAdvance(eventId, editingCa.id, {
           amount,
           disbursedAt: caForm.disbursedAt ? new Date(caForm.disbursedAt).toISOString() : undefined,
+          releaseType: caForm.releaseType,
           payeeName: caForm.payeeName.trim() || undefined,
           referenceNumber: caForm.referenceNumber.trim() || undefined,
           notation: caForm.notation.trim() || undefined,
@@ -500,6 +517,7 @@ export default function EventAccountingPage() {
         await accountingService.createCashAdvance(eventId, {
           amount,
           disbursedAt: caForm.disbursedAt ? new Date(caForm.disbursedAt).toISOString() : undefined,
+          releaseType: caForm.releaseType,
           payeeName: caForm.payeeName.trim() || undefined,
           referenceNumber: caForm.referenceNumber.trim() || undefined,
           notation: caForm.notation.trim() || undefined,
@@ -641,6 +659,7 @@ export default function EventAccountingPage() {
       setMonitoredForm({
         amount: String(row.amount),
         disbursedAt: row.disbursedAt.split('T')[0],
+        releaseType: (row.releaseType as CashReleaseType) || 'OTHER',
         label: row.label || '',
         payeeName: row.payeeName || '',
         referenceNumber: row.referenceNumber || '',
@@ -651,6 +670,7 @@ export default function EventAccountingPage() {
       setMonitoredForm({
         amount: '',
         disbursedAt: new Date().toISOString().split('T')[0],
+        releaseType: 'OTHER',
         label: '',
         payeeName: '',
         referenceNumber: '',
@@ -675,6 +695,7 @@ export default function EventAccountingPage() {
         await accountingService.updateMonitoredDisbursement(eventId, editingMonitored.id, {
           amount,
           disbursedAt: monitoredForm.disbursedAt ? new Date(monitoredForm.disbursedAt).toISOString() : undefined,
+          releaseType: monitoredForm.releaseType,
           label: monitoredForm.label.trim() || undefined,
           payeeName: monitoredForm.payeeName.trim() || undefined,
           referenceNumber: monitoredForm.referenceNumber.trim() || undefined,
@@ -685,6 +706,7 @@ export default function EventAccountingPage() {
         await accountingService.createMonitoredDisbursement(eventId, {
           amount,
           disbursedAt: monitoredForm.disbursedAt ? new Date(monitoredForm.disbursedAt).toISOString() : undefined,
+          releaseType: monitoredForm.releaseType,
           label: monitoredForm.label.trim() || undefined,
           payeeName: monitoredForm.payeeName.trim() || undefined,
           referenceNumber: monitoredForm.referenceNumber.trim() || undefined,
@@ -1440,6 +1462,7 @@ export default function EventAccountingPage() {
                   <TableHeader>
                     <TableRow className="bg-gray-50/80 hover:bg-gray-50/80">
                       <TableHead className="whitespace-nowrap">When</TableHead>
+                      <TableHead className="whitespace-nowrap">Type</TableHead>
                       <TableHead>Who / reference</TableHead>
                       <TableHead className="min-w-[140px]">Notes</TableHead>
                       <TableHead>Status</TableHead>
@@ -1451,6 +1474,7 @@ export default function EventAccountingPage() {
                     {account.cashAdvances.map((ca) => (
                       <TableRow key={ca.id} className="align-top">
                         <TableCell className="whitespace-nowrap text-sm">{formatDate(ca.disbursedAt)}</TableCell>
+                        <TableCell className="text-sm text-gray-800">{labelCashReleaseType(ca.releaseType)}</TableCell>
                         <TableCell>
                           <div className="font-medium text-gray-900">{ca.payeeName || '—'}</div>
                           <div className="text-xs text-gray-500">{ca.referenceNumber ? `Ref: ${ca.referenceNumber}` : 'No ref yet'}</div>
@@ -1538,6 +1562,7 @@ export default function EventAccountingPage() {
                   <TableHeader>
                     <TableRow className="bg-gray-50/80">
                       <TableHead>When</TableHead>
+                      <TableHead className="whitespace-nowrap">Type</TableHead>
                       <TableHead>What you call it</TableHead>
                       <TableHead>Who / reference</TableHead>
                       <TableHead>Notes</TableHead>
@@ -1549,6 +1574,7 @@ export default function EventAccountingPage() {
                     {account.monitoredDisbursements.map((m) => (
                       <TableRow key={m.id}>
                         <TableCell className="whitespace-nowrap">{formatDate(m.disbursedAt)}</TableCell>
+                        <TableCell className="text-sm">{labelCashReleaseType(m.releaseType)}</TableCell>
                         <TableCell className="font-medium">{m.label || '—'}</TableCell>
                         <TableCell>
                           <div>{m.payeeName || '—'}</div>
@@ -1586,7 +1612,11 @@ export default function EventAccountingPage() {
                 </p>
               </div>
               {!account.isClosed && (
-                <Button onClick={handleAddIncome} size="sm" className="shrink-0 bg-emerald-700 hover:bg-emerald-800">
+                <Button
+                  onClick={handleAddIncome}
+                  size="sm"
+                  className="shrink-0 border-0 bg-emerald-700 text-white hover:bg-emerald-800 hover:text-white"
+                >
                   <Plus className="w-4 h-4 mr-2" />
                   Add money in
                 </Button>
@@ -2268,6 +2298,25 @@ export default function EventAccountingPage() {
                 />
               </div>
               <div>
+                <Label htmlFor="ca-release-type">Release type</Label>
+                <Select
+                  value={caForm.releaseType}
+                  onValueChange={(v: string) => setCaForm({ ...caForm, releaseType: v as CashReleaseType })}
+                >
+                  <SelectTrigger id="ca-release-type" className="mt-1.5">
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CASH_RELEASE_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {CASH_RELEASE_TYPE_LABELS[t]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-xs text-gray-500">What this payout is for (cash advance, reimbursement, purchase, etc.).</p>
+              </div>
+              <div>
                 <Label htmlFor="ca-date">Date given</Label>
                 <Input
                   id="ca-date"
@@ -2509,6 +2558,24 @@ export default function EventAccountingPage() {
                   onChange={(e) => setMonitoredForm({ ...monitoredForm, amount: e.target.value })}
                   className="mt-1.5 tabular-nums"
                 />
+              </div>
+              <div>
+                <Label htmlFor="mon-release-type">Release type</Label>
+                <Select
+                  value={monitoredForm.releaseType}
+                  onValueChange={(v: string) => setMonitoredForm({ ...monitoredForm, releaseType: v as CashReleaseType })}
+                >
+                  <SelectTrigger id="mon-release-type" className="mt-1.5">
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CASH_RELEASE_TYPES.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {CASH_RELEASE_TYPE_LABELS[t]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <Label htmlFor="mon-date">Date</Label>

@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNumber, IsOptional, IsDateString, Min } from 'class-validator';
+import { IsString, IsNumber, IsOptional, IsDateString, Min, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
+import { CashReleaseType } from '@prisma/client';
 
 export class UpdateMonitoredDisbursementDto {
   @ApiProperty({ required: false })
@@ -34,4 +35,9 @@ export class UpdateMonitoredDisbursementDto {
   @IsOptional()
   @IsString()
   notation?: string;
+
+  @ApiProperty({ required: false, enum: CashReleaseType })
+  @IsOptional()
+  @IsEnum(CashReleaseType)
+  releaseType?: CashReleaseType;
 }

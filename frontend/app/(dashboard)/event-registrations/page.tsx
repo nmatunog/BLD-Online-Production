@@ -414,14 +414,14 @@ function EventRegistrationsContent() {
                 <div className="flex flex-wrap gap-3">
                   <Button
                     onClick={() => setShowMemberForm(true)}
-                    className="h-12 text-lg px-6 bg-green-600 hover:bg-green-700"
+                    className="h-12 border-0 text-lg px-6 bg-green-600 text-white hover:bg-green-700 hover:text-white"
                   >
                     <UserCheck className="w-5 h-5 mr-2" />
                     Register Member
                   </Button>
                   <Button
                     onClick={() => setShowNonMemberForm(true)}
-                    className="h-12 text-lg px-6 bg-blue-600 hover:bg-blue-700"
+                    className="h-12 border-0 text-lg px-6 bg-blue-600 text-white hover:bg-blue-700 hover:text-white"
                   >
                     <UserPlus className="w-5 h-5 mr-2" />
                     Register Non-Member
@@ -429,7 +429,7 @@ function EventRegistrationsContent() {
                   {isMarriageEncounter(event) && (
                     <Button
                       onClick={() => setShowCoupleForm(true)}
-                      className="h-12 text-lg px-6 bg-purple-600 hover:bg-purple-700"
+                      className="h-12 border-0 text-lg px-6 bg-purple-600 text-white hover:bg-purple-700 hover:text-white"
                     >
                       <Heart className="w-5 h-5 mr-2" />
                       Register Couple

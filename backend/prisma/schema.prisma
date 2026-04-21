@@ -284,6 +284,18 @@ enum CashAdvanceStatus {
   LIQUIDATED
 }
 
+/// How cash was released (for reporting and clarity).
+enum CashReleaseType {
+  CASH_ADVANCE
+  REIMBURSEMENT
+  PURCHASE
+  PETTY_CASH
+  SUPPLIES
+  HONORARIUM
+  TRANSPORT
+  OTHER
+}
+
 enum LiquidationStatus {
   DRAFT
   APPROVED
@@ -295,6 +307,7 @@ model CashAdvance {
   accountId       String
   amount          Decimal
   disbursedAt     DateTime @default(now())
+  releaseType     CashReleaseType @default(CASH_ADVANCE)
   payeeName       String?
   referenceNumber String?
   notation        String?  @db.Text
@@ -345,6 +358,7 @@ model MonitoredDisbursement {
   label           String?
   amount          Decimal
   disbursedAt     DateTime @default(now())
+  releaseType     CashReleaseType @default(OTHER)
   payeeName       String?
   referenceNumber String?
   notation        String?  @db.Text

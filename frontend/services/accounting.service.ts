@@ -59,11 +59,22 @@ export interface Liquidation {
   lines: LiquidationLine[];
 }
 
+export type CashReleaseType =
+  | 'CASH_ADVANCE'
+  | 'REIMBURSEMENT'
+  | 'PURCHASE'
+  | 'PETTY_CASH'
+  | 'SUPPLIES'
+  | 'HONORARIUM'
+  | 'TRANSPORT'
+  | 'OTHER';
+
 export interface CashAdvance {
   id: string;
   accountId: string;
   amount: number;
   disbursedAt: string;
+  releaseType: CashReleaseType;
   payeeName: string | null;
   referenceNumber: string | null;
   notation: string | null;
@@ -77,6 +88,7 @@ export interface MonitoredDisbursement {
   label: string | null;
   amount: number;
   disbursedAt: string;
+  releaseType: CashReleaseType;
   payeeName: string | null;
   referenceNumber: string | null;
   notation: string | null;
@@ -139,6 +151,7 @@ export interface CreateExpenseEntryRequest {
 export interface CreateCashAdvanceRequest {
   amount: number;
   disbursedAt?: string;
+  releaseType?: CashReleaseType;
   payeeName?: string;
   referenceNumber?: string;
   notation?: string;
@@ -147,6 +160,7 @@ export interface CreateCashAdvanceRequest {
 export interface UpdateCashAdvanceRequest {
   amount?: number;
   disbursedAt?: string;
+  releaseType?: CashReleaseType;
   payeeName?: string;
   referenceNumber?: string;
   notation?: string;
@@ -168,6 +182,7 @@ export interface SaveLiquidationRequest {
 export interface CreateMonitoredDisbursementRequest {
   amount: number;
   disbursedAt?: string;
+  releaseType?: CashReleaseType;
   label?: string;
   payeeName?: string;
   referenceNumber?: string;
@@ -177,6 +192,7 @@ export interface CreateMonitoredDisbursementRequest {
 export interface UpdateMonitoredDisbursementRequest {
   amount?: number;
   disbursedAt?: string;
+  releaseType?: CashReleaseType;
   label?: string;
   payeeName?: string;
   referenceNumber?: string;
@@ -478,6 +494,7 @@ export interface FinancialReport {
     id: string;
     amount: number;
     disbursedAt: string;
+    releaseType?: CashReleaseType;
     payeeName: string | null;
     referenceNumber: string | null;
     notation: string | null;
@@ -502,6 +519,7 @@ export interface FinancialReport {
     label: string | null;
     amount: number;
     disbursedAt: string;
+    releaseType?: CashReleaseType;
     payeeName: string | null;
     referenceNumber: string | null;
     notation: string | null;

@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
-import { CashAdvanceStatus, LiquidationStatus } from '@prisma/client';
+import { CashAdvanceStatus, CashReleaseType, LiquidationStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateIncomeEntryDto } from './dto/create-income-entry.dto';
 import { CreateExpenseEntryDto } from './dto/create-expense-entry.dto';
@@ -400,6 +400,7 @@ export class AccountingService {
         id: ca.id,
         amount: Number(ca.amount || 0),
         disbursedAt: ca.disbursedAt,
+        releaseType: ca.releaseType,
         payeeName: ca.payeeName,
         referenceNumber: ca.referenceNumber,
         notation: ca.notation,
@@ -426,6 +427,7 @@ export class AccountingService {
         label: m.label,
         amount: Number(m.amount || 0),
         disbursedAt: m.disbursedAt,
+        releaseType: m.releaseType,
         payeeName: m.payeeName,
         referenceNumber: m.referenceNumber,
         notation: m.notation,
@@ -649,6 +651,7 @@ export class AccountingService {
         accountId: account.id,
         amount: dto.amount as any,
         disbursedAt: dto.disbursedAt ? new Date(dto.disbursedAt) : undefined,
+        releaseType: dto.releaseType ?? CashReleaseType.CASH_ADVANCE,
         payeeName: dto.payeeName,
         referenceNumber: dto.referenceNumber,
         notation: dto.notation,
@@ -677,6 +680,7 @@ export class AccountingService {
       data: {
         ...(dto.amount !== undefined ? { amount: dto.amount as any } : {}),
         ...(dto.disbursedAt !== undefined ? { disbursedAt: new Date(dto.disbursedAt) } : {}),
+        ...(dto.releaseType !== undefined ? { releaseType: dto.releaseType } : {}),
         ...(dto.payeeName !== undefined ? { payeeName: dto.payeeName } : {}),
         ...(dto.referenceNumber !== undefined ? { referenceNumber: dto.referenceNumber } : {}),
         ...(dto.notation !== undefined ? { notation: dto.notation } : {}),
@@ -834,6 +838,7 @@ export class AccountingService {
         accountId: account.id,
         amount: dto.amount as any,
         disbursedAt: dto.disbursedAt ? new Date(dto.disbursedAt) : undefined,
+        releaseType: dto.releaseType ?? CashReleaseType.OTHER,
         label: dto.label,
         payeeName: dto.payeeName,
         referenceNumber: dto.referenceNumber,
@@ -862,6 +867,7 @@ export class AccountingService {
       data: {
         ...(dto.amount !== undefined ? { amount: dto.amount as any } : {}),
         ...(dto.disbursedAt !== undefined ? { disbursedAt: new Date(dto.disbursedAt) } : {}),
+        ...(dto.releaseType !== undefined ? { releaseType: dto.releaseType } : {}),
         ...(dto.label !== undefined ? { label: dto.label } : {}),
         ...(dto.payeeName !== undefined ? { payeeName: dto.payeeName } : {}),
         ...(dto.referenceNumber !== undefined ? { referenceNumber: dto.referenceNumber } : {}),
