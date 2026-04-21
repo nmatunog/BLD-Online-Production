@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Search, Calendar, Filter, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Clock, MapPin, Users, Loader2, MessageSquare, Sparkles, RefreshCw, CheckCircle, Globe, FolderOpen, UserPlus, UserCheck, Shield, List, History, Copy, Undo2 } from 'lucide-react';
+import { Search, Calendar, Filter, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Clock, MapPin, Users, Loader2, MessageSquare, Sparkles, RefreshCw, CheckCircle, Globe, FolderOpen, UserPlus, UserCheck, Shield, List, History, Copy, Undo2, ChevronDown } from 'lucide-react';
 import { eventsService, type Event, type EventQueryParams, type EventWithCreator, type EventAuditLogEntry, type DuplicateGroup } from '@/services/events.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,14 @@ import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 import { ThemeToggle } from '@/components/theme-toggle';
 import DashboardHeader from '@/components/layout/DashboardHeader';
@@ -1135,88 +1143,102 @@ export default function EventsPage() {
         </div>
 
         {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 space-y-4 sm:space-y-0">
-          <div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:justify-between sm:items-start mb-6">
+          <div className="min-w-0">
             <h2 className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-red-600 to-red-800 bg-clip-text text-transparent">
               Events Management
             </h2>
             <p className="text-sm text-gray-600 mt-1">Manage and organize your community events</p>
           </div>
-          <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-3">
-            {canCreate && (
-              <>
-                <Button 
-                  onClick={() => {
-                    setCreateMode('form');
-                    setShowCreateDialog(true);
-                  }}
-                  className="bg-gradient-to-r from-red-600 to-red-700 text-white px-5 py-2.5 rounded-lg hover:from-red-700 hover:to-red-800 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center space-x-2 text-sm md:text-base font-medium"
-                >
-                  <Plus className="w-5 h-5" />
-                  <span>Create Event</span>
-                </Button>
-                <Button 
-                  onClick={async () => {
-                    setLoading(true);
-                    await loadEvents();
-                    setLoading(false);
-                  }}
-                  disabled={loading}
-                  className="bg-white border-2 border-gray-300 text-gray-700 px-5 py-2.5 rounded-lg hover:border-gray-400 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow-md transform hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center space-x-2 text-sm md:text-base font-medium"
-                >
-                  <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-                  <span>Refresh</span>
-                </Button>
-                <Button 
-                  onClick={() => {
-                    setCreateMode('chatbot');
-                    setShowChatbot(true);
-                  }}
-                  className="bg-gradient-to-r from-red-600 to-red-700 text-white px-5 py-2.5 rounded-lg hover:from-red-700 hover:to-red-800 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 flex items-center justify-center space-x-2 text-sm md:text-base font-medium"
-                >
-                  <Sparkles className="w-5 h-5" />
-                  <span>AI Assistant</span>
-                </Button>
-                {userRole === 'SUPER_USER' && (
-                  <>
+          {canCreate && (
+            <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:max-w-none sm:shrink-0">
+              <Button
+                onClick={() => {
+                  setCreateMode('form');
+                  setShowCreateDialog(true);
+                }}
+                className="h-10 min-w-0 shrink-0 bg-gradient-to-r from-red-600 to-red-700 px-4 text-white shadow-sm hover:from-red-700 hover:to-red-800"
+              >
+                <Plus className="mr-2 h-4 w-4 shrink-0" />
+                <span className="truncate">Create Event</span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={async () => {
+                  setLoading(true);
+                  await loadEvents();
+                  setLoading(false);
+                }}
+                disabled={loading}
+                className="h-10 border-gray-300 bg-white text-gray-800 hover:bg-gray-50"
+              >
+                <RefreshCw className={`mr-2 h-4 w-4 shrink-0 ${loading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setCreateMode('chatbot');
+                  setShowChatbot(true);
+                }}
+                className="h-10 border-red-200 bg-white text-red-800 hover:bg-red-50"
+              >
+                <Sparkles className="mr-2 h-4 w-4 shrink-0" />
+                AI Assistant
+              </Button>
+              {userRole === 'SUPER_USER' && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
                     <Button
-                      onClick={() => {
+                      type="button"
+                      variant="outline"
+                      className="h-10 border-amber-300 bg-white text-amber-900 hover:bg-amber-50"
+                      title="Super User: cleanup, audit log, duplicates"
+                    >
+                      <Shield className="mr-2 h-4 w-4 shrink-0" />
+                      Super tools
+                      <ChevronDown className="ml-1 h-4 w-4 shrink-0 opacity-70" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                      Cleanup & audit
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={() => {
                         setShowSuperAllDialog(true);
                         loadSuperAllEvents();
                       }}
-                      variant="outline"
-                      className="border-amber-500 text-amber-700 hover:bg-amber-50 px-5 py-2.5 rounded-lg shadow-sm flex items-center justify-center space-x-2 text-sm md:text-base font-medium"
                     >
-                      <Shield className="w-5 h-5" />
-                      <span>View all events (cleanup)</span>
-                    </Button>
-                    <Button
-                      onClick={() => {
+                      <List className="mr-2 h-4 w-4" />
+                      All events
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => {
                         setShowAuditLogDialog(true);
                         loadAuditLog();
                       }}
-                      variant="outline"
-                      className="border-slate-500 text-slate-700 hover:bg-slate-50 px-5 py-2.5 rounded-lg shadow-sm flex items-center justify-center space-x-2 text-sm md:text-base font-medium"
                     >
-                      <History className="w-5 h-5" />
-                      <span>Event audit log</span>
-                    </Button>
-                    <Button
-                      onClick={() => {
+                      <History className="mr-2 h-4 w-4" />
+                      Audit log
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => {
                         setShowDuplicatesDialog(true);
                         loadDuplicates();
                       }}
-                      variant="outline"
-                      className="border-orange-500 text-orange-700 hover:bg-orange-50 px-5 py-2.5 rounded-lg shadow-sm flex items-center justify-center space-x-2 text-sm md:text-base font-medium"
                     >
-                      <Copy className="w-5 h-5" />
-                      <span>Find duplicates</span>
-                    </Button>
-                  </>
-                )}
-              </>
-            )}
-          </div>
+                      <Copy className="mr-2 h-4 w-4" />
+                      Find duplicates
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Super User: All events dialog */}
