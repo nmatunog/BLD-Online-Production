@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Search, Calendar, Filter, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Clock, MapPin, Users, Loader2, MessageSquare, Sparkles, RefreshCw, CheckCircle, Globe, FolderOpen, UserPlus, UserCheck, Shield, List, History, Copy, Undo2 } from 'lucide-react';
 import { eventsService, type Event, type EventQueryParams, type EventWithCreator, type EventAuditLogEntry, type DuplicateGroup } from '@/services/events.service';
-import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';

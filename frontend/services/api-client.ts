@@ -44,13 +44,21 @@ class ApiClient {
         return response;
       },
       async (error: AxiosError) => {
+        const reqUrl = String(error.config?.url || '');
+        // Wrong password / invalid credentials — expected; do not spam the console like a system failure
+        const isBenignAuth401 =
+          error.response?.status === 401 &&
+          (reqUrl.includes('/auth/login') ||
+            reqUrl.includes('/auth/register') ||
+            reqUrl.includes('/auth/login-by-qr'));
+
         // Enhanced error logging
         if (typeof window !== 'undefined') {
           if (error.code === 'ECONNREFUSED' || error.message === 'Network Error') {
             const currentApiUrl = getApiUrl();
             console.error('❌ Network Error: Cannot connect to backend at', currentApiUrl);
             console.error('💡 Make sure the backend server is running');
-          } else {
+          } else if (!isBenignAuth401) {
             console.error('❌ API Error:', error.config?.method?.toUpperCase(), error.config?.url, error.response?.status || error.message);
             
             // Log validation errors if available
@@ -90,6 +98,12 @@ class ApiClient {
             url.includes('/auth/refresh') ||
             url.includes('/auth/login-by-qr');
 
+          // Failed sign-in / sign-up (wrong password, etc.): do NOT wipe an existing session or redirect.
+          const isCredentialAttempt =
+            url.includes('/auth/login') ||
+            url.includes('/auth/register') ||
+            url.includes('/auth/login-by-qr');
+
           const currentPath = window.location.pathname;
           const isOnAuthPage = currentPath.includes('/login') || currentPath.includes('/register') || currentPath.includes('/reset-password');
 
@@ -111,11 +125,13 @@ class ApiClient {
             }
           }
 
-          // If we can't refresh, clear tokens (and authData) and redirect to login (unless already there).
-          this.clearToken();
-          localStorage.removeItem('authData');
-          if (!isOnAuthPage) {
-            window.location.href = '/login';
+          // Only clear session when a protected API call was unauthorized — not when login/register returned 401.
+          if (!isCredentialAttempt) {
+            this.clearToken();
+            localStorage.removeItem('authData');
+            if (!isOnAuthPage) {
+              window.location.href = '/login';
+            }
           }
         }
         return Promise.reject(error);
