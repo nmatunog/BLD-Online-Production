@@ -1,6 +1,14 @@
 import { apiClient } from './api-client';
 import { ApiResponse } from '@/types/api.types';
 
+function ensureBody<T>(response: { data?: ApiResponse<T> }): ApiResponse<T> {
+  const body = response?.data;
+  if (body == null) {
+    return { success: false, error: 'Empty response from server' };
+  }
+  return body;
+}
+
 export interface Attendance {
   id: string;
   memberId: string;
@@ -62,7 +70,7 @@ class AttendanceService {
           eventId: data.eventId,
         },
       );
-      return response.data;
+      return ensureBody(response);
     } else {
       const response = await apiClient.post<ApiResponse<Attendance>>(
         '/attendance/check-in',
@@ -72,7 +80,7 @@ class AttendanceService {
           method: data.method || 'MANUAL',
         },
       );
-      return response.data;
+      return ensureBody(response);
     }
   }
 
@@ -81,34 +89,34 @@ class AttendanceService {
       '/attendance',
       { params },
     );
-    return response.data;
+    return ensureBody(response);
   }
 
   async getByEvent(eventId: string): Promise<ApiResponse<Attendance[]>> {
     const response = await apiClient.get<ApiResponse<Attendance[]>>(`/attendance/event/${eventId}`);
-    return response.data;
+    return ensureBody(response);
   }
 
   async getByMember(memberId: string): Promise<ApiResponse<Attendance[]>> {
     const response = await apiClient.get<ApiResponse<Attendance[]>>(`/attendance/member/${memberId}`);
-    return response.data;
+    return ensureBody(response);
   }
 
   async getMe(): Promise<ApiResponse<Attendance[]>> {
     const response = await apiClient.get<ApiResponse<Attendance[]>>('/attendance/me');
-    return response.data;
+    return ensureBody(response);
   }
 
   async remove(id: string): Promise<ApiResponse<Attendance>> {
     const response = await apiClient.delete<ApiResponse<Attendance>>(`/attendance/${id}`);
-    return response.data;
+    return ensureBody(response);
   }
 
   async getEventStats(eventId: string): Promise<ApiResponse<{ total: number; qrCodeCount: number; manualCount: number }>> {
     const response = await apiClient.get<ApiResponse<{ total: number; qrCodeCount: number; manualCount: number }>>(
       `/attendance/event/${eventId}/stats`
     );
-    return response.data;
+    return ensureBody(response);
   }
 }
 

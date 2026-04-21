@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Patch,
   Delete,
   Body,
   Param,
@@ -17,6 +18,11 @@ import { CreateExpenseEntryDto } from './dto/create-expense-entry.dto';
 import { CreateAdjustmentEntryDto } from './dto/create-adjustment-entry.dto';
 import { UpdateIncomeEntryDto } from './dto/update-income-entry.dto';
 import { UpdateExpenseEntryDto } from './dto/update-expense-entry.dto';
+import { CreateCashAdvanceDto } from './dto/create-cash-advance.dto';
+import { UpdateCashAdvanceDto } from './dto/update-cash-advance.dto';
+import { SaveLiquidationLinesDto } from './dto/save-liquidation-lines.dto';
+import { CreateMonitoredDisbursementDto } from './dto/create-monitored-disbursement.dto';
+import { UpdateMonitoredDisbursementDto } from './dto/update-monitored-disbursement.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -258,6 +264,107 @@ export class AccountingController {
       data: report,
       message: 'Financial report generated successfully',
     };
+  }
+
+  @Post('events/:eventId/cash-advances')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @ApiOperation({ summary: 'Record cash advance (disbursement; not P&L until liquidation)' })
+  async createCashAdvance(
+    @Param('eventId') eventId: string,
+    @Body() dto: CreateCashAdvanceDto,
+  ): Promise<ApiResponseDto<unknown>> {
+    const data = await this.accountingService.createCashAdvance(eventId, dto);
+    return { success: true, data, message: 'Cash advance recorded' };
+  }
+
+  @Patch('events/:eventId/cash-advances/:cashAdvanceId')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @ApiOperation({ summary: 'Update cash advance (only while outstanding)' })
+  async updateCashAdvance(
+    @Param('eventId') eventId: string,
+    @Param('cashAdvanceId') cashAdvanceId: string,
+    @Body() dto: UpdateCashAdvanceDto,
+  ): Promise<ApiResponseDto<unknown>> {
+    const data = await this.accountingService.updateCashAdvance(eventId, cashAdvanceId, dto);
+    return { success: true, data, message: 'Cash advance updated' };
+  }
+
+  @Delete('events/:eventId/cash-advances/:cashAdvanceId')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete cash advance (only if not liquidated)' })
+  async deleteCashAdvance(
+    @Param('eventId') eventId: string,
+    @Param('cashAdvanceId') cashAdvanceId: string,
+  ): Promise<ApiResponseDto<unknown>> {
+    const data = await this.accountingService.deleteCashAdvance(eventId, cashAdvanceId);
+    return { success: true, data, message: 'Cash advance deleted' };
+  }
+
+  @Put('events/:eventId/cash-advances/:cashAdvanceId/liquidation')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @ApiOperation({ summary: 'Save liquidation draft (line items; posts expenses on approve)' })
+  async saveLiquidationDraft(
+    @Param('eventId') eventId: string,
+    @Param('cashAdvanceId') cashAdvanceId: string,
+    @Body() dto: SaveLiquidationLinesDto,
+  ): Promise<ApiResponseDto<unknown>> {
+    const data = await this.accountingService.saveLiquidationDraft(eventId, cashAdvanceId, dto);
+    return { success: true, data, message: 'Liquidation draft saved' };
+  }
+
+  @Post('events/:eventId/liquidations/:liquidationId/approve')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @ApiOperation({ summary: 'Approve liquidation — creates expense entries from lines' })
+  async approveLiquidation(
+    @Param('eventId') eventId: string,
+    @Param('liquidationId') liquidationId: string,
+  ): Promise<ApiResponseDto<unknown>> {
+    const data = await this.accountingService.approveLiquidation(eventId, liquidationId);
+    return { success: true, data, message: 'Liquidation approved; expenses posted' };
+  }
+
+  @Post('events/:eventId/monitored-disbursements')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @ApiOperation({ summary: 'Record other cash out for monitoring (not expense)' })
+  async createMonitoredDisbursement(
+    @Param('eventId') eventId: string,
+    @Body() dto: CreateMonitoredDisbursementDto,
+  ): Promise<ApiResponseDto<unknown>> {
+    const data = await this.accountingService.createMonitoredDisbursement(eventId, dto);
+    return { success: true, data, message: 'Monitored disbursement recorded' };
+  }
+
+  @Patch('events/:eventId/monitored-disbursements/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @ApiOperation({ summary: 'Update monitored disbursement' })
+  async updateMonitoredDisbursement(
+    @Param('eventId') eventId: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateMonitoredDisbursementDto,
+  ): Promise<ApiResponseDto<unknown>> {
+    const data = await this.accountingService.updateMonitoredDisbursement(eventId, id, dto);
+    return { success: true, data, message: 'Monitored disbursement updated' };
+  }
+
+  @Delete('events/:eventId/monitored-disbursements/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete monitored disbursement' })
+  async deleteMonitoredDisbursement(
+    @Param('eventId') eventId: string,
+    @Param('id') id: string,
+  ): Promise<ApiResponseDto<unknown>> {
+    const data = await this.accountingService.deleteMonitoredDisbursement(eventId, id);
+    return { success: true, data, message: 'Monitored disbursement deleted' };
   }
 }
 

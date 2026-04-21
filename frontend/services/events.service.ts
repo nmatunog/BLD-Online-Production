@@ -1,6 +1,15 @@
 import { apiClient } from './api-client';
 import { ApiResponse } from '@/types/api.types';
 
+/** Axios may omit `data` on some error/edge responses — never return undefined to callers. */
+function ensureBody<T>(response: { data?: ApiResponse<T> }): ApiResponse<T> {
+  const body = response?.data;
+  if (body == null) {
+    return { success: false, error: 'Empty response from server' };
+  }
+  return body;
+}
+
 export interface Event {
   id: string;
   title: string;
@@ -88,55 +97,55 @@ class EventsService {
     const response = await apiClient.get<ApiResponse<{ data: Event[]; pagination: unknown }>>('/events', {
       params,
     });
-    return response.data;
+    return ensureBody(response);
   }
 
   async getUpcoming(): Promise<ApiResponse<Event[]>> {
     const response = await apiClient.get<ApiResponse<Event[]>>('/events/upcoming');
-    return response.data;
+    return ensureBody(response);
   }
 
   async getById(id: string): Promise<ApiResponse<Event>> {
     const response = await apiClient.get<ApiResponse<Event>>(`/events/${id}`);
-    return response.data;
+    return ensureBody(response);
   }
 
   async create(data: CreateEventRequest): Promise<ApiResponse<Event>> {
     const response = await apiClient.post<ApiResponse<Event>>('/events', data, { timeout: 30000 });
-    return response.data;
+    return ensureBody(response);
   }
 
   async update(id: string, data: UpdateEventRequest): Promise<ApiResponse<Event>> {
     const response = await apiClient.put<ApiResponse<Event>>(`/events/${id}`, data);
-    return response.data;
+    return ensureBody(response);
   }
 
   async delete(id: string): Promise<ApiResponse<unknown>> {
     const response = await apiClient.delete<ApiResponse<unknown>>(`/events/${id}`);
-    return response.data;
+    return ensureBody(response);
   }
 
   async regenerateQRCode(id: string): Promise<ApiResponse<{ qrCodeUrl: string }>> {
     const response = await apiClient.post<ApiResponse<{ qrCodeUrl: string }>>(`/events/${id}/qr-code/regenerate`);
-    return response.data;
+    return ensureBody(response);
   }
 
   async updateStatuses(): Promise<ApiResponse<unknown>> {
     const response = await apiClient.post<ApiResponse<unknown>>('/events/status/update');
-    return response.data;
+    return ensureBody(response);
   }
 
   async cancel(id: string, cancellationReason?: string): Promise<ApiResponse<Event>> {
     const response = await apiClient.post<ApiResponse<Event>>(`/events/${id}/cancel`, {
       cancellationReason: cancellationReason || undefined,
     });
-    return response.data;
+    return ensureBody(response);
   }
 
   /** Super User only: get all events (recurring + non-recurring) with creator info */
   async getAllForSuperUser(): Promise<ApiResponse<{ data: EventWithCreator[] }>> {
     const response = await apiClient.get<ApiResponse<{ data: EventWithCreator[] }>>('/events/super/all');
-    return response.data;
+    return ensureBody(response);
   }
 
   /** Super User only: get event audit log */
@@ -144,7 +153,7 @@ class EventsService {
     const response = await apiClient.get<ApiResponse<EventAuditLogResponse>>('/events/super/audit-log', {
       params: { limit, offset },
     });
-    return response.data;
+    return ensureBody(response);
   }
 
   /** Super User only: revert an event deletion or edit */
@@ -152,13 +161,13 @@ class EventsService {
     const response = await apiClient.post<ApiResponse<{ success: boolean; message: string }>>(
       `/events/super/audit-log/${auditLogId}/revert`,
     );
-    return response.data;
+    return ensureBody(response);
   }
 
   /** Super User only: find duplicate events for cleanup */
   async findDuplicates(): Promise<ApiResponse<{ groups: DuplicateGroup[] }>> {
     const response = await apiClient.get<ApiResponse<{ groups: DuplicateGroup[] }>>('/events/super/duplicates');
-    return response.data;
+    return ensureBody(response);
   }
 
   /** Super User only: correct all duplicates – keep one per group, merge check-ins, remove the rest */
@@ -168,7 +177,7 @@ class EventsService {
     const response = await apiClient.post<
       ApiResponse<{ groupsProcessed: number; eventsRemoved: number; attendancesMerged: number }>
     >('/events/super/duplicates/correct-all', undefined, { timeout: 18000 * 1000 });
-    return response.data;
+    return ensureBody(response);
   }
 }
 

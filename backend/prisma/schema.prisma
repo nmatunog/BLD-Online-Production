@@ -272,9 +272,88 @@ model EventAccount {
   incomeEntries IncomeEntry[]
   expenseEntries ExpenseEntry[]
   adjustmentEntries AdjustmentEntry[]
+  cashAdvances CashAdvance[]
+  monitoredDisbursements MonitoredDisbursement[]
 
   @@index([eventId])
   @@index([isClosed])
+}
+
+enum CashAdvanceStatus {
+  OUTSTANDING
+  LIQUIDATED
+}
+
+enum LiquidationStatus {
+  DRAFT
+  APPROVED
+}
+
+/// Cash released for imprest; not P&L expense until liquidation is approved.
+model CashAdvance {
+  id              String   @id @default(uuid())
+  accountId       String
+  amount          Decimal
+  disbursedAt     DateTime @default(now())
+  payeeName       String?
+  referenceNumber String?
+  notation        String?  @db.Text
+  status          CashAdvanceStatus @default(OUTSTANDING)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  account      EventAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  liquidation  Liquidation?
+
+  @@index([accountId])
+}
+
+model Liquidation {
+  id              String   @id @default(uuid())
+  cashAdvanceId   String   @unique
+  status          LiquidationStatus @default(DRAFT)
+  notation        String?  @db.Text
+  approvedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  cashAdvance CashAdvance @relation(fields: [cashAdvanceId], references: [id], onDelete: Cascade)
+  lines       LiquidationLine[]
+
+  @@index([cashAdvanceId])
+}
+
+model LiquidationLine {
+  id               String   @id @default(uuid())
+  liquidationId    String
+  description      String
+  amount           Decimal
+  category         String?
+  orVoucherNumber  String?
+  paidAt           DateTime?
+
+  liquidation   Liquidation  @relation(fields: [liquidationId], references: [id], onDelete: Cascade)
+  expenseEntry  ExpenseEntry?
+
+  @@index([liquidationId])
+}
+
+/// Other cash outflows tracked for monitoring (not CA); does not post expenses.
+model MonitoredDisbursement {
+  id              String   @id @default(uuid())
+  accountId       String
+  label           String?
+  amount          Decimal
+  disbursedAt     DateTime @default(now())
+  payeeName       String?
+  referenceNumber String?
+  notation        String?  @db.Text
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  account EventAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId])
 }
 
 model IncomeEntry {
@@ -323,6 +402,8 @@ model ExpenseEntry {
   paidAt          DateTime @default(now())
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  liquidationLineId String?  @unique
+  liquidationLine   LiquidationLine? @relation(fields: [liquidationLineId], references: [id], onDelete: SetNull)
 
   account     EventAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 

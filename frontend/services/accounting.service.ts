@@ -37,6 +37,49 @@ export interface ExpenseEntry {
   paidAt: string;
   createdAt: string;
   updatedAt: string;
+  liquidationLineId?: string | null;
+}
+
+export interface LiquidationLine {
+  id: string;
+  liquidationId: string;
+  description: string;
+  amount: number;
+  category: string | null;
+  orVoucherNumber: string | null;
+  paidAt: string | null;
+}
+
+export interface Liquidation {
+  id: string;
+  cashAdvanceId: string;
+  status: 'DRAFT' | 'APPROVED';
+  notation: string | null;
+  approvedAt: string | null;
+  lines: LiquidationLine[];
+}
+
+export interface CashAdvance {
+  id: string;
+  accountId: string;
+  amount: number;
+  disbursedAt: string;
+  payeeName: string | null;
+  referenceNumber: string | null;
+  notation: string | null;
+  status: 'OUTSTANDING' | 'LIQUIDATED';
+  liquidation: Liquidation | null;
+}
+
+export interface MonitoredDisbursement {
+  id: string;
+  accountId: string;
+  label: string | null;
+  amount: number;
+  disbursedAt: string;
+  payeeName: string | null;
+  referenceNumber: string | null;
+  notation: string | null;
 }
 
 export interface EventAccount {
@@ -49,12 +92,21 @@ export interface EventAccount {
   incomeEntries: IncomeEntry[];
   expenseEntries: ExpenseEntry[];
   adjustmentEntries: AdjustmentEntry[];
+  cashAdvances?: CashAdvance[];
+  monitoredDisbursements?: MonitoredDisbursement[];
   summary: {
     totalIncome: number;
     totalExpenses: number;
+    totalAdjustments?: number;
     netBalance: number;
     incomeCount: number;
     expenseCount: number;
+    adjustmentCount?: number;
+    totalCashAdvanceDisbursed?: number;
+    totalMonitoredDisbursement?: number;
+    totalTrackedCashDisbursement?: number;
+    outstandingCashAdvanceCount?: number;
+    outstandingCashAdvanceAmount?: number;
   };
 }
 
@@ -82,6 +134,53 @@ export interface CreateExpenseEntryRequest {
   remarks?: string;
   orVoucherNumber?: string;
   paidAt?: string;
+}
+
+export interface CreateCashAdvanceRequest {
+  amount: number;
+  disbursedAt?: string;
+  payeeName?: string;
+  referenceNumber?: string;
+  notation?: string;
+}
+
+export interface UpdateCashAdvanceRequest {
+  amount?: number;
+  disbursedAt?: string;
+  payeeName?: string;
+  referenceNumber?: string;
+  notation?: string;
+}
+
+export interface LiquidationLineInput {
+  description: string;
+  amount: number;
+  category?: string;
+  orVoucherNumber?: string;
+  paidAt?: string;
+}
+
+export interface SaveLiquidationRequest {
+  notation?: string;
+  lines: LiquidationLineInput[];
+}
+
+export interface CreateMonitoredDisbursementRequest {
+  amount: number;
+  disbursedAt?: string;
+  label?: string;
+  payeeName?: string;
+  referenceNumber?: string;
+  notation?: string;
+}
+
+export interface UpdateMonitoredDisbursementRequest {
+  amount?: number;
+  disbursedAt?: string;
+  label?: string;
+  payeeName?: string;
+  referenceNumber?: string;
+  notation?: string;
 }
 
 export interface UpdateIncomeEntryRequest {
@@ -217,6 +316,94 @@ export class AccountingService {
     );
     return response.data;
   }
+
+  async createCashAdvance(
+    eventId: string,
+    data: CreateCashAdvanceRequest,
+  ): Promise<ApiResponse<CashAdvance>> {
+    const response = await apiClient.post<ApiResponse<CashAdvance>>(
+      `/accounting/events/${eventId}/cash-advances`,
+      data,
+    );
+    return response.data;
+  }
+
+  async updateCashAdvance(
+    eventId: string,
+    cashAdvanceId: string,
+    data: UpdateCashAdvanceRequest,
+  ): Promise<ApiResponse<CashAdvance>> {
+    const response = await apiClient.patch<ApiResponse<CashAdvance>>(
+      `/accounting/events/${eventId}/cash-advances/${cashAdvanceId}`,
+      data,
+    );
+    return response.data;
+  }
+
+  async deleteCashAdvance(
+    eventId: string,
+    cashAdvanceId: string,
+  ): Promise<ApiResponse<{ deleted: boolean }>> {
+    const response = await apiClient.delete<ApiResponse<{ deleted: boolean }>>(
+      `/accounting/events/${eventId}/cash-advances/${cashAdvanceId}`,
+    );
+    return response.data;
+  }
+
+  async saveLiquidationDraft(
+    eventId: string,
+    cashAdvanceId: string,
+    data: SaveLiquidationRequest,
+  ): Promise<ApiResponse<Liquidation>> {
+    const response = await apiClient.put<ApiResponse<Liquidation>>(
+      `/accounting/events/${eventId}/cash-advances/${cashAdvanceId}/liquidation`,
+      data,
+    );
+    return response.data;
+  }
+
+  async approveLiquidation(
+    eventId: string,
+    liquidationId: string,
+  ): Promise<ApiResponse<Liquidation>> {
+    const response = await apiClient.post<ApiResponse<Liquidation>>(
+      `/accounting/events/${eventId}/liquidations/${liquidationId}/approve`,
+    );
+    return response.data;
+  }
+
+  async createMonitoredDisbursement(
+    eventId: string,
+    data: CreateMonitoredDisbursementRequest,
+  ): Promise<ApiResponse<MonitoredDisbursement>> {
+    const response = await apiClient.post<ApiResponse<MonitoredDisbursement>>(
+      `/accounting/events/${eventId}/monitored-disbursements`,
+      data,
+    );
+    return response.data;
+  }
+
+  async updateMonitoredDisbursement(
+    eventId: string,
+    id: string,
+    data: UpdateMonitoredDisbursementRequest,
+  ): Promise<ApiResponse<MonitoredDisbursement>> {
+    const response = await apiClient.patch<ApiResponse<MonitoredDisbursement>>(
+      `/accounting/events/${eventId}/monitored-disbursements/${id}`,
+      data,
+    );
+    return response.data;
+  }
+
+  async deleteMonitoredDisbursement(
+    eventId: string,
+    id: string,
+  ): Promise<ApiResponse<{ deleted: boolean }>> {
+    const response = await apiClient.delete<ApiResponse<{ deleted: boolean }>>(
+      `/accounting/events/${eventId}/monitored-disbursements/${id}`,
+    );
+    return response.data;
+  }
 }
 
 export interface FinancialReport {
@@ -285,7 +472,47 @@ export interface FinancialReport {
     amount: number;
     remarks: string;
     orNumber: string;
+    fromLiquidation?: boolean;
   }>;
+  cashAdvances?: Array<{
+    id: string;
+    amount: number;
+    disbursedAt: string;
+    payeeName: string | null;
+    referenceNumber: string | null;
+    notation: string | null;
+    status: string;
+    liquidation: {
+      id: string;
+      status: string;
+      notation: string | null;
+      approvedAt: string | null;
+      lines: Array<{
+        id: string;
+        description: string;
+        amount: number;
+        category: string | null;
+        orVoucherNumber: string | null;
+        paidAt: string | null;
+      }>;
+    } | null;
+  }>;
+  monitoredDisbursements?: Array<{
+    id: string;
+    label: string | null;
+    amount: number;
+    disbursedAt: string;
+    payeeName: string | null;
+    referenceNumber: string | null;
+    notation: string | null;
+  }>;
+  cashMonitoringSummary?: {
+    totalCashAdvanceDisbursed: number;
+    totalMonitoredDisbursement: number;
+    totalTrackedCashDisbursement: number;
+    outstandingCashAdvanceCount: number;
+    outstandingCashAdvanceAmount: number;
+  };
   adjustmentEntries: Array<{
     date: string;
     description: string;

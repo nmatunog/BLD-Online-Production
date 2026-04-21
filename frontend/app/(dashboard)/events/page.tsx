@@ -29,6 +29,12 @@ import {
   isWithin7DaysOfEnd,
   isPastEventCategory,
 } from '@/lib/event-checkin-window';
+import { getErrorMessage } from '@/lib/get-error-message';
+
+function isUnauthorizedError(error: unknown): boolean {
+  const e = error as { response?: { status?: number } };
+  return e?.response?.status === 401;
+}
 
 export default function EventsPage() {
   const router = useRouter();
@@ -182,7 +188,7 @@ export default function EventsPage() {
       loadEvents();
       // Load current user's check-ins for "You are already Checked In" on cards
       attendanceService.getMe().then((res) => {
-        if (res.success && res.data && Array.isArray(res.data)) {
+        if (res?.success && res.data && Array.isArray(res.data)) {
           const ids: string[] = res.data
             .map((a: { eventId?: string; event?: { id: string } }) => a.eventId ?? a.event?.id)
             .filter((id): id is string => typeof id === 'string');
@@ -223,14 +229,22 @@ export default function EventsPage() {
       };
 
       const result = await eventsService.getAll(params);
-      if (result.success && result.data) {
+      if (result?.success && result.data) {
         setEvents(Array.isArray(result.data.data) ? result.data.data : []);
+      } else {
+        setEvents([]);
+        if (result && result.success === false) {
+          toast.error('Could not load events', {
+            description: result.error || result.message || 'Please try again.',
+          });
+        }
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to load events';
-      toast.error('Error Loading Events', {
-        description: errorMessage,
-      });
+    } catch (error: unknown) {
+      const description = isUnauthorizedError(error)
+        ? 'Your session expired or you were signed out. Please sign in again.'
+        : getErrorMessage(error, 'Failed to load events');
+      toast.error('Error loading events', { description });
+      setEvents([]);
     } finally {
       setLoading(false);
     }
@@ -248,7 +262,7 @@ export default function EventsPage() {
     setSuperAllLoading(true);
     try {
       const res = await eventsService.getAllForSuperUser();
-      if (res.success && res.data?.data) {
+      if (res?.success && res.data?.data) {
         setSuperAllEvents(Array.isArray(res.data.data) ? res.data.data : []);
       } else {
         setSuperAllEvents([]);
@@ -279,7 +293,7 @@ export default function EventsPage() {
     setAuditLogLoading(true);
     try {
       const res = await eventsService.getAuditLog(50, 0);
-      if (res.success && res.data) {
+      if (res?.success && res.data) {
         setAuditLogEntries(Array.isArray(res.data.data) ? res.data.data : []);
         setAuditLogTotal(res.data.total ?? 0);
       } else {
@@ -311,7 +325,7 @@ export default function EventsPage() {
     setDuplicatesLoading(true);
     try {
       const res = await eventsService.findDuplicates();
-      if (res.success && res.data?.groups) {
+      if (res?.success && res.data?.groups) {
         setDuplicateGroups(res.data.groups);
       } else {
         setDuplicateGroups([]);
@@ -350,7 +364,7 @@ export default function EventsPage() {
     setCorrectAllLoading(true);
     try {
       const res = await eventsService.correctAllDuplicates();
-      if (res.success && res.data) {
+      if (res?.success && res.data) {
         toast.success(
           res.message ??
             `Corrected: ${res.data.eventsRemoved} duplicate(s) removed, ${res.data.attendancesMerged} check-in(s) kept.`,
@@ -376,7 +390,7 @@ export default function EventsPage() {
         sortOrder: 'desc',
         limit: 30,
       });
-      const list = res.success && res.data?.data && Array.isArray(res.data.data) ? res.data.data : [];
+      const list = res?.success && res.data?.data && Array.isArray(res.data.data) ? res.data.data : [];
       const past = list.filter((e) => isPastEventCategory(e.category)).slice(0, 10);
       setPastEvents(past);
     } catch {
@@ -531,7 +545,7 @@ export default function EventsPage() {
         cancellationReason.trim() || undefined,
       );
 
-      if (result.success) {
+      if (result?.success) {
         toast.success('Event Cancelled', {
           description: 'The event has been cancelled successfully.',
         });
@@ -541,9 +555,10 @@ export default function EventsPage() {
         loadEvents();
       }
     } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to cancel event';
       toast.error('Error', {
-        description: errorMessage,
+        description: isUnauthorizedError(error)
+          ? 'Your session expired. Please sign in again.'
+          : getErrorMessage(error, 'Failed to cancel event'),
       });
     }
   };
@@ -990,7 +1005,7 @@ export default function EventsPage() {
       if (editingEvent) {
         // Update existing event
         const result = await eventsService.update(editingEvent.id, eventData);
-        if (result.success) {
+        if (result?.success) {
           toast.success('Event Updated', {
             description: 'The event has been updated successfully.',
           });
@@ -1002,7 +1017,7 @@ export default function EventsPage() {
       } else {
         // Create new event
         const result = await eventsService.create(eventData);
-        if (result.success) {
+        if (result?.success) {
           toast.success('Event Created', {
             description: 'The event has been created successfully.',
           });
@@ -1383,7 +1398,9 @@ export default function EventsPage() {
                 Duplicate events
               </DialogTitle>
               <DialogDescription>
-                Recurring events with the same title, category, date, time, and location. Keep one and remove the rest.
+                Shows recurring events that share the same normalized title, UTC day, start time, and ministry (or both
+                community-wide). Correct all keeps the earliest-created event in each group, merges check-ins onto it, and
+                deletes the duplicate rows.
               </DialogDescription>
             </DialogHeader>
             <div className="flex-1 overflow-auto border rounded-md">

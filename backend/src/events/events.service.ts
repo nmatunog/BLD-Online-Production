@@ -80,6 +80,9 @@ function eventToSnapshot(event: {
 
 @Injectable()
 export class EventsService implements OnModuleInit {
+  /** Coalesces concurrent generation for the same template (create + startup ensure can overlap). */
+  private readonly recurringGenerationInFlight = new Map<string, Promise<number>>();
+
   constructor(
     private prisma: PrismaService,
     private bunnyCDN: BunnyCDNService,
@@ -245,8 +248,26 @@ export class EventsService implements OnModuleInit {
   /**
    * Generate future occurrence rows for a recurring template.
    * Each occurrence is a copy of the template with that week's startDate/endDate and recurrenceTemplateId set.
+   * Concurrent calls for the same templateId share one run so find-then-create cannot race into duplicates.
    */
   async generateRecurringOccurrences(templateId: string, weeksAhead: number = RECURRING_OCCURRENCE_WEEKS_AHEAD): Promise<number> {
+    const existing = this.recurringGenerationInFlight.get(templateId);
+    if (existing) {
+      return existing;
+    }
+    const run = this.executeRecurringOccurrenceGeneration(templateId, weeksAhead).finally(() => {
+      if (this.recurringGenerationInFlight.get(templateId) === run) {
+        this.recurringGenerationInFlight.delete(templateId);
+      }
+    });
+    this.recurringGenerationInFlight.set(templateId, run);
+    return run;
+  }
+
+  private async executeRecurringOccurrenceGeneration(
+    templateId: string,
+    weeksAhead: number,
+  ): Promise<number> {
     const template = await this.prisma.event.findUnique({
       where: { id: templateId, isRecurring: true, recurrenceTemplateId: null },
     });
