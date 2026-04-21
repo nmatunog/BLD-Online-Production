@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Search, Users, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Loader2, RefreshCw, Download, Save } from 'lucide-react';
+import { Search, Users, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Loader2, RefreshCw, Download, Save, ChevronUp } from 'lucide-react';
 import { membersService, type Member, type MemberQueryParams, type UpdateMemberRequest } from '@/services/members.service';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
@@ -129,13 +129,14 @@ export default function MembersPage() {
   });
 
   const getPageSize = (width: number): number => {
-    // Mobile-first defaults; table rows are relatively heavy (selects/buttons), so keep pages smaller on phones.
-    if (width < 640) return 25; // phones
-    if (width < 1024) return 40; // tablets / small laptops
-    return 60; // desktop
+    // Slightly larger chunks reduce request churn while keeping table rendering snappy.
+    if (width < 640) return 35; // phones
+    if (width < 1024) return 55; // tablets / small laptops
+    return 80; // desktop
   };
 
-  const [pageSize, setPageSize] = useState<number>(50);
+  const [pageSize, setPageSize] = useState<number>(60);
+  const [showBackToTop, setShowBackToTop] = useState(false);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const loadMembersRequestIdRef = useRef(0);
 
@@ -284,12 +285,22 @@ export default function MembersPage() {
         if (!first?.isIntersecting) return;
         void loadMembersPage(page + 1, 'append');
       },
-      { root: null, rootMargin: '300px', threshold: 0.01 },
+      // Start loading earlier so users rarely hit the visible bottom before next rows arrive.
+      { root: null, rootMargin: '500px', threshold: 0.01 },
     );
 
     observer.observe(el);
     return () => observer.disconnect();
   }, [canAccess, hasMore, membersLoading, loadingMore, loadMembersPage, page]);
+
+  // Show a quick back-to-top shortcut on long scrolls.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onScroll = () => setShowBackToTop(window.scrollY > 700);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   // Ministry options: when apostolate selected, list ministries under that apostolate (coordinators first, then alphabetical)
   const ministryOptions = useMemo(() => {
@@ -1177,6 +1188,18 @@ export default function MembersPage() {
             )}
           </div>
         </div>
+        {showBackToTop && (
+          <Button
+            type="button"
+            size="icon"
+            className="fixed bottom-6 right-6 z-40 h-10 w-10 rounded-full bg-purple-600 text-white shadow-lg hover:bg-purple-700"
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            title="Back to top"
+            aria-label="Back to top"
+          >
+            <ChevronUp className="h-5 w-5" />
+          </Button>
+        )}
 
         {/* QR Code Modal */}
         {showQRCode && selectedMember && (
