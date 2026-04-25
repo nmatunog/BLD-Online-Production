@@ -206,7 +206,8 @@ class RegistrationsService {
       `/registrations/events/${eventId}/candidates/import-csv`,
       formData,
       {
-        params: { dryRun: Boolean(options?.dryRun) },
+        // Only send dryRun=true for preview; omit for real import (avoids ?dryRun=false → string "false" bugs).
+        ...(options?.dryRun ? { params: { dryRun: true } } : {}),
         headers: { 'Content-Type': 'multipart/form-data' },
       },
     );

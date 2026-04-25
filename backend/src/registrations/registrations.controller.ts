@@ -13,8 +13,10 @@ import {
   UploadedFile,
   UseInterceptors,
   BadRequestException,
+  ParseBoolPipe,
+  DefaultValuePipe,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { RegistrationsService } from './registrations.service';
 import { RegisterMemberDto } from './dto/register-member.dto';
 import { RegisterNonMemberDto } from './dto/register-non-member.dto';
@@ -24,7 +26,6 @@ import { UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 import { UpdateRoomAssignmentDto } from './dto/update-room-assignment.dto';
 import { RegistrationQueryDto } from './dto/registration-query.dto';
 import { ClaimEventCandidateDto } from './dto/claim-event-candidate.dto';
-import { ImportCandidatesQueryDto } from './dto/import-candidates-query.dto';
 import { EventCandidateQueryDto } from './dto/event-candidate-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -45,10 +46,16 @@ export class RegistrationsController {
   @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR, UserRole.CLASS_SHEPHERD)
   @UseInterceptors(FileInterceptor('file'))
   @ApiOperation({ summary: 'Import event candidates from CSV (supports dry run)' })
+  @ApiQuery({
+    name: 'dryRun',
+    required: false,
+    type: Boolean,
+    description: 'If true, validate only; do not write. Omit or false to import.',
+  })
   async importCandidatesCsv(
     @Param('eventId') eventId: string,
     @UploadedFile() file: any,
-    @Query() query: ImportCandidatesQueryDto,
+    @Query('dryRun', new DefaultValuePipe(false), ParseBoolPipe) dryRun: boolean,
   ): Promise<ApiResponseDto<unknown>> {
     if (!file) {
       throw new BadRequestException('CSV file is required (field name: file)');
@@ -56,12 +63,12 @@ export class RegistrationsController {
     const result = await this.registrationsService.importCandidatesFromCsv(
       eventId,
       file.buffer,
-      Boolean(query?.dryRun),
+      dryRun,
     );
     return {
       success: true,
       data: result,
-      message: query?.dryRun ? 'Candidate CSV validated (dry run)' : 'Candidate CSV imported successfully',
+      message: dryRun ? 'Candidate CSV validated (dry run)' : 'Candidate CSV imported successfully',
     };
   }
 
