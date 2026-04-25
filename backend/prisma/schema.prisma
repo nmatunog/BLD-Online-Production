@@ -46,6 +46,13 @@ enum PaymentStatus {
   CANCELLED
 }
 
+enum EventCandidateStatus {
+  IMPORTED
+  CLAIMED
+  REGISTERED
+  REJECTED
+}
+
 model User {
   id           String   @id @default(uuid())
   email        String?  @unique
@@ -121,6 +128,7 @@ model Member {
   user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   attendances     Attendance[]
   registrations   EventRegistration[]
+  claimedCandidates EventCandidate[]
 
   @@index([communityId])
   @@index([city])
@@ -169,6 +177,7 @@ model Event {
 
   attendances       Attendance[]
   registrations     EventRegistration[]
+  candidates        EventCandidate[]
   account           EventAccount?
   classShepherds    EventClassShepherd[]
 
@@ -252,12 +261,46 @@ model EventRegistration {
 
   member          Member?       @relation(fields: [memberId], references: [id], onDelete: SetNull)
   event           Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  candidateClaims EventCandidate[]
 
   @@index([eventId])
   @@index([memberId])
   @@index([registrationType])
   @@index([paymentStatus])
   @@index([coupleRegistrationId])
+}
+
+model EventCandidate {
+  id                    String               @id @default(uuid())
+  eventId               String
+  classGroup            String?
+  classShepherds        String?
+  candidateClass        String
+  familyName            String
+  firstName             String
+  mobileNumber          String?
+  cleanMobile           String?
+  cmpATaken             String?
+  candidateClassNorm    String
+  familyNameNorm        String
+  firstNameNorm         String
+  status                EventCandidateStatus @default(IMPORTED)
+  claimedAt             DateTime?
+  registeredAt          DateTime?
+  memberId              String?
+  registrationId        String?
+  notes                 String?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  event                 Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  member                Member?              @relation(fields: [memberId], references: [id], onDelete: SetNull)
+  registration          EventRegistration?   @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+
+  @@index([eventId, status])
+  @@index([candidateClassNorm, familyNameNorm, firstNameNorm])
+  @@index([cleanMobile])
+  @@unique([eventId, candidateClassNorm, familyNameNorm, firstNameNorm, cleanMobile])
 }
 
 model EventAccount {

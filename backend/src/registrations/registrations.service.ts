@@ -12,11 +12,14 @@ import { UpdateRegistrationDto } from './dto/update-registration.dto';
 import { UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 import { UpdateRoomAssignmentDto } from './dto/update-room-assignment.dto';
 import { RegistrationQueryDto } from './dto/registration-query.dto';
+import { ClaimEventCandidateDto } from './dto/claim-event-candidate.dto';
+import { EventCandidateQueryDto } from './dto/event-candidate-query.dto';
 import {
   Prisma,
   RegistrationType,
   PaymentStatus,
   UserRole,
+  EventCandidateStatus,
 } from '@prisma/client';
 import { normalizePhoneNumber } from '../common/utils/phone.util';
 import * as bcrypt from 'bcryptjs';
@@ -903,6 +906,449 @@ export class RegistrationsService {
       ...listResult,
       summary: summaryResult,
     };
+  }
+
+  async importCandidatesFromCsv(eventId: string, csvBuffer: Buffer, dryRun = false) {
+    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) {
+      throw new NotFoundException(`Event with ID "${eventId}" not found`);
+    }
+
+    const csvText = csvBuffer.toString('utf-8').replace(/^\uFEFF/, '');
+    const parsed = this.parseCsv(csvText);
+    if (parsed.length === 0) {
+      throw new BadRequestException('CSV is empty');
+    }
+
+    const header = parsed[0].map((h) => String(h || '').trim());
+    const requiredHeaders = ['Candidate Class', 'Family Name', 'First Name'];
+    for (const req of requiredHeaders) {
+      if (!header.includes(req)) {
+        throw new BadRequestException(`Missing required CSV column: ${req}`);
+      }
+    }
+    const idx = (name: string) => header.indexOf(name);
+
+    const validationErrors: Array<{ row: number; reason: string }> = [];
+    const normalizedRows: Array<{
+      row: number;
+      classGroup?: string | null;
+      classShepherds?: string | null;
+      candidateClass: string;
+      familyName: string;
+      firstName: string;
+      mobileNumber?: string | null;
+      cleanMobile?: string | null;
+      cmpATaken?: string | null;
+      candidateClassNorm: string;
+      familyNameNorm: string;
+      firstNameNorm: string;
+    }> = [];
+
+    for (let r = 1; r < parsed.length; r++) {
+      const row = parsed[r];
+      if (row.every((v) => String(v || '').trim() === '')) continue;
+      const candidateClass = String(row[idx('Candidate Class')] || '').trim();
+      const familyName = String(row[idx('Family Name')] || '').trim();
+      const firstName = String(row[idx('First Name')] || '').trim();
+
+      if (!candidateClass || !familyName || !firstName) {
+        validationErrors.push({ row: r + 1, reason: 'Missing Candidate Class / Family Name / First Name' });
+        continue;
+      }
+      try {
+        this.parseCandidateClass(candidateClass);
+      } catch (e) {
+        validationErrors.push({ row: r + 1, reason: e instanceof Error ? e.message : 'Invalid Candidate Class' });
+        continue;
+      }
+
+      const rawMobile = String(row[idx('Mobile Number')] || '').trim();
+      const cleanMobileCsv = String(row[idx('Clean Mobile')] || '').trim();
+      const normalizedMobile = cleanMobileCsv || (rawMobile ? normalizePhoneNumber(rawMobile) : null);
+
+      normalizedRows.push({
+        row: r + 1,
+        classGroup: idx('Class Group') >= 0 ? String(row[idx('Class Group')] || '').trim() || null : null,
+        classShepherds: idx('Class Shepherds') >= 0 ? String(row[idx('Class Shepherds')] || '').trim() || null : null,
+        candidateClass,
+        familyName,
+        firstName,
+        mobileNumber: rawMobile || null,
+        cleanMobile: normalizedMobile || null,
+        cmpATaken: idx('CMP-A Taken') >= 0 ? String(row[idx('CMP-A Taken')] || '').trim() || null : null,
+        candidateClassNorm: this.normalizeText(candidateClass),
+        familyNameNorm: this.normalizeText(familyName),
+        firstNameNorm: this.normalizeText(firstName),
+      });
+    }
+
+    const duplicateKeys = new Set<string>();
+    const seen = new Set<string>();
+    for (const row of normalizedRows) {
+      const key = this.candidateSignatureKey(
+        row.candidateClassNorm,
+        row.familyNameNorm,
+        row.firstNameNorm,
+        row.cleanMobile,
+      );
+      if (seen.has(key)) duplicateKeys.add(key);
+      seen.add(key);
+    }
+    if (duplicateKeys.size > 0) {
+      for (const row of normalizedRows) {
+        const key = this.candidateSignatureKey(
+          row.candidateClassNorm,
+          row.familyNameNorm,
+          row.firstNameNorm,
+          row.cleanMobile,
+        );
+        if (duplicateKeys.has(key)) {
+          validationErrors.push({ row: row.row, reason: 'Duplicate row signature in CSV' });
+        }
+      }
+    }
+
+    if (dryRun || validationErrors.length > 0) {
+      return {
+        dryRun: true,
+        totalRows: parsed.length - 1,
+        validRows: normalizedRows.length,
+        invalidRows: validationErrors.length,
+        errors: validationErrors,
+      };
+    }
+
+    let created = 0;
+    let updated = 0;
+    for (const row of normalizedRows) {
+      const existing = await this.prisma.eventCandidate.findFirst({
+        where: {
+          eventId,
+          candidateClassNorm: row.candidateClassNorm,
+          familyNameNorm: row.familyNameNorm,
+          firstNameNorm: row.firstNameNorm,
+          cleanMobile: row.cleanMobile,
+        },
+      });
+      if (existing) {
+        await this.prisma.eventCandidate.update({
+          where: { id: existing.id },
+          data: {
+            classGroup: row.classGroup,
+            classShepherds: row.classShepherds,
+            candidateClass: row.candidateClass,
+            familyName: row.familyName,
+            firstName: row.firstName,
+            mobileNumber: row.mobileNumber,
+            cleanMobile: row.cleanMobile,
+            cmpATaken: row.cmpATaken,
+          },
+        });
+        updated++;
+      } else {
+        await this.prisma.eventCandidate.create({
+          data: {
+            eventId,
+            classGroup: row.classGroup,
+            classShepherds: row.classShepherds,
+            candidateClass: row.candidateClass,
+            familyName: row.familyName,
+            firstName: row.firstName,
+            mobileNumber: row.mobileNumber,
+            cleanMobile: row.cleanMobile,
+            cmpATaken: row.cmpATaken,
+            candidateClassNorm: row.candidateClassNorm,
+            familyNameNorm: row.familyNameNorm,
+            firstNameNorm: row.firstNameNorm,
+          },
+        });
+        created++;
+      }
+    }
+
+    return {
+      dryRun: false,
+      totalRows: parsed.length - 1,
+      importedRows: normalizedRows.length,
+      created,
+      updated,
+      invalidRows: validationErrors.length,
+      errors: validationErrors,
+    };
+  }
+
+  async listCandidates(eventId: string, query: EventCandidateQueryDto) {
+    const where: Prisma.EventCandidateWhereInput = { eventId };
+    if (query.status) where.status = query.status as EventCandidateStatus;
+    if (query.search?.trim()) {
+      const q = query.search.trim();
+      where.OR = [
+        { candidateClass: { contains: q, mode: 'insensitive' } },
+        { familyName: { contains: q, mode: 'insensitive' } },
+        { firstName: { contains: q, mode: 'insensitive' } },
+        { cleanMobile: { contains: q } },
+      ];
+    }
+    return this.prisma.eventCandidate.findMany({
+      where,
+      include: {
+        member: { select: { id: true, communityId: true, firstName: true, lastName: true } },
+        registration: { select: { id: true, paymentStatus: true, createdAt: true } },
+      },
+      orderBy: [{ status: 'asc' }, { candidateClass: 'asc' }, { familyName: 'asc' }, { firstName: 'asc' }],
+    });
+  }
+
+  async getCandidateSummary(eventId: string) {
+    const grouped = await this.prisma.eventCandidate.groupBy({
+      by: ['status'],
+      where: { eventId },
+      _count: { _all: true },
+    });
+    const byStatus = grouped.reduce<Record<string, number>>((acc, row) => {
+      acc[row.status] = row._count._all;
+      return acc;
+    }, {});
+    const total = grouped.reduce((s, row) => s + row._count._all, 0);
+    return {
+      total,
+      imported: byStatus.IMPORTED || 0,
+      claimed: byStatus.CLAIMED || 0,
+      registered: byStatus.REGISTERED || 0,
+      rejected: byStatus.REJECTED || 0,
+    };
+  }
+
+  async claimCandidateForEvent(eventId: string, dto: ClaimEventCandidateDto) {
+    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) throw new NotFoundException(`Event with ID "${eventId}" not found`);
+    if (!event.hasRegistration) throw new BadRequestException('This event does not have registration enabled');
+
+    const classNorm = this.normalizeText(dto.candidateClass);
+    const familyNorm = this.normalizeText(dto.familyName);
+    const firstNorm = this.normalizeText(dto.firstName);
+    const normalizedMobile = dto.mobileNumber ? normalizePhoneNumber(dto.mobileNumber) : null;
+
+    const candidates = await this.prisma.eventCandidate.findMany({
+      where: {
+        eventId,
+        status: { in: [EventCandidateStatus.IMPORTED, EventCandidateStatus.CLAIMED, EventCandidateStatus.REGISTERED] },
+        candidateClassNorm: classNorm,
+        familyNameNorm: familyNorm,
+        firstNameNorm: firstNorm,
+        ...(normalizedMobile ? { OR: [{ cleanMobile: normalizedMobile }, { cleanMobile: null }] } : {}),
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    if (candidates.length === 0) {
+      throw new NotFoundException('No candidate match found for this event');
+    }
+    if (candidates.length > 1 && !normalizedMobile) {
+      throw new ConflictException('Multiple candidate rows matched. Provide mobile number to disambiguate.');
+    }
+    const candidate = normalizedMobile
+      ? candidates.find((c) => c.cleanMobile === normalizedMobile) || candidates[0]
+      : candidates[0];
+
+    const parsedClass = this.parseCandidateClass(candidate.candidateClass);
+    const cityCode = this.deriveCityCode(event.location);
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      let member = candidate.memberId
+        ? await tx.member.findUnique({ where: { id: candidate.memberId }, include: { user: true } })
+        : null;
+      let tempPassword: string | null = null;
+      let userCreated = false;
+      let generatedCommunityId: string | null = null;
+
+      if (!member) {
+        const existingMember = await tx.member.findFirst({
+          where: {
+            firstName: { equals: candidate.firstName, mode: 'insensitive' },
+            lastName: { equals: candidate.familyName, mode: 'insensitive' },
+            encounterType: parsedClass.encounterType,
+            classNumber: parsedClass.classNumber,
+          },
+          include: { user: true },
+        });
+        if (existingMember) {
+          member = existingMember as any;
+        }
+      }
+
+      if (!member) {
+        const email = dto.email?.trim().toLowerCase() || null;
+        const mobile = normalizedMobile || candidate.cleanMobile || null;
+        if (!email && !mobile) {
+          throw new BadRequestException(
+            'Mobile number or email is required for first-time claim so login can be created.',
+          );
+        }
+
+        let user = email
+          ? await tx.user.findUnique({ where: { email }, include: { member: true } })
+          : null;
+        if (!user && mobile) {
+          user = await tx.user.findFirst({ where: { phone: mobile }, include: { member: true } });
+        }
+
+        if (!user) {
+          tempPassword = `Temp${Math.random().toString(36).slice(-8)}!`;
+          const passwordHash = await bcrypt.hash(tempPassword, 10);
+          user = await tx.user.create({
+            data: {
+              email,
+              phone: mobile,
+              passwordHash,
+              role: UserRole.MEMBER,
+              isActive: true,
+            },
+            include: { member: true },
+          });
+          userCreated = true;
+        }
+
+        if (user.member) {
+          member = await tx.member.findUnique({ where: { id: user.member.id }, include: { user: true } }) as any;
+        } else {
+          generatedCommunityId = await this.generateCommunityId(cityCode, parsedClass.encounterType, String(parsedClass.classNumber));
+          member = await tx.member.create({
+            data: {
+              userId: user.id,
+              firstName: candidate.firstName,
+              lastName: candidate.familyName,
+              communityId: generatedCommunityId,
+              city: cityCode,
+              encounterType: parsedClass.encounterType,
+              classNumber: parsedClass.classNumber,
+              ministry: null,
+              apostolate: null,
+            },
+            include: { user: true },
+          }) as any;
+        }
+      }
+
+      if (!member) {
+        throw new ConflictException('Unable to resolve or create member profile for this candidate');
+      }
+
+      const existingReg = await tx.eventRegistration.findFirst({
+        where: { eventId, memberId: member.id },
+      });
+      let registration = existingReg;
+      if (!registration) {
+        const paymentAmount = event.registrationFee ? Number(event.registrationFee) : 0;
+        registration = await tx.eventRegistration.create({
+          data: {
+            eventId,
+            memberId: member.id,
+            registrationType: RegistrationType.MEMBER,
+            firstName: member.firstName,
+            lastName: member.lastName,
+            middleName: member.middleName,
+            email: member.user?.email || dto.email?.trim().toLowerCase() || null,
+            phone: member.user?.phone || normalizedMobile || candidate.cleanMobile || null,
+            memberCommunityId: member.communityId,
+            paymentStatus: PaymentStatus.PENDING,
+            paymentAmount: paymentAmount > 0 ? paymentAmount : null,
+          },
+        });
+      }
+
+      await tx.eventCandidate.update({
+        where: { id: candidate.id },
+        data: {
+          status: EventCandidateStatus.REGISTERED,
+          claimedAt: new Date(),
+          registeredAt: new Date(),
+          memberId: member.id,
+          registrationId: registration.id,
+          cleanMobile: normalizedMobile || candidate.cleanMobile,
+          mobileNumber: dto.mobileNumber || candidate.mobileNumber,
+        },
+      });
+
+      return {
+        candidateId: candidate.id,
+        memberId: member.id,
+        communityId: member.communityId,
+        registrationId: registration.id,
+        generatedCommunityId,
+        userCreated,
+        tempPassword,
+      };
+    });
+
+    return result;
+  }
+
+  private parseCsv(csv: string): string[][] {
+    const lines = csv.split(/\r?\n/).filter((line) => line.length > 0);
+    return lines.map((line) => {
+      const values: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+          if (inQuotes && line[i + 1] === '"') {
+            current += '"';
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+          continue;
+        }
+        if (ch === ',' && !inQuotes) {
+          values.push(current);
+          current = '';
+          continue;
+        }
+        current += ch;
+      }
+      values.push(current);
+      return values.map((v) => v.trim());
+    });
+  }
+
+  private normalizeText(input: string): string {
+    return String(input || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+  }
+
+  private candidateSignatureKey(
+    classNorm: string,
+    familyNorm: string,
+    firstNorm: string,
+    cleanMobile?: string | null,
+  ): string {
+    return `${classNorm}|${familyNorm}|${firstNorm}|${cleanMobile || ''}`;
+  }
+
+  private parseCandidateClass(candidateClass: string): { encounterType: string; classNumber: number } {
+    const raw = String(candidateClass || '').trim().toUpperCase();
+    const m = raw.match(/^([A-Z]{1,4})\s*[- ]?\s*(\d{1,3})$/);
+    if (!m) {
+      throw new BadRequestException(`Invalid Candidate Class format: "${candidateClass}"`);
+    }
+    const classNumber = parseInt(m[2], 10);
+    if (isNaN(classNumber) || classNumber < 1 || classNumber > 999) {
+      throw new BadRequestException(`Invalid class number in Candidate Class: "${candidateClass}"`);
+    }
+    return { encounterType: m[1], classNumber };
+  }
+
+  private deriveCityCode(location?: string | null): string {
+    const letters = String(location || '')
+      .toUpperCase()
+      .replace(/[^A-Z]/g, '');
+    if (!letters) return 'CEB';
+    return letters.substring(0, 3).padEnd(3, 'X');
   }
 
   private async generateCommunityId(

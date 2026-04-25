@@ -10,6 +10,9 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  UploadedFile,
+  UseInterceptors,
+  BadRequestException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { RegistrationsService } from './registrations.service';
@@ -20,11 +23,15 @@ import { UpdateRegistrationDto } from './dto/update-registration.dto';
 import { UpdatePaymentStatusDto } from './dto/update-payment-status.dto';
 import { UpdateRoomAssignmentDto } from './dto/update-room-assignment.dto';
 import { RegistrationQueryDto } from './dto/registration-query.dto';
+import { ClaimEventCandidateDto } from './dto/claim-event-candidate.dto';
+import { ImportCandidatesQueryDto } from './dto/import-candidates-query.dto';
+import { EventCandidateQueryDto } from './dto/event-candidate-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { ApiResponse as ApiResponseDto } from '../common/interfaces/api-response.interface';
 import { UserRole } from '@prisma/client';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 @ApiTags('Registrations')
 @Controller('registrations')
@@ -32,6 +39,68 @@ import { UserRole } from '@prisma/client';
 @ApiBearerAuth()
 export class RegistrationsController {
   constructor(private readonly registrationsService: RegistrationsService) {}
+
+  @Post('events/:eventId/candidates/import-csv')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR, UserRole.CLASS_SHEPHERD)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiOperation({ summary: 'Import event candidates from CSV (supports dry run)' })
+  async importCandidatesCsv(
+    @Param('eventId') eventId: string,
+    @UploadedFile() file: any,
+    @Query() query: ImportCandidatesQueryDto,
+  ): Promise<ApiResponseDto<unknown>> {
+    if (!file) {
+      throw new BadRequestException('CSV file is required (field name: file)');
+    }
+    const result = await this.registrationsService.importCandidatesFromCsv(
+      eventId,
+      file.buffer,
+      Boolean(query?.dryRun),
+    );
+    return {
+      success: true,
+      data: result,
+      message: query?.dryRun ? 'Candidate CSV validated (dry run)' : 'Candidate CSV imported successfully',
+    };
+  }
+
+  @Get('events/:eventId/candidates')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR, UserRole.CLASS_SHEPHERD)
+  @ApiOperation({ summary: 'List imported event candidates' })
+  async listCandidates(
+    @Param('eventId') eventId: string,
+    @Query() query: EventCandidateQueryDto,
+  ): Promise<ApiResponseDto<unknown>> {
+    const data = await this.registrationsService.listCandidates(eventId, query);
+    return { success: true, data, message: 'Candidates retrieved successfully' };
+  }
+
+  @Get('events/:eventId/candidates/summary')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR, UserRole.CLASS_SHEPHERD)
+  @ApiOperation({ summary: 'Get event candidate import/claim summary' })
+  async candidateSummary(@Param('eventId') eventId: string): Promise<ApiResponseDto<unknown>> {
+    const data = await this.registrationsService.getCandidateSummary(eventId);
+    return { success: true, data, message: 'Candidate summary retrieved successfully' };
+  }
+
+  @Post('events/:eventId/candidates/claim')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR, UserRole.CLASS_SHEPHERD)
+  @ApiOperation({ summary: 'Claim a candidate row, generate Community ID, and register to event' })
+  async claimCandidate(
+    @Param('eventId') eventId: string,
+    @Body() dto: ClaimEventCandidateDto,
+  ): Promise<ApiResponseDto<unknown>> {
+    const data = await this.registrationsService.claimCandidateForEvent(eventId, dto);
+    return {
+      success: true,
+      data,
+      message: 'Candidate claimed and registered successfully',
+    };
+  }
 
   @Post('events/:eventId/members')
   @UseGuards(RolesGuard)

@@ -165,7 +165,106 @@ export interface RegistrationSummary {
   };
 }
 
+export interface EventCandidate {
+  id: string;
+  eventId: string;
+  classGroup?: string | null;
+  classShepherds?: string | null;
+  candidateClass: string;
+  familyName: string;
+  firstName: string;
+  mobileNumber?: string | null;
+  cleanMobile?: string | null;
+  cmpATaken?: string | null;
+  status: 'IMPORTED' | 'CLAIMED' | 'REGISTERED' | 'REJECTED';
+  claimedAt?: string | null;
+  registeredAt?: string | null;
+  memberId?: string | null;
+  registrationId?: string | null;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CandidateSummary {
+  total: number;
+  imported: number;
+  claimed: number;
+  registered: number;
+  rejected: number;
+}
+
 class RegistrationsService {
+  async importCandidatesCsv(
+    eventId: string,
+    file: File,
+    options?: { dryRun?: boolean },
+  ): Promise<ApiResponse<unknown>> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await apiClient.post<ApiResponse<unknown>>(
+      `/registrations/events/${eventId}/candidates/import-csv`,
+      formData,
+      {
+        params: { dryRun: Boolean(options?.dryRun) },
+        headers: { 'Content-Type': 'multipart/form-data' },
+      },
+    );
+    return response.data;
+  }
+
+  async listCandidates(
+    eventId: string,
+    params?: { search?: string; status?: 'IMPORTED' | 'CLAIMED' | 'REGISTERED' | 'REJECTED' },
+  ): Promise<ApiResponse<EventCandidate[]>> {
+    const response = await apiClient.get<ApiResponse<EventCandidate[]>>(
+      `/registrations/events/${eventId}/candidates`,
+      { params },
+    );
+    return response.data;
+  }
+
+  async getCandidateSummary(eventId: string): Promise<ApiResponse<CandidateSummary>> {
+    const response = await apiClient.get<ApiResponse<CandidateSummary>>(
+      `/registrations/events/${eventId}/candidates/summary`,
+    );
+    return response.data;
+  }
+
+  async claimCandidate(
+    eventId: string,
+    data: {
+      candidateClass: string;
+      familyName: string;
+      firstName: string;
+      mobileNumber?: string;
+      email?: string;
+    },
+  ): Promise<
+    ApiResponse<{
+      candidateId: string;
+      memberId: string;
+      communityId: string;
+      registrationId: string;
+      generatedCommunityId?: string | null;
+      userCreated: boolean;
+      tempPassword?: string | null;
+    }>
+  > {
+    const response = await apiClient.post<
+      ApiResponse<{
+        candidateId: string;
+        memberId: string;
+        communityId: string;
+        registrationId: string;
+        generatedCommunityId?: string | null;
+        userCreated: boolean;
+        tempPassword?: string | null;
+      }>
+    >(`/registrations/events/${eventId}/candidates/claim`, data);
+    return response.data;
+  }
+
   async registerMember(
     eventId: string,
     data: RegisterMemberRequest,
