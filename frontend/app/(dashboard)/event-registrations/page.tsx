@@ -2,9 +2,9 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useEffect, useMemo, useRef, useState, Suspense } from 'react';
+import { useEffect, useMemo, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, Loader2, Calendar, Users, UserPlus, UserCheck, Heart, Search, Filter, X, Upload, UserCheck2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Calendar, Users, UserPlus, UserCheck, Heart, Search, Filter, X, Upload, UserCheck2, ChevronLeft, ChevronRight, ArrowUpDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -65,9 +65,12 @@ function EventRegistrationsContent() {
   const [candidateStatusFilter, setCandidateStatusFilter] = useState<string>('ALL');
   const [candidateEncounterFilter, setCandidateEncounterFilter] = useState<string>('ALL');
   const [candidateClassNumberFilter, setCandidateClassNumberFilter] = useState<string>('ALL');
+  const [candidateSearchTerm, setCandidateSearchTerm] = useState('');
+  const [candidateSortKey, setCandidateSortKey] = useState<'name' | 'class' | 'status' | 'updatedAt'>('name');
+  const [candidateSortDirection, setCandidateSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [candidatePageIndex, setCandidatePageIndex] = useState(0);
   const [candidateLoading, setCandidateLoading] = useState(false);
-  const [candidatePageSize, setCandidatePageSize] = useState(25);
-  const [candidateVisibleCount, setCandidateVisibleCount] = useState(25);
+  const candidatePageSize = 25;
   const [candidateDuplicatePreview, setCandidateDuplicatePreview] = useState<CandidateDuplicatePreview | null>(null);
   const [candidateHarmonizing, setCandidateHarmonizing] = useState(false);
   const [showHarmonizeDialog, setShowHarmonizeDialog] = useState(false);
@@ -78,7 +81,6 @@ function EventRegistrationsContent() {
   const [claimMobile, setClaimMobile] = useState('');
   const [claimEmail, setClaimEmail] = useState('');
   const [claimSubmitting, setClaimSubmitting] = useState(false);
-  const candidateLoadMoreRef = useRef<HTMLDivElement | null>(null);
 
   // Load user role (auth redirect handled by dashboard layout)
   useEffect(() => {
@@ -316,53 +318,63 @@ function EventRegistrationsContent() {
       const parts = parseCandidateClassParts(row.candidateClass);
       if (candidateEncounterFilter !== 'ALL' && parts.encounter !== candidateEncounterFilter) return false;
       if (candidateClassNumberFilter !== 'ALL' && parts.classNumber !== candidateClassNumberFilter) return false;
+      const q = candidateSearchTerm.trim().toLowerCase();
+      if (q) {
+        const haystack = [
+          row.firstName,
+          row.familyName,
+          `${row.firstName} ${row.familyName}`,
+          row.candidateClass,
+          row.cleanMobile,
+          row.mobileNumber,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
       return true;
     });
 
     return filtered.sort((a, b) => {
-      const familyDiff = a.familyName.localeCompare(b.familyName, undefined, { sensitivity: 'base' });
-      if (familyDiff !== 0) return familyDiff;
-      const firstDiff = a.firstName.localeCompare(b.firstName, undefined, { sensitivity: 'base' });
-      if (firstDiff !== 0) return firstDiff;
-      return a.candidateClass.localeCompare(b.candidateClass, undefined, { sensitivity: 'base' });
+      let result = 0;
+      if (candidateSortKey === 'name') {
+        const familyDiff = a.familyName.localeCompare(b.familyName, undefined, { sensitivity: 'base' });
+        result = familyDiff !== 0
+          ? familyDiff
+          : a.firstName.localeCompare(b.firstName, undefined, { sensitivity: 'base' });
+      } else if (candidateSortKey === 'class') {
+        result = a.candidateClass.localeCompare(b.candidateClass, undefined, { sensitivity: 'base' });
+      } else if (candidateSortKey === 'status') {
+        result = a.status.localeCompare(b.status);
+      } else {
+        result = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+      }
+
+      if (result === 0) {
+        result = a.familyName.localeCompare(b.familyName, undefined, { sensitivity: 'base' });
+      }
+      return candidateSortDirection === 'asc' ? result : -result;
     });
-  }, [candidateList, candidateEncounterFilter, candidateClassNumberFilter]);
+  }, [candidateList, candidateEncounterFilter, candidateClassNumberFilter, candidateSearchTerm, candidateSortKey, candidateSortDirection]);
 
   useEffect(() => {
-    const updateCandidatePageSize = () => {
-      if (typeof window === 'undefined') return;
-      // Estimate rows that fit comfortably on screen while keeping table responsive.
-      const availableHeight = Math.max(window.innerHeight - 360, 420);
-      const rowsPerScreen = Math.floor(availableHeight / 48);
-      const nextSize = Math.min(60, Math.max(15, rowsPerScreen));
-      setCandidatePageSize(nextSize);
-    };
+    setCandidatePageIndex(0);
+  }, [candidateStatusFilter, candidateEncounterFilter, candidateClassNumberFilter, candidateSearchTerm, candidateSortKey, candidateSortDirection]);
 
-    updateCandidatePageSize();
-    window.addEventListener('resize', updateCandidatePageSize);
-    return () => window.removeEventListener('resize', updateCandidatePageSize);
-  }, []);
+  const candidateTotalPages = Math.max(1, Math.ceil(filteredCandidateList.length / candidatePageSize));
+  const normalizedPageIndex = Math.min(candidatePageIndex, candidateTotalPages - 1);
+  const candidatePageStart = normalizedPageIndex * candidatePageSize;
+  const candidatePageRows = filteredCandidateList.slice(candidatePageStart, candidatePageStart + candidatePageSize);
 
-  useEffect(() => {
-    setCandidateVisibleCount(candidatePageSize);
-  }, [filteredCandidateList, candidateStatusFilter, candidateEncounterFilter, candidateClassNumberFilter, candidatePageSize]);
-
-  useEffect(() => {
-    if (!candidateLoadMoreRef.current || candidateLoading || candidateVisibleCount >= filteredCandidateList.length) {
+  const setCandidateSort = (key: 'name' | 'class' | 'status' | 'updatedAt') => {
+    if (candidateSortKey === key) {
+      setCandidateSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
       return;
     }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries[0]?.isIntersecting) return;
-        setCandidateVisibleCount((prev) => Math.min(prev + candidatePageSize, filteredCandidateList.length));
-      },
-      { root: null, rootMargin: '180px 0px', threshold: 0.1 },
-    );
-
-    observer.observe(candidateLoadMoreRef.current);
-    return () => observer.disconnect();
-  }, [candidateLoading, filteredCandidateList.length, candidateVisibleCount, candidatePageSize]);
+    setCandidateSortKey(key);
+    setCandidateSortDirection('asc');
+  };
 
   const handleRefresh = async () => {
     if (!eventId) return;
@@ -759,6 +771,12 @@ function EventRegistrationsContent() {
                         <SelectItem value="REJECTED">Rejected</SelectItem>
                       </SelectContent>
                     </Select>
+                    <Input
+                      value={candidateSearchTerm}
+                      onChange={(e) => setCandidateSearchTerm(e.target.value)}
+                      placeholder="Search name, class, or mobile..."
+                      className="h-10 w-[240px] bg-white"
+                    />
                     <Select value={candidateEncounterFilter} onValueChange={setCandidateEncounterFilter}>
                       <SelectTrigger className="h-10 w-[140px] text-sm bg-white">
                         <SelectValue placeholder="Encounter" />
@@ -786,6 +804,26 @@ function EventRegistrationsContent() {
                       Reload
                     </Button>
                   </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { key: 'ALL', label: 'All', count: candidateSummary?.total ?? 0 },
+                    { key: 'IMPORTED', label: 'Imported', count: candidateSummary?.imported ?? 0 },
+                    { key: 'CLAIMED', label: 'Claimed', count: candidateSummary?.claimed ?? 0 },
+                    { key: 'REGISTERED', label: 'Registered', count: candidateSummary?.registered ?? 0 },
+                    { key: 'REJECTED', label: 'Rejected', count: candidateSummary?.rejected ?? 0 },
+                  ].map((chip) => (
+                    <Button
+                      key={chip.key}
+                      variant={candidateStatusFilter === chip.key ? 'default' : 'outline'}
+                      size="sm"
+                      className={candidateStatusFilter === chip.key ? 'bg-indigo-600 hover:bg-indigo-700 text-white' : ''}
+                      onClick={() => setCandidateStatusFilter(chip.key)}
+                    >
+                      {chip.label} ({chip.count})
+                    </Button>
+                  ))}
                 </div>
               </CardHeader>
               <CardContent className="p-6 space-y-5">
@@ -881,24 +919,41 @@ function EventRegistrationsContent() {
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50">
                       <tr>
-                        <th className="text-left px-3 py-2 font-semibold text-gray-700">Candidate</th>
-                        <th className="text-left px-3 py-2 font-semibold text-gray-700">Class</th>
+                        <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                          <button className="inline-flex items-center gap-1 hover:text-gray-900" onClick={() => setCandidateSort('name')}>
+                            Candidate <ArrowUpDown className="w-3.5 h-3.5" />
+                          </button>
+                        </th>
+                        <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                          <button className="inline-flex items-center gap-1 hover:text-gray-900" onClick={() => setCandidateSort('class')}>
+                            Class <ArrowUpDown className="w-3.5 h-3.5" />
+                          </button>
+                        </th>
                         <th className="text-left px-3 py-2 font-semibold text-gray-700">Mobile</th>
-                        <th className="text-left px-3 py-2 font-semibold text-gray-700">Status</th>
+                        <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                          <button className="inline-flex items-center gap-1 hover:text-gray-900" onClick={() => setCandidateSort('status')}>
+                            Status <ArrowUpDown className="w-3.5 h-3.5" />
+                          </button>
+                        </th>
+                        <th className="text-left px-3 py-2 font-semibold text-gray-700">
+                          <button className="inline-flex items-center gap-1 hover:text-gray-900" onClick={() => setCandidateSort('updatedAt')}>
+                            Updated <ArrowUpDown className="w-3.5 h-3.5" />
+                          </button>
+                        </th>
                         <th className="text-right px-3 py-2 font-semibold text-gray-700">Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {candidateLoading ? (
                         <tr>
-                          <td colSpan={5} className="px-3 py-6 text-center text-gray-500">Loading candidates…</td>
+                          <td colSpan={6} className="px-3 py-6 text-center text-gray-500">Loading candidates…</td>
                         </tr>
                       ) : filteredCandidateList.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="px-3 py-6 text-center text-gray-500">No candidates match the selected filters.</td>
+                          <td colSpan={6} className="px-3 py-6 text-center text-gray-500">No candidates match the selected filters.</td>
                         </tr>
                       ) : (
-                        filteredCandidateList.slice(0, candidateVisibleCount).map((c) => (
+                        candidatePageRows.map((c) => (
                           <tr key={c.id} className="border-t">
                             <td className="px-3 py-2">
                               <div className="font-medium text-gray-900">{c.firstName} {c.familyName}</div>
@@ -907,6 +962,7 @@ function EventRegistrationsContent() {
                             <td className="px-3 py-2">{c.candidateClass}</td>
                             <td className="px-3 py-2">{c.cleanMobile || c.mobileNumber || '—'}</td>
                             <td className="px-3 py-2">{c.status}</td>
+                            <td className="px-3 py-2 text-xs text-gray-600">{new Date(c.updatedAt).toLocaleString()}</td>
                             <td className="px-3 py-2 text-right">
                               {c.status !== 'REGISTERED' ? (
                                 <Button
@@ -930,13 +986,40 @@ function EventRegistrationsContent() {
                 </div>
                 {filteredCandidateList.length > 0 && (
                   <div className="space-y-2">
-                    <div ref={candidateLoadMoreRef} className="h-4" />
-                    <p className="text-xs text-gray-500">
-                      Showing {Math.min(candidateVisibleCount, filteredCandidateList.length)} of {filteredCandidateList.length} rows.
-                      {candidateVisibleCount < filteredCandidateList.length
-                        ? ' Scroll to load more.'
-                        : ' End of list.'}
-                    </p>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-gray-500">
+                        Showing {candidatePageStart + 1} to {Math.min(candidatePageStart + candidatePageRows.length, filteredCandidateList.length)} of {filteredCandidateList.length} rows.
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setCandidatePageIndex((prev) => Math.max(prev - 1, 0))}
+                          disabled={normalizedPageIndex === 0}
+                        >
+                          <ChevronLeft className="w-4 h-4" />
+                        </Button>
+                        <span className="text-xs text-gray-600 min-w-[88px] text-center">
+                          Page {normalizedPageIndex + 1} / {candidateTotalPages}
+                        </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setCandidatePageIndex((prev) => Math.min(prev + 1, candidateTotalPages - 1))}
+                          disabled={normalizedPageIndex >= candidateTotalPages - 1}
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setCandidatePageIndex((prev) => Math.min(prev + 1, candidateTotalPages - 1))}
+                          disabled={normalizedPageIndex >= candidateTotalPages - 1}
+                        >
+                          Load next 25
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </CardContent>
