@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useEffect, useRef, useState, Suspense } from 'react';
+import { useEffect, useMemo, useRef, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Loader2, Calendar, Users, UserPlus, UserCheck, Heart, Search, Filter, X, Upload, UserCheck2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -63,6 +63,8 @@ function EventRegistrationsContent() {
   const [candidateSummary, setCandidateSummary] = useState<CandidateSummary | null>(null);
   const [candidateList, setCandidateList] = useState<EventCandidate[]>([]);
   const [candidateStatusFilter, setCandidateStatusFilter] = useState<string>('ALL');
+  const [candidateEncounterFilter, setCandidateEncounterFilter] = useState<string>('ALL');
+  const [candidateClassNumberFilter, setCandidateClassNumberFilter] = useState<string>('ALL');
   const [candidateLoading, setCandidateLoading] = useState(false);
   const [candidatePageSize, setCandidatePageSize] = useState(25);
   const [candidateVisibleCount, setCandidateVisibleCount] = useState(25);
@@ -284,6 +286,48 @@ function EventRegistrationsContent() {
     void loadCandidateData();
   }, [eventId, authLoading, event?.id, userRole, candidateStatusFilter]);
 
+  const parseCandidateClassParts = (candidateClass?: string | null) => {
+    const raw = String(candidateClass || '').trim().toUpperCase();
+    const match = raw.match(/^([A-Z]{1,4})\s*[- ]?\s*(\d{1,3})$/);
+    if (!match) return { encounter: 'UNKNOWN', classNumber: 'UNKNOWN' };
+    return { encounter: match[1], classNumber: match[2] };
+  };
+
+  const candidateEncounterOptions = useMemo(() => {
+    const options = new Set<string>();
+    for (const row of candidateList) {
+      const parts = parseCandidateClassParts(row.candidateClass);
+      if (parts.encounter !== 'UNKNOWN') options.add(parts.encounter);
+    }
+    return Array.from(options).sort((a, b) => a.localeCompare(b));
+  }, [candidateList]);
+
+  const candidateClassNumberOptions = useMemo(() => {
+    const options = new Set<string>();
+    for (const row of candidateList) {
+      const parts = parseCandidateClassParts(row.candidateClass);
+      if (parts.classNumber !== 'UNKNOWN') options.add(parts.classNumber);
+    }
+    return Array.from(options).sort((a, b) => Number(a) - Number(b));
+  }, [candidateList]);
+
+  const filteredCandidateList = useMemo(() => {
+    const filtered = candidateList.filter((row) => {
+      const parts = parseCandidateClassParts(row.candidateClass);
+      if (candidateEncounterFilter !== 'ALL' && parts.encounter !== candidateEncounterFilter) return false;
+      if (candidateClassNumberFilter !== 'ALL' && parts.classNumber !== candidateClassNumberFilter) return false;
+      return true;
+    });
+
+    return filtered.sort((a, b) => {
+      const familyDiff = a.familyName.localeCompare(b.familyName, undefined, { sensitivity: 'base' });
+      if (familyDiff !== 0) return familyDiff;
+      const firstDiff = a.firstName.localeCompare(b.firstName, undefined, { sensitivity: 'base' });
+      if (firstDiff !== 0) return firstDiff;
+      return a.candidateClass.localeCompare(b.candidateClass, undefined, { sensitivity: 'base' });
+    });
+  }, [candidateList, candidateEncounterFilter, candidateClassNumberFilter]);
+
   useEffect(() => {
     const updateCandidatePageSize = () => {
       if (typeof window === 'undefined') return;
@@ -301,24 +345,24 @@ function EventRegistrationsContent() {
 
   useEffect(() => {
     setCandidateVisibleCount(candidatePageSize);
-  }, [candidateList, candidateStatusFilter, candidatePageSize]);
+  }, [filteredCandidateList, candidateStatusFilter, candidateEncounterFilter, candidateClassNumberFilter, candidatePageSize]);
 
   useEffect(() => {
-    if (!candidateLoadMoreRef.current || candidateLoading || candidateVisibleCount >= candidateList.length) {
+    if (!candidateLoadMoreRef.current || candidateLoading || candidateVisibleCount >= filteredCandidateList.length) {
       return;
     }
 
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries[0]?.isIntersecting) return;
-        setCandidateVisibleCount((prev) => Math.min(prev + candidatePageSize, candidateList.length));
+        setCandidateVisibleCount((prev) => Math.min(prev + candidatePageSize, filteredCandidateList.length));
       },
       { root: null, rootMargin: '180px 0px', threshold: 0.1 },
     );
 
     observer.observe(candidateLoadMoreRef.current);
     return () => observer.disconnect();
-  }, [candidateLoading, candidateList.length, candidateVisibleCount, candidatePageSize]);
+  }, [candidateLoading, filteredCandidateList.length, candidateVisibleCount, candidatePageSize]);
 
   const handleRefresh = async () => {
     if (!eventId) return;
@@ -715,6 +759,28 @@ function EventRegistrationsContent() {
                         <SelectItem value="REJECTED">Rejected</SelectItem>
                       </SelectContent>
                     </Select>
+                    <Select value={candidateEncounterFilter} onValueChange={setCandidateEncounterFilter}>
+                      <SelectTrigger className="h-10 w-[140px] text-sm bg-white">
+                        <SelectValue placeholder="Encounter" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All encounter</SelectItem>
+                        {candidateEncounterOptions.map((encounter) => (
+                          <SelectItem key={encounter} value={encounter}>{encounter}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={candidateClassNumberFilter} onValueChange={setCandidateClassNumberFilter}>
+                      <SelectTrigger className="h-10 w-[130px] text-sm bg-white">
+                        <SelectValue placeholder="Class no." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">All class #</SelectItem>
+                        {candidateClassNumberOptions.map((classNo) => (
+                          <SelectItem key={classNo} value={classNo}>{classNo}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Button variant="outline" size="sm" onClick={loadCandidateData} disabled={candidateLoading}>
                       <Loader2 className={`w-4 h-4 mr-2 ${candidateLoading ? 'animate-spin' : ''}`} />
                       Reload
@@ -827,12 +893,12 @@ function EventRegistrationsContent() {
                         <tr>
                           <td colSpan={5} className="px-3 py-6 text-center text-gray-500">Loading candidates…</td>
                         </tr>
-                      ) : candidateList.length === 0 ? (
+                      ) : filteredCandidateList.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="px-3 py-6 text-center text-gray-500">No candidate rows yet.</td>
+                          <td colSpan={5} className="px-3 py-6 text-center text-gray-500">No candidates match the selected filters.</td>
                         </tr>
                       ) : (
-                        candidateList.slice(0, candidateVisibleCount).map((c) => (
+                        filteredCandidateList.slice(0, candidateVisibleCount).map((c) => (
                           <tr key={c.id} className="border-t">
                             <td className="px-3 py-2">
                               <div className="font-medium text-gray-900">{c.firstName} {c.familyName}</div>
@@ -862,12 +928,12 @@ function EventRegistrationsContent() {
                     </tbody>
                   </table>
                 </div>
-                {candidateList.length > 0 && (
+                {filteredCandidateList.length > 0 && (
                   <div className="space-y-2">
                     <div ref={candidateLoadMoreRef} className="h-4" />
                     <p className="text-xs text-gray-500">
-                      Showing {Math.min(candidateVisibleCount, candidateList.length)} of {candidateList.length} rows.
-                      {candidateVisibleCount < candidateList.length
+                      Showing {Math.min(candidateVisibleCount, filteredCandidateList.length)} of {filteredCandidateList.length} rows.
+                      {candidateVisibleCount < filteredCandidateList.length
                         ? ' Scroll to load more.'
                         : ' End of list.'}
                     </p>
