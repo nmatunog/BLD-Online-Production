@@ -27,6 +27,7 @@ import { UpdateRoomAssignmentDto } from './dto/update-room-assignment.dto';
 import { RegistrationQueryDto } from './dto/registration-query.dto';
 import { ClaimEventCandidateDto } from './dto/claim-event-candidate.dto';
 import { EventCandidateQueryDto } from './dto/event-candidate-query.dto';
+import { ResolveCandidateDuplicateDto } from './dto/resolve-candidate-duplicate.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -91,6 +92,36 @@ export class RegistrationsController {
   async candidateSummary(@Param('eventId') eventId: string): Promise<ApiResponseDto<unknown>> {
     const data = await this.registrationsService.getCandidateSummary(eventId);
     return { success: true, data, message: 'Candidate summary retrieved successfully' };
+  }
+
+  @Get('events/:eventId/candidates/duplicates')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR)
+  @ApiOperation({ summary: 'Preview duplicate candidate signatures for admin harmonization' })
+  async candidateDuplicatePreview(@Param('eventId') eventId: string): Promise<ApiResponseDto<unknown>> {
+    const data = await this.registrationsService.getCandidateDuplicatePreview(eventId);
+    return { success: true, data, message: 'Candidate duplicate preview retrieved successfully' };
+  }
+
+  @Post('events/:eventId/candidates/harmonize')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR)
+  @ApiOperation({ summary: 'Merge duplicate candidate rows into harmonized records' })
+  async harmonizeCandidateDuplicates(@Param('eventId') eventId: string): Promise<ApiResponseDto<unknown>> {
+    const data = await this.registrationsService.harmonizeCandidateDuplicates(eventId);
+    return { success: true, data, message: 'Candidate duplicates harmonized successfully' };
+  }
+
+  @Post('events/:eventId/candidates/duplicates/resolve')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR)
+  @ApiOperation({ summary: 'Resolve one duplicate candidate group by selecting keeper row' })
+  async resolveCandidateDuplicate(
+    @Param('eventId') eventId: string,
+    @Body() dto: ResolveCandidateDuplicateDto,
+  ): Promise<ApiResponseDto<unknown>> {
+    const data = await this.registrationsService.resolveCandidateDuplicate(eventId, dto);
+    return { success: true, data, message: 'Candidate duplicate resolved successfully' };
   }
 
   @Post('events/:eventId/candidates/claim')

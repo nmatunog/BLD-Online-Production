@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useRef, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, Loader2, Calendar, Users, UserPlus, UserCheck, Heart, Search, Filter, X, Upload, UserCheck2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -21,6 +21,7 @@ import {
   type RegistrationQueryParams,
   type EventCandidate,
   type CandidateSummary,
+  type CandidateDuplicatePreview,
 } from '@/services/registrations.service';
 import { authService } from '@/services/auth.service';
 import RegistrationSummary from '@/components/registrations/RegistrationSummary';
@@ -63,11 +64,19 @@ function EventRegistrationsContent() {
   const [candidateList, setCandidateList] = useState<EventCandidate[]>([]);
   const [candidateStatusFilter, setCandidateStatusFilter] = useState<string>('ALL');
   const [candidateLoading, setCandidateLoading] = useState(false);
+  const [candidatePageSize, setCandidatePageSize] = useState(25);
+  const [candidateVisibleCount, setCandidateVisibleCount] = useState(25);
+  const [candidateDuplicatePreview, setCandidateDuplicatePreview] = useState<CandidateDuplicatePreview | null>(null);
+  const [candidateHarmonizing, setCandidateHarmonizing] = useState(false);
+  const [showHarmonizeDialog, setShowHarmonizeDialog] = useState(false);
+  const [selectedDuplicateSignature, setSelectedDuplicateSignature] = useState<string>('');
+  const [selectedKeeperId, setSelectedKeeperId] = useState<string>('');
   const [showClaimDialog, setShowClaimDialog] = useState(false);
   const [claimingCandidate, setClaimingCandidate] = useState<EventCandidate | null>(null);
   const [claimMobile, setClaimMobile] = useState('');
   const [claimEmail, setClaimEmail] = useState('');
   const [claimSubmitting, setClaimSubmitting] = useState(false);
+  const candidateLoadMoreRef = useRef<HTMLDivElement | null>(null);
 
   // Load user role (auth redirect handled by dashboard layout)
   useEffect(() => {
@@ -275,6 +284,42 @@ function EventRegistrationsContent() {
     void loadCandidateData();
   }, [eventId, authLoading, event?.id, userRole, candidateStatusFilter]);
 
+  useEffect(() => {
+    const updateCandidatePageSize = () => {
+      if (typeof window === 'undefined') return;
+      // Estimate rows that fit comfortably on screen while keeping table responsive.
+      const availableHeight = Math.max(window.innerHeight - 360, 420);
+      const rowsPerScreen = Math.floor(availableHeight / 48);
+      const nextSize = Math.min(60, Math.max(15, rowsPerScreen));
+      setCandidatePageSize(nextSize);
+    };
+
+    updateCandidatePageSize();
+    window.addEventListener('resize', updateCandidatePageSize);
+    return () => window.removeEventListener('resize', updateCandidatePageSize);
+  }, []);
+
+  useEffect(() => {
+    setCandidateVisibleCount(candidatePageSize);
+  }, [candidateList, candidateStatusFilter, candidatePageSize]);
+
+  useEffect(() => {
+    if (!candidateLoadMoreRef.current || candidateLoading || candidateVisibleCount >= candidateList.length) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0]?.isIntersecting) return;
+        setCandidateVisibleCount((prev) => Math.min(prev + candidatePageSize, candidateList.length));
+      },
+      { root: null, rootMargin: '180px 0px', threshold: 0.1 },
+    );
+
+    observer.observe(candidateLoadMoreRef.current);
+    return () => observer.disconnect();
+  }, [candidateLoading, candidateList.length, candidateVisibleCount, candidatePageSize]);
+
   const handleRefresh = async () => {
     if (!eventId) return;
 
@@ -314,6 +359,8 @@ function EventRegistrationsContent() {
       ]);
       if (summaryRes.success && summaryRes.data) setCandidateSummary(summaryRes.data);
       if (listRes.success && listRes.data) setCandidateList(listRes.data);
+      const duplicateRes = await registrationsService.getCandidateDuplicatePreview(eventId);
+      if (duplicateRes.success && duplicateRes.data) setCandidateDuplicatePreview(duplicateRes.data);
     } catch (error) {
       toast.error('Error', {
         description: getErrorMessage(error, 'Failed to load candidate import data'),
@@ -389,6 +436,88 @@ function EventRegistrationsContent() {
       toast.error('Claim failed', { description: getErrorMessage(error, 'Failed to claim candidate') });
     } finally {
       setClaimSubmitting(false);
+    }
+  };
+
+  const handleOpenHarmonizeDialog = async () => {
+    if (!eventId) return;
+    try {
+      const res = await registrationsService.getCandidateDuplicatePreview(eventId);
+      if (res.success && res.data) {
+        setCandidateDuplicatePreview(res.data);
+        const firstGroup = res.data.groups?.[0];
+        setSelectedDuplicateSignature(firstGroup?.signature || '');
+        setSelectedKeeperId(firstGroup?.rows?.[0]?.id || '');
+        setShowHarmonizeDialog(true);
+      } else {
+        toast.error('Unable to load duplicates', { description: res.error || 'Unknown error' });
+      }
+    } catch (error) {
+      toast.error('Unable to load duplicates', {
+        description: getErrorMessage(error, 'Failed to load duplicate candidates'),
+      });
+    }
+  };
+
+  const selectedDuplicateGroup = candidateDuplicatePreview?.groups?.find(
+    (g) => g.signature === selectedDuplicateSignature,
+  );
+
+  useEffect(() => {
+    if (!selectedDuplicateGroup) return;
+    const currentKeeperStillInGroup = selectedDuplicateGroup.rows.some((r) => r.id === selectedKeeperId);
+    if (!currentKeeperStillInGroup) {
+      setSelectedKeeperId(selectedDuplicateGroup.rows[0]?.id || '');
+    }
+  }, [selectedDuplicateGroup, selectedKeeperId]);
+
+  const handleConfirmHarmonize = async () => {
+    if (!eventId) return;
+    if (!selectedDuplicateGroup) {
+      toast.error('No duplicate group selected');
+      return;
+    }
+    if (!selectedKeeperId) {
+      toast.error('Select a record to keep first');
+      return;
+    }
+
+    try {
+      setCandidateHarmonizing(true);
+      const deleteIds = selectedDuplicateGroup.rows
+        .map((r) => r.id)
+        .filter((id) => id !== selectedKeeperId);
+      const res = await registrationsService.resolveCandidateDuplicate(eventId, {
+        signature: selectedDuplicateGroup.signature,
+        keeperId: selectedKeeperId,
+        deleteIds,
+      });
+      if (res.success && res.data) {
+        toast.success('Duplicate group resolved', {
+          description: `Kept one row and removed ${res.data.removedRecords} duplicate rows.`,
+        });
+        const previewRes = await registrationsService.getCandidateDuplicatePreview(eventId);
+        if (previewRes.success && previewRes.data) {
+          setCandidateDuplicatePreview(previewRes.data);
+          if (previewRes.data.groups.length === 0) {
+            setShowHarmonizeDialog(false);
+          } else {
+            const nextGroup = previewRes.data.groups.find((g) => g.signature !== selectedDuplicateGroup.signature)
+              || previewRes.data.groups[0];
+            setSelectedDuplicateSignature(nextGroup.signature);
+            setSelectedKeeperId(nextGroup.rows[0]?.id || '');
+          }
+        }
+        await loadCandidateData();
+      } else {
+        toast.error('Resolve failed', { description: res.error || 'Unknown error' });
+      }
+    } catch (error) {
+      toast.error('Resolve failed', {
+        description: getErrorMessage(error, 'Failed to resolve duplicate candidates'),
+      });
+    } finally {
+      setCandidateHarmonizing(false);
     }
   };
 
@@ -563,6 +692,17 @@ function EventRegistrationsContent() {
                     Candidate Import & Claim
                   </CardTitle>
                   <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleOpenHarmonizeDialog}
+                      disabled={candidateLoading || candidateHarmonizing}
+                    >
+                      Harmonize duplicates
+                      {candidateDuplicatePreview && candidateDuplicatePreview.recordsToRemove > 0
+                        ? ` (${candidateDuplicatePreview.recordsToRemove})`
+                        : ''}
+                    </Button>
                     <Select value={candidateStatusFilter} onValueChange={setCandidateStatusFilter}>
                       <SelectTrigger className="h-10 w-[170px] text-sm bg-white">
                         <SelectValue />
@@ -692,7 +832,7 @@ function EventRegistrationsContent() {
                           <td colSpan={5} className="px-3 py-6 text-center text-gray-500">No candidate rows yet.</td>
                         </tr>
                       ) : (
-                        candidateList.slice(0, 25).map((c) => (
+                        candidateList.slice(0, candidateVisibleCount).map((c) => (
                           <tr key={c.id} className="border-t">
                             <td className="px-3 py-2">
                               <div className="font-medium text-gray-900">{c.firstName} {c.familyName}</div>
@@ -722,8 +862,16 @@ function EventRegistrationsContent() {
                     </tbody>
                   </table>
                 </div>
-                {candidateList.length > 25 && (
-                  <p className="text-xs text-gray-500">Showing first 25 rows. Use status/search APIs for deeper review.</p>
+                {candidateList.length > 0 && (
+                  <div className="space-y-2">
+                    <div ref={candidateLoadMoreRef} className="h-4" />
+                    <p className="text-xs text-gray-500">
+                      Showing {Math.min(candidateVisibleCount, candidateList.length)} of {candidateList.length} rows.
+                      {candidateVisibleCount < candidateList.length
+                        ? ' Scroll to load more.'
+                        : ' End of list.'}
+                    </p>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -877,6 +1025,102 @@ function EventRegistrationsContent() {
                 >
                   <Loader2 className={`w-4 h-4 mr-2 ${claimSubmitting ? 'animate-spin' : 'hidden'}`} />
                   Claim + Register
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={showHarmonizeDialog} onOpenChange={setShowHarmonizeDialog}>
+            <DialogContent className="bg-white sm:max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Resolve duplicate candidates</DialogTitle>
+                <DialogDescription>
+                  When fields conflict, choose which row to keep, then delete the rest.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 text-sm">
+                <div className="rounded-md border bg-slate-50 p-3">
+                  <p>Duplicate groups: <span className="font-semibold">{candidateDuplicatePreview?.totalGroups ?? 0}</span></p>
+                  <p>Duplicate records: <span className="font-semibold">{candidateDuplicatePreview?.duplicateRecords ?? 0}</span></p>
+                  <p>Rows to remove: <span className="font-semibold">{candidateDuplicatePreview?.recordsToRemove ?? 0}</span></p>
+                </div>
+                {candidateDuplicatePreview?.groups?.length ? (
+                  <div className="space-y-3">
+                    <div className="rounded-md border p-2">
+                      <label className="block text-xs text-gray-600 mb-1">Duplicate group</label>
+                      <Select
+                        value={selectedDuplicateSignature}
+                        onValueChange={(sig) => {
+                          setSelectedDuplicateSignature(sig);
+                          const next = candidateDuplicatePreview.groups.find((g) => g.signature === sig);
+                          setSelectedKeeperId(next?.rows?.[0]?.id || '');
+                        }}
+                      >
+                        <SelectTrigger className="h-9">
+                          <SelectValue placeholder="Select duplicate group" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {candidateDuplicatePreview.groups.map((group) => (
+                            <SelectItem key={group.signature} value={group.signature}>
+                              {group.firstName} {group.familyName} ({group.candidateClass}) · {group.count} rows
+                              {group.hasConflicts ? ' · conflict' : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {selectedDuplicateGroup && (
+                      <div className="rounded-md border">
+                        <div className="px-3 py-2 border-b bg-gray-50 text-xs text-gray-700">
+                          <span className="font-semibold">{selectedDuplicateGroup.firstName} {selectedDuplicateGroup.familyName}</span>
+                          {' '}({selectedDuplicateGroup.candidateClass}) · choose keeper row
+                          {selectedDuplicateGroup.conflictFields.length > 0
+                            ? ` · conflicts: ${selectedDuplicateGroup.conflictFields.join(', ')}`
+                            : ''}
+                        </div>
+                        <div className="max-h-60 overflow-y-auto">
+                          {selectedDuplicateGroup.rows.map((row) => (
+                            <label key={row.id} className="flex items-start gap-3 px-3 py-2 border-t first:border-t-0 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="keeper-row"
+                                checked={selectedKeeperId === row.id}
+                                onChange={() => setSelectedKeeperId(row.id)}
+                                className="mt-1"
+                              />
+                              <div className="text-xs text-gray-700">
+                                <div className="font-medium text-gray-900">Row ID: {row.id.slice(0, 8)}…</div>
+                                <div>Status: {row.status} · Updated: {new Date(row.updatedAt).toLocaleString()}</div>
+                                <div>Mobile: {row.cleanMobile || row.mobileNumber || '—'} · CMP-A: {row.cmpATaken || '—'}</div>
+                                <div>Group: {row.classGroup || '—'} · Shepherds: {row.classShepherds || '—'}</div>
+                                <div>Linked: Member {row.memberId ? 'Yes' : 'No'} · Registration {row.registrationId ? 'Yes' : 'No'}</div>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-gray-600">No duplicates detected for this event.</p>
+                )}
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowHarmonizeDialog(false)}
+                  disabled={candidateHarmonizing}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                  onClick={handleConfirmHarmonize}
+                  disabled={candidateHarmonizing || !selectedDuplicateGroup || selectedDuplicateGroup.rows.length <= 1 || !selectedKeeperId}
+                >
+                  <Loader2 className={`w-4 h-4 mr-2 ${candidateHarmonizing ? 'animate-spin' : 'hidden'}`} />
+                  Keep selected, delete others
                 </Button>
               </DialogFooter>
             </DialogContent>

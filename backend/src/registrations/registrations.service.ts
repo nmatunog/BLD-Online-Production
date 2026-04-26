@@ -14,6 +14,7 @@ import { UpdateRoomAssignmentDto } from './dto/update-room-assignment.dto';
 import { RegistrationQueryDto } from './dto/registration-query.dto';
 import { ClaimEventCandidateDto } from './dto/claim-event-candidate.dto';
 import { EventCandidateQueryDto } from './dto/event-candidate-query.dto';
+import { ResolveCandidateDuplicateDto } from './dto/resolve-candidate-duplicate.dto';
 import {
   Prisma,
   RegistrationType,
@@ -1090,14 +1091,31 @@ export class RegistrationsService {
         { cleanMobile: { contains: q } },
       ];
     }
-    return this.prisma.eventCandidate.findMany({
+    const rows = await this.prisma.eventCandidate.findMany({
       where,
       include: {
         member: { select: { id: true, communityId: true, firstName: true, lastName: true } },
         registration: { select: { id: true, paymentStatus: true, createdAt: true } },
       },
-      orderBy: [{ status: 'asc' }, { candidateClass: 'asc' }, { familyName: 'asc' }, { firstName: 'asc' }],
+      // Keep newest rows first so de-dup keeps the latest imported/claimed record.
+      orderBy: [{ updatedAt: 'desc' }, { status: 'asc' }, { candidateClass: 'asc' }, { familyName: 'asc' }, { firstName: 'asc' }],
     });
+
+    // Defensive de-duplication by candidate signature to avoid duplicate listings
+    // when the same CSV is uploaded multiple times.
+    const deduped = new Map<string, (typeof rows)[number]>();
+    for (const row of rows) {
+      const key = this.candidateSignatureKey(
+        row.candidateClassNorm,
+        row.familyNameNorm,
+        row.firstNameNorm,
+        row.cleanMobile,
+      );
+      if (!deduped.has(key)) {
+        deduped.set(key, row);
+      }
+    }
+    return Array.from(deduped.values());
   }
 
   async getCandidateSummary(eventId: string) {
@@ -1118,6 +1136,282 @@ export class RegistrationsService {
       registered: byStatus.REGISTERED || 0,
       rejected: byStatus.REJECTED || 0,
     };
+  }
+
+  async getCandidateDuplicatePreview(eventId: string) {
+    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) {
+      throw new NotFoundException(`Event with ID "${eventId}" not found`);
+    }
+
+    const rows = await this.prisma.eventCandidate.findMany({
+      where: { eventId },
+      orderBy: [{ updatedAt: 'desc' }],
+      include: {
+        member: { select: { id: true, communityId: true } },
+        registration: { select: { id: true, createdAt: true } },
+      },
+    });
+
+    const groups = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const key = this.candidateSignatureKey(
+        row.candidateClassNorm,
+        row.familyNameNorm,
+        row.firstNameNorm,
+        row.cleanMobile,
+      );
+      const bucket = groups.get(key) || [];
+      bucket.push(row);
+      groups.set(key, bucket);
+    }
+
+    const duplicateGroups = Array.from(groups.entries())
+      .filter(([, bucket]) => bucket.length > 1)
+      .map(([signature, bucket]) => {
+        const conflictFields = this.getCandidateConflictFields(bucket);
+        return {
+          signature,
+          candidateClass: bucket[0]?.candidateClass || '',
+          familyName: bucket[0]?.familyName || '',
+          firstName: bucket[0]?.firstName || '',
+          cleanMobile: bucket[0]?.cleanMobile || null,
+          count: bucket.length,
+          hasConflicts: conflictFields.length > 0,
+          conflictFields,
+          rows: bucket.map((r) => ({
+            id: r.id,
+            status: r.status,
+            classGroup: r.classGroup,
+            classShepherds: r.classShepherds,
+            mobileNumber: r.mobileNumber,
+            cleanMobile: r.cleanMobile,
+            cmpATaken: r.cmpATaken,
+            memberId: r.memberId,
+            registrationId: r.registrationId,
+            notes: r.notes,
+            updatedAt: r.updatedAt,
+          })),
+        };
+      })
+      .sort((a, b) => b.count - a.count);
+
+    const duplicateRecords = duplicateGroups.reduce((sum, g) => sum + g.count, 0);
+    const recordsToRemove = duplicateGroups.reduce((sum, g) => sum + (g.count - 1), 0);
+
+    return {
+      totalGroups: duplicateGroups.length,
+      duplicateRecords,
+      recordsToRemove,
+      groups: duplicateGroups,
+    };
+  }
+
+  async harmonizeCandidateDuplicates(eventId: string) {
+    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) {
+      throw new NotFoundException(`Event with ID "${eventId}" not found`);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.eventCandidate.findMany({
+        where: { eventId },
+        orderBy: [{ updatedAt: 'desc' }],
+      });
+
+      const groups = new Map<string, typeof rows>();
+      for (const row of rows) {
+        const key = this.candidateSignatureKey(
+          row.candidateClassNorm,
+          row.familyNameNorm,
+          row.firstNameNorm,
+          row.cleanMobile,
+        );
+        const bucket = groups.get(key) || [];
+        bucket.push(row);
+        groups.set(key, bucket);
+      }
+
+      let mergedGroups = 0;
+      let removedRecords = 0;
+
+      for (const [, bucket] of groups.entries()) {
+        if (bucket.length <= 1) continue;
+
+        const sorted = [...bucket].sort((a, b) => {
+          const statusDiff = this.candidateStatusRank(b.status) - this.candidateStatusRank(a.status);
+          if (statusDiff !== 0) return statusDiff;
+          const regDiff = Number(Boolean(b.registrationId)) - Number(Boolean(a.registrationId));
+          if (regDiff !== 0) return regDiff;
+          const memberDiff = Number(Boolean(b.memberId)) - Number(Boolean(a.memberId));
+          if (memberDiff !== 0) return memberDiff;
+          return b.updatedAt.getTime() - a.updatedAt.getTime();
+        });
+
+        const keeper = sorted[0];
+        const duplicates = sorted.slice(1);
+
+        let mergedNotes = keeper.notes || '';
+        let mergedStatus = keeper.status;
+        let claimedAt = keeper.claimedAt;
+        let registeredAt = keeper.registeredAt;
+        let memberId = keeper.memberId;
+        let registrationId = keeper.registrationId;
+        let classGroup = keeper.classGroup;
+        let classShepherds = keeper.classShepherds;
+        let mobileNumber = keeper.mobileNumber;
+        let cleanMobile = keeper.cleanMobile;
+        let cmpATaken = keeper.cmpATaken;
+
+        for (const dup of duplicates) {
+          if (!memberId && dup.memberId) memberId = dup.memberId;
+          if (!registrationId && dup.registrationId) registrationId = dup.registrationId;
+          if (!classGroup && dup.classGroup) classGroup = dup.classGroup;
+          if (!classShepherds && dup.classShepherds) classShepherds = dup.classShepherds;
+          if (!mobileNumber && dup.mobileNumber) mobileNumber = dup.mobileNumber;
+          if (!cleanMobile && dup.cleanMobile) cleanMobile = dup.cleanMobile;
+          if (!cmpATaken && dup.cmpATaken) cmpATaken = dup.cmpATaken;
+          if (!claimedAt && dup.claimedAt) claimedAt = dup.claimedAt;
+          if (!registeredAt && dup.registeredAt) registeredAt = dup.registeredAt;
+          if (this.candidateStatusRank(dup.status) > this.candidateStatusRank(mergedStatus)) {
+            mergedStatus = dup.status;
+          }
+          if (dup.notes && !mergedNotes.includes(dup.notes)) {
+            mergedNotes = [mergedNotes, dup.notes].filter(Boolean).join('\n');
+          }
+        }
+
+        await tx.eventCandidate.update({
+          where: { id: keeper.id },
+          data: {
+            status: mergedStatus,
+            memberId,
+            registrationId,
+            classGroup,
+            classShepherds,
+            mobileNumber,
+            cleanMobile,
+            cmpATaken,
+            claimedAt,
+            registeredAt,
+            notes: mergedNotes || null,
+          },
+        });
+
+        const duplicateIds = duplicates.map((d) => d.id);
+        await tx.eventCandidate.deleteMany({
+          where: { id: { in: duplicateIds } },
+        });
+
+        mergedGroups++;
+        removedRecords += duplicateIds.length;
+      }
+
+      return {
+        mergedGroups,
+        removedRecords,
+      };
+    });
+  }
+
+  async resolveCandidateDuplicate(eventId: string, dto: ResolveCandidateDuplicateDto) {
+    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) {
+      throw new NotFoundException(`Event with ID "${eventId}" not found`);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const rows = await tx.eventCandidate.findMany({
+        where: { eventId },
+        orderBy: [{ updatedAt: 'desc' }],
+      });
+
+      const group = rows.filter((r) => {
+        const key = this.candidateSignatureKey(
+          r.candidateClassNorm,
+          r.familyNameNorm,
+          r.firstNameNorm,
+          r.cleanMobile,
+        );
+        return key === dto.signature;
+      });
+
+      if (group.length <= 1) {
+        throw new BadRequestException('No duplicate group found for the selected signature');
+      }
+
+      const keeper = group.find((r) => r.id === dto.keeperId);
+      if (!keeper) {
+        throw new BadRequestException('Selected keeper row is not in the duplicate group');
+      }
+
+      const deleteIds = (dto.deleteIds && dto.deleteIds.length > 0
+        ? dto.deleteIds
+        : group.filter((r) => r.id !== dto.keeperId).map((r) => r.id))
+        .filter((id) => id !== dto.keeperId);
+
+      if (deleteIds.length === 0) {
+        throw new BadRequestException('No duplicate rows selected for deletion');
+      }
+
+      const duplicates = group.filter((r) => deleteIds.includes(r.id));
+      let mergedStatus = keeper.status;
+      let mergedNotes = keeper.notes || '';
+      let claimedAt = keeper.claimedAt;
+      let registeredAt = keeper.registeredAt;
+      let memberId = keeper.memberId;
+      let registrationId = keeper.registrationId;
+      let classGroup = keeper.classGroup;
+      let classShepherds = keeper.classShepherds;
+      let mobileNumber = keeper.mobileNumber;
+      let cleanMobile = keeper.cleanMobile;
+      let cmpATaken = keeper.cmpATaken;
+
+      for (const dup of duplicates) {
+        if (!memberId && dup.memberId) memberId = dup.memberId;
+        if (!registrationId && dup.registrationId) registrationId = dup.registrationId;
+        if (!classGroup && dup.classGroup) classGroup = dup.classGroup;
+        if (!classShepherds && dup.classShepherds) classShepherds = dup.classShepherds;
+        if (!mobileNumber && dup.mobileNumber) mobileNumber = dup.mobileNumber;
+        if (!cleanMobile && dup.cleanMobile) cleanMobile = dup.cleanMobile;
+        if (!cmpATaken && dup.cmpATaken) cmpATaken = dup.cmpATaken;
+        if (!claimedAt && dup.claimedAt) claimedAt = dup.claimedAt;
+        if (!registeredAt && dup.registeredAt) registeredAt = dup.registeredAt;
+        if (this.candidateStatusRank(dup.status) > this.candidateStatusRank(mergedStatus)) {
+          mergedStatus = dup.status;
+        }
+        if (dup.notes && !mergedNotes.includes(dup.notes)) {
+          mergedNotes = [mergedNotes, dup.notes].filter(Boolean).join('\n');
+        }
+      }
+
+      await tx.eventCandidate.update({
+        where: { id: keeper.id },
+        data: {
+          status: mergedStatus,
+          memberId,
+          registrationId,
+          classGroup,
+          classShepherds,
+          mobileNumber,
+          cleanMobile,
+          cmpATaken,
+          claimedAt,
+          registeredAt,
+          notes: mergedNotes || null,
+        },
+      });
+
+      const deleted = await tx.eventCandidate.deleteMany({
+        where: { id: { in: deleteIds } },
+      });
+
+      return {
+        signature: dto.signature,
+        keeperId: dto.keeperId,
+        removedRecords: deleted.count,
+      };
+    });
   }
 
   async claimCandidateForEvent(eventId: string, dto: ClaimEventCandidateDto) {
@@ -1328,6 +1622,43 @@ export class RegistrationsService {
     cleanMobile?: string | null,
   ): string {
     return `${classNorm}|${familyNorm}|${firstNorm}|${cleanMobile || ''}`;
+  }
+
+  private candidateStatusRank(status: EventCandidateStatus): number {
+    switch (status) {
+      case EventCandidateStatus.REGISTERED:
+        return 4;
+      case EventCandidateStatus.CLAIMED:
+        return 3;
+      case EventCandidateStatus.IMPORTED:
+        return 2;
+      case EventCandidateStatus.REJECTED:
+      default:
+        return 1;
+    }
+  }
+
+  private getCandidateConflictFields(rows: Array<{
+    classGroup: string | null;
+    classShepherds: string | null;
+    mobileNumber: string | null;
+    cleanMobile: string | null;
+    cmpATaken: string | null;
+    notes: string | null;
+    status: EventCandidateStatus;
+  }>): string[] {
+    const conflicts: string[] = [];
+    const hasDiff = <T>(values: T[]) => new Set(values.map((v) => (v ?? null) as T)).size > 1;
+
+    if (hasDiff(rows.map((r) => r.status))) conflicts.push('status');
+    if (hasDiff(rows.map((r) => r.classGroup))) conflicts.push('classGroup');
+    if (hasDiff(rows.map((r) => r.classShepherds))) conflicts.push('classShepherds');
+    if (hasDiff(rows.map((r) => r.mobileNumber))) conflicts.push('mobileNumber');
+    if (hasDiff(rows.map((r) => r.cleanMobile))) conflicts.push('cleanMobile');
+    if (hasDiff(rows.map((r) => r.cmpATaken))) conflicts.push('cmpATaken');
+    if (hasDiff(rows.map((r) => r.notes))) conflicts.push('notes');
+
+    return conflicts;
   }
 
   private parseCandidateClass(candidateClass: string): { encounterType: string; classNumber: number } {

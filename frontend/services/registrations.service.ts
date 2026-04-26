@@ -194,6 +194,35 @@ export interface CandidateSummary {
   rejected: number;
 }
 
+export interface CandidateDuplicatePreview {
+  totalGroups: number;
+  duplicateRecords: number;
+  recordsToRemove: number;
+  groups: Array<{
+    signature: string;
+    candidateClass: string;
+    familyName: string;
+    firstName: string;
+    cleanMobile?: string | null;
+    count: number;
+    hasConflicts: boolean;
+    conflictFields: string[];
+    rows: Array<{
+      id: string;
+      status: 'IMPORTED' | 'CLAIMED' | 'REGISTERED' | 'REJECTED';
+      classGroup?: string | null;
+      classShepherds?: string | null;
+      mobileNumber?: string | null;
+      cleanMobile?: string | null;
+      cmpATaken?: string | null;
+      memberId?: string | null;
+      registrationId?: string | null;
+      notes?: string | null;
+      updatedAt: string;
+    }>;
+  }>;
+}
+
 class RegistrationsService {
   async importCandidatesCsv(
     eventId: string,
@@ -228,6 +257,33 @@ class RegistrationsService {
   async getCandidateSummary(eventId: string): Promise<ApiResponse<CandidateSummary>> {
     const response = await apiClient.get<ApiResponse<CandidateSummary>>(
       `/registrations/events/${eventId}/candidates/summary`,
+    );
+    return response.data;
+  }
+
+  async getCandidateDuplicatePreview(eventId: string): Promise<ApiResponse<CandidateDuplicatePreview>> {
+    const response = await apiClient.get<ApiResponse<CandidateDuplicatePreview>>(
+      `/registrations/events/${eventId}/candidates/duplicates`,
+    );
+    return response.data;
+  }
+
+  async harmonizeCandidateDuplicates(
+    eventId: string,
+  ): Promise<ApiResponse<{ mergedGroups: number; removedRecords: number }>> {
+    const response = await apiClient.post<ApiResponse<{ mergedGroups: number; removedRecords: number }>>(
+      `/registrations/events/${eventId}/candidates/harmonize`,
+    );
+    return response.data;
+  }
+
+  async resolveCandidateDuplicate(
+    eventId: string,
+    data: { signature: string; keeperId: string; deleteIds?: string[] },
+  ): Promise<ApiResponse<{ signature: string; keeperId: string; removedRecords: number }>> {
+    const response = await apiClient.post<ApiResponse<{ signature: string; keeperId: string; removedRecords: number }>>(
+      `/registrations/events/${eventId}/candidates/duplicates/resolve`,
+      data,
     );
     return response.data;
   }
