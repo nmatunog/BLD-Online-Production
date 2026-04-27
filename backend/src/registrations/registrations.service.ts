@@ -1522,21 +1522,38 @@ export class RegistrationsService {
         if (user.member) {
           member = await tx.member.findUnique({ where: { id: user.member.id }, include: { user: true } }) as any;
         } else {
-          generatedCommunityId = await this.generateCommunityId(cityCode, parsedClass.encounterType, String(parsedClass.classNumber));
-          member = await tx.member.create({
-            data: {
-              userId: user.id,
-              firstName: candidate.firstName,
-              lastName: candidate.familyName,
-              communityId: generatedCommunityId,
-              city: cityCode,
-              encounterType: parsedClass.encounterType,
-              classNumber: parsedClass.classNumber,
-              ministry: null,
-              apostolate: null,
-            },
-            include: { user: true },
-          }) as any;
+          // Retry a few times in case concurrent claims generate the same community ID.
+          let createdMember = false;
+          let attempts = 0;
+          while (!createdMember && attempts < 5) {
+            attempts += 1;
+            generatedCommunityId = await this.generateCommunityId(
+              cityCode,
+              parsedClass.encounterType,
+              String(parsedClass.classNumber),
+            );
+            try {
+              member = await tx.member.create({
+                data: {
+                  userId: user.id,
+                  firstName: candidate.firstName,
+                  lastName: candidate.familyName,
+                  communityId: generatedCommunityId,
+                  city: cityCode,
+                  encounterType: parsedClass.encounterType,
+                  classNumber: parsedClass.classNumber,
+                  ministry: null,
+                  apostolate: null,
+                },
+                include: { user: true },
+              }) as any;
+              createdMember = true;
+            } catch (error) {
+              if (!this.isCommunityIdUniqueConflict(error) || attempts >= 5) {
+                throw error;
+              }
+            }
+          }
         }
       }
 
@@ -1749,6 +1766,15 @@ export class RegistrationsService {
     const formattedSequence = String(nextSequence).padStart(2, '0');
 
     return `${cityCode}-${encounterCode}${formattedClassNumber}${formattedSequence}`;
+  }
+
+  private isCommunityIdUniqueConflict(error: unknown): boolean {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+    if (error.code !== 'P2002') return false;
+    const target = Array.isArray((error.meta as { target?: unknown })?.target)
+      ? ((error.meta as { target?: unknown[] }).target as unknown[])
+      : [];
+    return target.includes('communityId');
   }
 }
 
