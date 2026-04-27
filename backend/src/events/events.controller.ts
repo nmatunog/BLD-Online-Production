@@ -149,7 +149,7 @@ export class EventsController {
     return {
       success: true,
       data: result,
-      message: `Corrected ${result.groupsProcessed} group(s): ${result.eventsRemoved} duplicate(s) removed, ${result.attendancesMerged} check-in(s) kept.`,
+      message: `Corrected ${result.groupsProcessed} group(s): ${result.eventsRemoved} duplicate event(s) removed, ${result.attendancesMerged} check-in(s) merged, ${result.registrationsMerged} registration row(s) merged, ${result.candidatesMerged} candidate row(s) merged.`,
     };
   }
 

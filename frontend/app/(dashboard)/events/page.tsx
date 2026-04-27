@@ -43,6 +43,58 @@ function isUnauthorizedError(error: unknown): boolean {
   return e?.response?.status === 401;
 }
 
+function recurringDisplaySlotKey(event: Event): string {
+  if (!event.recurrenceTemplateId) return event.id;
+  const d = new Date(event.startDate);
+  const dayKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+  return `${event.recurrenceTemplateId}|${dayKey}|${event.startTime || ''}`;
+}
+
+function eventQualityScore(event: Event): number {
+  const registrations = event._count?.registrations || 0;
+  const attendances = event._count?.attendances || 0;
+  return registrations * 10 + attendances;
+}
+
+function dedupeRecurringDisplayEvents(list: Event[]): Event[] {
+  const bySlot = new Map<string, Event>();
+
+  for (const event of list) {
+    // Non-recurring rows are shown as-is.
+    if (!event.recurrenceTemplateId) {
+      bySlot.set(`single|${event.id}`, event);
+      continue;
+    }
+
+    const key = recurringDisplaySlotKey(event);
+    const existing = bySlot.get(key);
+    if (!existing) {
+      bySlot.set(key, event);
+      continue;
+    }
+
+    // Keep the richer row for same recurring slot:
+    // 1) more registration/attendance data
+    // 2) newer updatedAt
+    // 3) stable fallback on id
+    const existingScore = eventQualityScore(existing);
+    const nextScore = eventQualityScore(event);
+    if (nextScore > existingScore) {
+      bySlot.set(key, event);
+      continue;
+    }
+    if (nextScore === existingScore) {
+      const existingUpdated = new Date(existing.updatedAt).getTime();
+      const nextUpdated = new Date(event.updatedAt).getTime();
+      if (nextUpdated > existingUpdated || (nextUpdated === existingUpdated && event.id > existing.id)) {
+        bySlot.set(key, event);
+      }
+    }
+  }
+
+  return Array.from(bySlot.values());
+}
+
 export default function EventsPage() {
   const router = useRouter();
   const [events, setEvents] = useState<Event[]>([]);
@@ -425,9 +477,11 @@ export default function EventsPage() {
     return Array.from(types).sort();
   }, [events]);
 
+  const dedupedEvents = useMemo(() => dedupeRecurringDisplayEvents(events), [events]);
+
   // Filter and sort events
   const filteredEvents = useMemo(() => {
-    let filtered = [...events];
+    let filtered = [...dedupedEvents];
 
     // Apply search filter
     if (searchTerm) {
@@ -469,7 +523,7 @@ export default function EventsPage() {
     });
 
     return filtered;
-  }, [events, searchTerm, filterStatus, filterType, sortBy, sortOrder]);
+  }, [dedupedEvents, searchTerm, filterStatus, filterType, sortBy, sortOrder]);
 
   // Group events: ongoing (in check-in window) first, then upcoming, then completed within 7 days. Hide completed past 7 days from main list.
   const groupedEvents = useMemo(() => {

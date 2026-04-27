@@ -158,19 +158,37 @@ export class EventsService implements OnModuleInit {
       }
     }
 
-    // Prevent creating obvious duplicate events with same title, date, time, and location
-    const existingSameSlot = await this.prisma.event.findFirst({
+    // Fresh duplicate rule:
+    // same time + same day-of-week + same ministry + same venue => duplicate slot
+    // (regardless of who created it or title differences).
+    const newWeekday = startDate.getUTCDay();
+    const newMinistry = (createEventDto.ministry || '').trim().toLowerCase();
+    const newVenue = (createEventDto.venue || '').trim().toLowerCase();
+    const slotCandidates = await this.prisma.event.findMany({
       where: {
-        title: createEventDto.title.trim(),
-        location: createEventDto.location.trim(),
-        startDate: startDate,
+        isRecurring: true,
         startTime: createEventDto.startTime || null,
-        status: { in: [EventStatus.UPCOMING, EventStatus.ONGOING] },
+        venue: createEventDto.venue || null,
+        status: { in: [EventStatus.UPCOMING, EventStatus.ONGOING, EventStatus.COMPLETED] },
       },
+      select: {
+        id: true,
+        title: true,
+        startDate: true,
+        startTime: true,
+        venue: true,
+        ministry: true,
+      },
+    });
+    const existingSameSlot = slotCandidates.find((e) => {
+      const sameWeekday = new Date(e.startDate).getUTCDay() === newWeekday;
+      const sameMinistry = ((e.ministry || '').trim().toLowerCase() === newMinistry);
+      const sameVenue = ((e.venue || '').trim().toLowerCase() === newVenue);
+      return sameWeekday && sameMinistry && sameVenue;
     });
     if (existingSameSlot) {
       throw new BadRequestException(
-        'An event with the same title, date, time, and location already exists. Please edit the existing event instead of creating a new one.',
+        `Duplicate recurring slot detected (same day/time/ministry/venue). Existing event: "${existingSameSlot.title}". Please edit the existing event instead of creating a new one.`,
       );
     }
 
@@ -323,11 +341,19 @@ export class EventsService implements OnModuleInit {
           const dayEnd = new Date(dayStart);
           dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
 
+          // Fresh idempotency rule: one visible recurring slot per title/day/time/ministry,
+          // even if templates were accidentally duplicated.
+          const ministry = template.ministry?.trim() || null;
           const existing = await this.prisma.event.findFirst({
             where: {
-              recurrenceTemplateId: templateId,
+              isRecurring: true,
+              title: template.title,
+              category: template.category,
               startTime: template.startTime,
               startDate: { gte: dayStart, lt: dayEnd },
+              ...(ministry
+                ? { ministry }
+                : { OR: [{ ministry: null }, { ministry: '' }] }),
             },
           });
           if (existing) continue;
@@ -1088,10 +1114,12 @@ export class EventsService implements OnModuleInit {
    * Super User only: correct all duplicate groups by retaining one event per group and deleting the rest.
    * For each duplicate event that has check-ins, merges those attendances into the retained event (so no attendance is lost), then removes the duplicate.
    */
-  async correctAllDuplicates(userId?: string): Promise<{ groupsProcessed: number; eventsRemoved: number; attendancesMerged: number }> {
+  async correctAllDuplicates(userId?: string): Promise<{ groupsProcessed: number; eventsRemoved: number; attendancesMerged: number; registrationsMerged: number; candidatesMerged: number }> {
     const { groups } = await this.findDuplicates();
     let eventsRemoved = 0;
     let attendancesMerged = 0;
+    let registrationsMerged = 0;
+    let candidatesMerged = 0;
 
     for (const group of groups) {
       const events = group.events as Array<{ id: string; createdAt: Date }>;
@@ -1105,25 +1133,242 @@ export class EventsService implements OnModuleInit {
       const duplicateIds = sorted.slice(1).map((e) => e.id);
 
       for (const duplicateId of duplicateIds) {
-        // Bulk-merge check-ins using a single INSERT..SELECT with ON CONFLICT DO NOTHING
-        // Attendance has @@unique([memberId, eventId]) so duplicates won't be created.
-        const inserted = await this.prisma.$executeRaw`
-          INSERT INTO "Attendance" ("id", "memberId", "eventId", "checkInTime", "method", "createdAt")
-          SELECT gen_random_uuid(), a."memberId", ${retainId}, a."checkInTime", a."method", now()
-          FROM "Attendance" a
-          WHERE a."eventId" = ${duplicateId}
-          ON CONFLICT ("memberId", "eventId") DO NOTHING
-        `;
-        // $executeRaw returns number of affected rows for INSERT in Postgres
-        attendancesMerged += Number(inserted || 0);
-
-        await this.prisma.attendance.deleteMany({ where: { eventId: duplicateId } });
-        await this.remove(duplicateId, userId);
-        eventsRemoved++;
+        const merged = await this.prisma.$transaction(async (tx) => {
+          return this.mergeDuplicateEventIntoCanonical(tx, retainId, duplicateId, userId);
+        });
+        attendancesMerged += merged.attendancesMerged;
+        registrationsMerged += merged.registrationsMerged;
+        candidatesMerged += merged.candidatesMerged;
+        eventsRemoved += merged.eventsRemoved;
       }
     }
 
-    return { groupsProcessed: groups.length, eventsRemoved, attendancesMerged };
+    return { groupsProcessed: groups.length, eventsRemoved, attendancesMerged, registrationsMerged, candidatesMerged };
+  }
+
+  private normalizeNameToken(value?: string | null): string {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  private normalizePhoneToken(value?: string | null): string {
+    return String(value || '').replace(/\D+/g, '');
+  }
+
+  private normalizeEmailToken(value?: string | null): string {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  private mergeText(a?: string | null, b?: string | null): string {
+    const first = String(a || '').trim();
+    const second = String(b || '').trim();
+    if (!first) return second;
+    if (!second) return first;
+    if (first.includes(second)) return first;
+    if (second.includes(first)) return second;
+    return `${first}\n${second}`;
+  }
+
+  private paymentStatusRank(status?: string | null): number {
+    switch (status) {
+      case 'PAID':
+        return 4;
+      case 'REFUNDED':
+        return 3;
+      case 'PENDING':
+        return 2;
+      case 'CANCELLED':
+      default:
+        return 1;
+    }
+  }
+
+  private candidateStatusRank(status?: string | null): number {
+    switch (status) {
+      case 'REGISTERED':
+        return 4;
+      case 'CLAIMED':
+        return 3;
+      case 'IMPORTED':
+        return 2;
+      case 'REJECTED':
+      default:
+        return 1;
+    }
+  }
+
+  private async mergeDuplicateEventIntoCanonical(
+    tx: Prisma.TransactionClient,
+    retainId: string,
+    duplicateId: string,
+    userId?: string,
+  ): Promise<{ eventsRemoved: number; attendancesMerged: number; registrationsMerged: number; candidatesMerged: number }> {
+    let attendancesMerged = 0;
+    let registrationsMerged = 0;
+    let candidatesMerged = 0;
+
+    const insertedAttendances = await tx.$executeRaw`
+      INSERT INTO "Attendance" ("id", "memberId", "eventId", "checkInTime", "method", "createdAt")
+      SELECT gen_random_uuid(), a."memberId", ${retainId}, a."checkInTime", a."method", now()
+      FROM "Attendance" a
+      WHERE a."eventId" = ${duplicateId}
+      ON CONFLICT ("memberId", "eventId") DO NOTHING
+    `;
+    attendancesMerged += Number(insertedAttendances || 0);
+    await tx.attendance.deleteMany({ where: { eventId: duplicateId } });
+
+    const duplicateRegs = await tx.eventRegistration.findMany({
+      where: { eventId: duplicateId },
+      orderBy: { createdAt: 'asc' },
+    });
+    const retainedRegs = await tx.eventRegistration.findMany({
+      where: { eventId: retainId },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    for (const src of duplicateRegs) {
+      const target = retainedRegs.find((r) => {
+        if (src.memberId && r.memberId) return r.memberId === src.memberId;
+        if (!src.memberId && !r.memberId) {
+          return (
+            r.registrationType === src.registrationType &&
+            this.normalizeNameToken(r.firstName) === this.normalizeNameToken(src.firstName) &&
+            this.normalizeNameToken(r.lastName) === this.normalizeNameToken(src.lastName) &&
+            this.normalizePhoneToken(r.phone) === this.normalizePhoneToken(src.phone) &&
+            this.normalizeEmailToken(r.email) === this.normalizeEmailToken(src.email)
+          );
+        }
+        return false;
+      });
+
+      if (!target) {
+        await tx.eventRegistration.update({
+          where: { id: src.id },
+          data: { eventId: retainId },
+        });
+        retainedRegs.push({ ...src, eventId: retainId });
+        registrationsMerged++;
+        continue;
+      }
+
+      const mergedNotes = this.mergeText(target.notes, src.notes);
+      const betterStatus =
+        this.paymentStatusRank(src.paymentStatus) > this.paymentStatusRank(target.paymentStatus)
+          ? src.paymentStatus
+          : target.paymentStatus;
+
+      await tx.eventRegistration.update({
+        where: { id: target.id },
+        data: {
+          paymentStatus: betterStatus,
+          paymentAmount: target.paymentAmount ?? src.paymentAmount,
+          paymentReference: target.paymentReference || src.paymentReference || null,
+          notes: mergedNotes || null,
+          emergencyContact: target.emergencyContact || src.emergencyContact || null,
+          roomAssignment: target.roomAssignment || src.roomAssignment || null,
+          memberCommunityId: target.memberCommunityId || src.memberCommunityId || null,
+        },
+      });
+
+      await tx.eventCandidate.updateMany({
+        where: { registrationId: src.id },
+        data: { registrationId: target.id, eventId: retainId },
+      });
+
+      await tx.eventRegistration.delete({ where: { id: src.id } });
+      registrationsMerged++;
+    }
+
+    const duplicateCandidates = await tx.eventCandidate.findMany({
+      where: { eventId: duplicateId },
+      orderBy: { updatedAt: 'desc' },
+    });
+    for (const c of duplicateCandidates) {
+      const existing = await tx.eventCandidate.findFirst({
+        where: {
+          eventId: retainId,
+          candidateClassNorm: c.candidateClassNorm,
+          familyNameNorm: c.familyNameNorm,
+          firstNameNorm: c.firstNameNorm,
+          cleanMobile: c.cleanMobile,
+        },
+      });
+
+      if (!existing) {
+        await tx.eventCandidate.update({
+          where: { id: c.id },
+          data: { eventId: retainId },
+        });
+        candidatesMerged++;
+        continue;
+      }
+
+      const mergedStatus =
+        this.candidateStatusRank(c.status) > this.candidateStatusRank(existing.status)
+          ? c.status
+          : existing.status;
+      await tx.eventCandidate.update({
+        where: { id: existing.id },
+        data: {
+          status: mergedStatus,
+          memberId: existing.memberId || c.memberId,
+          registrationId: existing.registrationId || c.registrationId,
+          classGroup: existing.classGroup || c.classGroup,
+          classShepherds: existing.classShepherds || c.classShepherds,
+          mobileNumber: existing.mobileNumber || c.mobileNumber,
+          cleanMobile: existing.cleanMobile || c.cleanMobile,
+          cmpATaken: existing.cmpATaken || c.cmpATaken,
+          claimedAt: existing.claimedAt || c.claimedAt,
+          registeredAt: existing.registeredAt || c.registeredAt,
+          notes: this.mergeText(existing.notes, c.notes) || null,
+        },
+      });
+      await tx.eventCandidate.delete({ where: { id: c.id } });
+      candidatesMerged++;
+    }
+
+    const dupAssignments = await tx.eventClassShepherd.findMany({ where: { eventId: duplicateId } });
+    for (const assignment of dupAssignments) {
+      const existingAssignment = await tx.eventClassShepherd.findFirst({
+        where: {
+          eventId: retainId,
+          userId: assignment.userId,
+          encounterType: assignment.encounterType,
+          classNumber: assignment.classNumber,
+        },
+      });
+      if (!existingAssignment) {
+        await tx.eventClassShepherd.create({
+          data: {
+            eventId: retainId,
+            userId: assignment.userId,
+            encounterType: assignment.encounterType,
+            classNumber: assignment.classNumber,
+            assignedBy: userId || assignment.assignedBy,
+          },
+        });
+      }
+    }
+
+    const duplicateAccount = await tx.eventAccount.findUnique({ where: { eventId: duplicateId } });
+    if (duplicateAccount) {
+      const retainedAccount = await tx.eventAccount.findUnique({ where: { eventId: retainId } });
+      if (!retainedAccount) {
+        await tx.eventAccount.update({
+          where: { id: duplicateAccount.id },
+          data: { eventId: retainId },
+        });
+      } else {
+        await tx.incomeEntry.updateMany({ where: { accountId: duplicateAccount.id }, data: { accountId: retainedAccount.id } });
+        await tx.expenseEntry.updateMany({ where: { accountId: duplicateAccount.id }, data: { accountId: retainedAccount.id } });
+        await tx.adjustmentEntry.updateMany({ where: { accountId: duplicateAccount.id }, data: { accountId: retainedAccount.id } });
+        await tx.cashAdvance.updateMany({ where: { accountId: duplicateAccount.id }, data: { accountId: retainedAccount.id } });
+        await tx.monitoredDisbursement.updateMany({ where: { accountId: duplicateAccount.id }, data: { accountId: retainedAccount.id } });
+        await tx.eventAccount.delete({ where: { id: duplicateAccount.id } });
+      }
+    }
+
+    await tx.event.delete({ where: { id: duplicateId } });
+    return { eventsRemoved: 1, attendancesMerged, registrationsMerged, candidatesMerged };
   }
 
   async regenerateQRCode(id: string) {

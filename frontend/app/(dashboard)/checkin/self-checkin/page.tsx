@@ -339,6 +339,31 @@ function SelfCheckInContent() {
         toast.success('You’re checked in!');
       }
     } catch (err: unknown) {
+      const data =
+        err && typeof err === 'object' && 'response' in err && err.response && typeof err.response === 'object' && 'data' in err.response
+          ? (err.response as { data?: { code?: string; canonicalEvent?: { id: string; title?: string; startTime?: string | null; venue?: string | null }; message?: string | string[] } }).data
+          : undefined;
+      if (data?.code === 'DUPLICATE_EVENT_CANONICAL' && data.canonicalEvent?.id) {
+        const canonical = data.canonicalEvent;
+        const proceed = window.confirm(
+          `This event appears to be a duplicate slot.\n\nCheck in to canonical event instead?\n\n${canonical.title || 'Canonical event'}\n${canonical.startTime || ''} ${canonical.venue ? `@ ${canonical.venue}` : ''}`
+        );
+        if (proceed) {
+          setSelectedEventId(canonical.id);
+          const retry = await attendanceService.checkIn({
+            communityId: currentMember.communityId,
+            eventId: canonical.id,
+            method: 'QR_CODE',
+          });
+          if (retry.success && retry.data) {
+            setIsCheckedIn(true);
+            setMyAttendances((prev) => [retry.data as Attendance, ...prev]);
+            await loadEventList();
+            toast.success('You’re checked in!');
+            return;
+          }
+        }
+      }
       const msg =
         err && typeof err === 'object' && 'response' in err && err.response && typeof err.response === 'object' && 'data' in err.response
           ? (err.response as { data?: { message?: string | string[] } }).data?.message

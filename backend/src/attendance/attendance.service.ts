@@ -9,7 +9,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateAttendanceDto } from './dto/create-attendance.dto';
 import { AttendanceQueryDto } from './dto/attendance-query.dto';
 import { MemberLookupService } from '../common/services/member-lookup.service';
-import { CheckInMethod, UserRole } from '@prisma/client';
+import { CheckInMethod, EventStatus, UserRole } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
 @Injectable()
@@ -31,6 +31,22 @@ export class AttendanceService {
 
     if (!event) {
       throw new NotFoundException('Event not found');
+    }
+
+    const canonicalEvent = await this.findCanonicalDuplicateEvent(event.id);
+    if (canonicalEvent && canonicalEvent.id !== event.id) {
+      throw new ConflictException({
+        code: 'DUPLICATE_EVENT_CANONICAL',
+        message: 'This event is a duplicate slot. Please check in to the canonical event instead.',
+        canonicalEvent: {
+          id: canonicalEvent.id,
+          title: canonicalEvent.title,
+          startDate: canonicalEvent.startDate,
+          startTime: canonicalEvent.startTime,
+          location: canonicalEvent.location,
+          venue: canonicalEvent.venue,
+        },
+      });
     }
 
     // Check if event is ongoing or upcoming
@@ -461,6 +477,68 @@ export class AttendanceService {
       qrCodeCount,
       manualCount,
     };
+  }
+
+  private async findCanonicalDuplicateEvent(eventId: string) {
+    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    if (!event || !event.startTime) return null;
+
+    const start = new Date(event.startDate);
+    const weekday = start.getUTCDay();
+    const ministry = (event.ministry || '').trim().toLowerCase();
+    const venue = (event.venue || '').trim().toLowerCase();
+
+    const candidates = await this.prisma.event.findMany({
+      where: {
+        id: { not: event.id },
+        isRecurring: true,
+        startTime: event.startTime,
+        venue: event.venue || null,
+        status: { in: [EventStatus.UPCOMING, EventStatus.ONGOING, EventStatus.COMPLETED] },
+      },
+      select: {
+        id: true,
+        title: true,
+        startDate: true,
+        startTime: true,
+        location: true,
+        venue: true,
+        ministry: true,
+        createdAt: true,
+      },
+    });
+
+    const sameSlot = candidates.filter((e) => {
+      const sameWeekday = new Date(e.startDate).getUTCDay() === weekday;
+      const eMinistry = (e.ministry || '').trim().toLowerCase();
+      const eVenue = (e.venue || '').trim().toLowerCase();
+      const sameMinistry = eMinistry === ministry;
+      const sameVenue = eVenue === venue;
+      return sameWeekday && sameMinistry && sameVenue;
+    });
+
+    if (sameSlot.length === 0) return null;
+
+    const all = [
+      {
+        id: event.id,
+        title: event.title,
+        startDate: event.startDate,
+        startTime: event.startTime,
+        location: event.location,
+        venue: event.venue,
+        createdAt: event.createdAt,
+      },
+      ...sameSlot,
+    ];
+
+    all.sort((a, b) => {
+      const byCreated = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      if (byCreated !== 0) return byCreated;
+      return a.id.localeCompare(b.id);
+    });
+
+    return all[0];
   }
 }
 

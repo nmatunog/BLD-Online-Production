@@ -412,6 +412,39 @@ function CheckInContent() {
         loadStats();
       }
     } catch (error: any) {
+      const conflictPayload = error?.response?.data;
+      const conflictCode = conflictPayload?.code;
+      const canonical = conflictPayload?.canonicalEvent;
+      if (conflictCode === 'DUPLICATE_EVENT_CANONICAL' && canonical?.id) {
+        const proceed = window.confirm(
+          `This event card is a duplicate slot.\n\nCheck in to canonical event instead?\n\n${canonical.title}\n${canonical.startTime || ''} ${canonical.venue ? `@ ${canonical.venue}` : ''}`
+        );
+        if (proceed) {
+          setSelectedEvent(canonical.id);
+          toast.info('Switching to canonical event for check-in...');
+          const retry = await attendanceService.checkIn({
+            communityId: normalizedCommunityId,
+            eventId: canonical.id,
+            method: 'QR_CODE',
+          });
+          if (retry.success && retry.data) {
+            const member = retry.data.member;
+            const displayName = member.nickname
+              ? `${member.nickname} ${member.lastName}`
+              : `${member.firstName} ${member.lastName}`;
+            toast.success('✅ Check-in Successful!', {
+              description: `${displayName} (${member.communityId}) has been checked in`,
+              duration: 5000,
+            });
+            setManualCheckIn('');
+            setSearchResults([]);
+            setShowSearchResults(false);
+            loadRecentCheckIns();
+            loadStats();
+            return;
+          }
+        }
+      }
       // Extract validation errors from backend response (e.g. "check-in only 2 hours before event")
       let errorMessage = 'Failed to check in';
       

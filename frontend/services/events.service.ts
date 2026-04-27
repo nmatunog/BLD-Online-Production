@@ -36,6 +36,7 @@ export interface Event {
   monthlyDayOfMonth: number | null;
   monthlyWeekOfMonth: number | null;
   monthlyDayOfWeek: string | null;
+  recurrenceTemplateId: string | null;
   encounterType: string | null;
   classNumber: number | null;
   ministry: string | null;
