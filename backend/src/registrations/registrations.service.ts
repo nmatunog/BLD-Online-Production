@@ -966,7 +966,11 @@ export class RegistrationsService {
 
       const rawMobile = String(row[idx('Mobile Number')] || '').trim();
       const cleanMobileCsv = String(row[idx('Clean Mobile')] || '').trim();
-      const normalizedMobile = cleanMobileCsv || (rawMobile ? normalizePhoneNumber(rawMobile) : null);
+      const normalizedMobile = cleanMobileCsv
+        ? normalizePhoneNumber(cleanMobileCsv) || cleanMobileCsv
+        : rawMobile
+          ? normalizePhoneNumber(rawMobile)
+          : null;
 
       normalizedRows.push({
         row: r + 1,
@@ -1431,7 +1435,6 @@ export class RegistrationsService {
         candidateClassNorm: classNorm,
         familyNameNorm: familyNorm,
         firstNameNorm: firstNorm,
-        ...(normalizedMobile ? { OR: [{ cleanMobile: normalizedMobile }, { cleanMobile: null }] } : {}),
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -1439,12 +1442,24 @@ export class RegistrationsService {
     if (candidates.length === 0) {
       throw new NotFoundException('No candidate match found for this event');
     }
-    if (candidates.length > 1 && !normalizedMobile) {
+    const withSameMobile = normalizedMobile
+      ? candidates.filter((c) => {
+          const candidateClean = normalizePhoneNumber(c.cleanMobile) || c.cleanMobile;
+          const candidateRaw = normalizePhoneNumber(c.mobileNumber) || c.mobileNumber;
+          return candidateClean === normalizedMobile || candidateRaw === normalizedMobile;
+        })
+      : candidates;
+
+    if (withSameMobile.length === 0 && normalizedMobile) {
+      throw new NotFoundException('No candidate match found for this event and mobile number');
+    }
+    if (withSameMobile.length > 1 && !normalizedMobile) {
       throw new ConflictException('Multiple candidate rows matched. Provide mobile number to disambiguate.');
     }
-    const candidate = normalizedMobile
-      ? candidates.find((c) => c.cleanMobile === normalizedMobile) || candidates[0]
-      : candidates[0];
+    if (withSameMobile.length > 1 && normalizedMobile) {
+      throw new ConflictException('Multiple candidate rows matched this mobile number. Resolve duplicates first.');
+    }
+    const candidate = withSameMobile[0];
 
     const parsedClass = this.parseCandidateClass(candidate.candidateClass);
     const cityCode = this.deriveCityCode(event.location);
