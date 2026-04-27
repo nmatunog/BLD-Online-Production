@@ -135,6 +135,17 @@ model Member {
   @@index([encounterType])
 }
 
+model CommunityIdCounter {
+  cityCode      String
+  encounterCode String
+  classNumber   Int
+  nextSequence  Int      @default(1)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@id([cityCode, encounterCode, classNumber])
+}
+
 model Event {
   id                String        @id @default(uuid())
   title             String

@@ -258,7 +258,8 @@ export class RegistrationsService {
             // Generate Community ID (city and encounterType are guaranteed to exist due to outer if check)
             const city = registerNonMemberDto.city!;
             const encounterType = registerNonMemberDto.encounterType!;
-            const communityId = await this.generateCommunityId(
+            const communityId = await this.reserveNextCommunityId(
+              this.prisma,
               city,
               encounterType,
               registerNonMemberDto.classNumber!,
@@ -304,7 +305,8 @@ export class RegistrationsService {
           // Generate Community ID (city and encounterType are guaranteed to exist due to outer if check)
           const city = registerNonMemberDto.city!;
           const encounterType = registerNonMemberDto.encounterType!;
-          const communityId = await this.generateCommunityId(
+          const communityId = await this.reserveNextCommunityId(
+            this.prisma,
             city,
             encounterType,
             registerNonMemberDto.classNumber!,
@@ -1534,7 +1536,8 @@ export class RegistrationsService {
             if (user.member) {
               member = await tx.member.findUnique({ where: { id: user.member.id }, include: { user: true } }) as any;
             } else {
-              generatedCommunityId = await this.generateCommunityId(
+              generatedCommunityId = await this.reserveNextCommunityId(
+                tx,
                 cityCode,
                 parsedClass.encounterType,
                 String(parsedClass.classNumber),
@@ -1724,7 +1727,8 @@ export class RegistrationsService {
     return letters.substring(0, 3).padEnd(3, 'X');
   }
 
-  private async generateCommunityId(
+  private async reserveNextCommunityId(
+    client: Prisma.TransactionClient | PrismaService,
     city: string,
     encounterType: string,
     classNumber: string,
@@ -1739,40 +1743,38 @@ export class RegistrationsService {
       );
     }
 
-    const formattedClassNumber = String(parsedClassNumber).padStart(2, '0');
-    const prefix = `${cityCode}-${encounterCode}${formattedClassNumber}`;
-
-    // Find existing community IDs by actual ID prefix (more reliable than legacy city/encounter/class columns).
-    const existingMembers = await this.prisma.member.findMany({
+    const counter = await client.communityIdCounter.upsert({
       where: {
-        communityId: {
-          startsWith: prefix,
+        cityCode_encounterCode_classNumber: {
+          cityCode,
+          encounterCode,
+          classNumber: parsedClassNumber,
         },
       },
-      select: {
-        communityId: true,
+      create: {
+        cityCode,
+        encounterCode,
+        classNumber: parsedClassNumber,
+        // Reserve first ID (sequence 01), persist next as 02.
+        nextSequence: 2,
       },
+      update: {
+        nextSequence: { increment: 1 },
+      },
+      select: { nextSequence: true },
     });
 
-    let nextSequence = 1;
-    if (existingMembers.length > 0) {
-      const maxSequence = existingMembers.reduce((max, member) => {
-        const match = member.communityId.match(new RegExp(`^${prefix}(\\d{2})$`));
-        if (match) {
-          return Math.max(max, parseInt(match[1], 10));
-        }
-        return max;
-      }, 0);
-      nextSequence = maxSequence + 1;
-    }
+    const allocatedSequence = counter.nextSequence - 1;
 
-    if (nextSequence > 99) {
+    if (allocatedSequence > 99) {
       throw new ConflictException(
         `Maximum members (99) reached for class ${classNumber} in ${cityCode}-${encounterCode}.`,
       );
     }
 
-    const formattedSequence = String(nextSequence).padStart(2, '0');
+    const formattedClassNumber = String(parsedClassNumber).padStart(2, '0');
+    const prefix = `${cityCode}-${encounterCode}${formattedClassNumber}`;
+    const formattedSequence = String(allocatedSequence).padStart(2, '0');
     return `${prefix}${formattedSequence}`;
   }
 
