@@ -75,6 +75,8 @@ model User {
   eventClassShepherds EventClassShepherd[]
   eventsCreated Event[] @relation("EventCreatedBy")
   eventAuditLogs EventAuditLog[]
+  createdTempCredentials TempCredentialLog[] @relation("TempCredentialCreatedBy")
+  tempCredentials TempCredentialLog[] @relation("TempCredentialUser")
 
   @@index([email])
   @@index([phone])
@@ -129,6 +131,7 @@ model Member {
   attendances     Attendance[]
   registrations   EventRegistration[]
   claimedCandidates EventCandidate[]
+  tempCredentials TempCredentialLog[]
 
   @@index([communityId])
   @@index([city])
@@ -191,6 +194,7 @@ model Event {
   candidates        EventCandidate[]
   account           EventAccount?
   classShepherds    EventClassShepherd[]
+  tempCredentials   TempCredentialLog[]
 
   @@index([status])
   @@index([encounterType, classNumber])
@@ -198,6 +202,29 @@ model Event {
   @@index([eventType])
   @@index([ministry])
   @@index([recurrenceTemplateId])
+}
+
+model TempCredentialLog {
+  id              String   @id @default(uuid())
+  eventId         String
+  userId          String
+  memberId        String
+  createdByUserId String
+  firstName       String
+  lastName        String
+  communityId     String
+  tempPassword    String
+  expiresAt       DateTime
+  createdAt       DateTime @default(now())
+
+  event           Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user            User     @relation("TempCredentialUser", fields: [userId], references: [id], onDelete: Cascade)
+  member          Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  createdBy       User     @relation("TempCredentialCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, createdAt])
+  @@index([expiresAt])
+  @@index([communityId])
 }
 
 enum EventAuditAction {

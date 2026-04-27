@@ -1420,7 +1420,7 @@ export class RegistrationsService {
     });
   }
 
-  async claimCandidateForEvent(eventId: string, dto: ClaimEventCandidateDto) {
+  async claimCandidateForEvent(eventId: string, dto: ClaimEventCandidateDto, createdByUserId: string) {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException(`Event with ID "${eventId}" not found`);
     if (!event.hasRegistration) throw new BadRequestException('This event does not have registration enabled');
@@ -1482,6 +1482,7 @@ export class RegistrationsService {
           let member = candidate.memberId
             ? await tx.member.findUnique({ where: { id: candidate.memberId }, include: { user: true } })
             : null;
+          let resolvedUserId: string | null = member?.userId || null;
           let tempPassword: string | null = null;
           let userCreated = false;
           let generatedCommunityId: string | null = null;
@@ -1532,6 +1533,7 @@ export class RegistrationsService {
               });
               userCreated = true;
             }
+            resolvedUserId = user.id;
 
             if (user.member) {
               member = await tx.member.findUnique({ where: { id: user.member.id }, include: { user: true } }) as any;
@@ -1599,6 +1601,24 @@ export class RegistrationsService {
             },
           });
 
+          if (userCreated && tempPassword && resolvedUserId && member?.id) {
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + 30);
+            await tx.tempCredentialLog.create({
+              data: {
+                eventId,
+                userId: resolvedUserId,
+                memberId: member.id,
+                createdByUserId,
+                firstName: member.firstName,
+                lastName: member.lastName,
+                communityId: member.communityId,
+                tempPassword,
+                expiresAt,
+              },
+            });
+          }
+
           return {
             candidateId: candidate.id,
             memberId: member.id,
@@ -1625,6 +1645,35 @@ export class RegistrationsService {
     }
 
     return result;
+  }
+
+  async listTempCredentialLogs(eventId: string, includeExpired = false) {
+    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) throw new NotFoundException(`Event with ID "${eventId}" not found`);
+
+    const now = new Date();
+    return this.prisma.tempCredentialLog.findMany({
+      where: {
+        eventId,
+        ...(includeExpired ? {} : { expiresAt: { gte: now } }),
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        communityId: true,
+        tempPassword: true,
+        createdAt: true,
+        expiresAt: true,
+        createdBy: {
+          select: {
+            id: true,
+            email: true,
+          },
+        },
+      },
+    });
   }
 
   private parseCsv(csv: string): string[][] {

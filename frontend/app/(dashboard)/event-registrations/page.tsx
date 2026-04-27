@@ -22,6 +22,7 @@ import {
   type EventCandidate,
   type CandidateSummary,
   type CandidateDuplicatePreview,
+  type TempCredentialLogItem,
 } from '@/services/registrations.service';
 import { authService } from '@/services/auth.service';
 import RegistrationSummary from '@/components/registrations/RegistrationSummary';
@@ -81,6 +82,12 @@ function EventRegistrationsContent() {
   const [claimMobile, setClaimMobile] = useState('');
   const [claimEmail, setClaimEmail] = useState('');
   const [claimSubmitting, setClaimSubmitting] = useState(false);
+  const [showTempCredentialDialog, setShowTempCredentialDialog] = useState(false);
+  const [tempCredentialLoading, setTempCredentialLoading] = useState(false);
+  const [tempCredentials, setTempCredentials] = useState<TempCredentialLogItem[]>([]);
+  const [includeExpiredTempCredentials, setIncludeExpiredTempCredentials] = useState(false);
+
+  const canViewTempCredentials = ['SUPER_USER', 'ADMINISTRATOR', 'DCS'].includes(userRole);
 
   // Load user role (auth redirect handled by dashboard layout)
   useEffect(() => {
@@ -495,6 +502,25 @@ function EventRegistrationsContent() {
     }
   };
 
+  const loadTempCredentials = async (includeExpired = includeExpiredTempCredentials) => {
+    if (!eventId || !canViewTempCredentials) return;
+    try {
+      setTempCredentialLoading(true);
+      const res = await registrationsService.getTempCredentials(eventId, includeExpired);
+      if (res.success && Array.isArray(res.data)) {
+        setTempCredentials(res.data);
+      } else {
+        toast.error('Unable to load temporary credentials', { description: res.error || 'Unknown error' });
+      }
+    } catch (error) {
+      toast.error('Unable to load temporary credentials', {
+        description: getErrorMessage(error, 'Failed to load temp credentials'),
+      });
+    } finally {
+      setTempCredentialLoading(false);
+    }
+  };
+
   const handleOpenHarmonizeDialog = async () => {
     if (!eventId) return;
     try {
@@ -748,6 +774,19 @@ function EventRegistrationsContent() {
                     Candidate Import & Claim
                   </CardTitle>
                   <div className="flex items-center gap-2">
+                    {canViewTempCredentials && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={async () => {
+                          await loadTempCredentials();
+                          setShowTempCredentialDialog(true);
+                        }}
+                        disabled={tempCredentialLoading}
+                      >
+                        Temp credential log
+                      </Button>
+                    )}
                     <Button
                       variant="outline"
                       size="sm"
@@ -1271,6 +1310,76 @@ function EventRegistrationsContent() {
                   <Loader2 className={`w-4 h-4 mr-2 ${candidateHarmonizing ? 'animate-spin' : 'hidden'}`} />
                   Keep selected, delete others
                 </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={showTempCredentialDialog} onOpenChange={setShowTempCredentialDialog}>
+            <DialogContent className="bg-white sm:max-w-3xl">
+              <DialogHeader>
+                <DialogTitle>Temporary credential log (admin only)</DialogTitle>
+                <DialogDescription>
+                  Credentials are retained for 30 days from claim creation. If claimant loses access, use Forgot Password as fallback.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <Button
+                    variant={includeExpiredTempCredentials ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={async () => {
+                      const next = !includeExpiredTempCredentials;
+                      setIncludeExpiredTempCredentials(next);
+                      await loadTempCredentials(next);
+                    }}
+                  >
+                    {includeExpiredTempCredentials ? 'Showing expired too' : 'Show expired too'}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => loadTempCredentials(includeExpiredTempCredentials)}>
+                    <Loader2 className={`w-4 h-4 mr-2 ${tempCredentialLoading ? 'animate-spin' : ''}`} />
+                    Reload
+                  </Button>
+                </div>
+                <div className="rounded-md border bg-amber-50 p-3 text-xs text-amber-900">
+                  If password is no longer valid or log has expired, direct the participant to <span className="font-semibold">Forgot Password</span> on login.
+                </div>
+                <div className="max-h-80 overflow-y-auto rounded-md border">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left px-2 py-2 font-semibold text-gray-700">Name</th>
+                        <th className="text-left px-2 py-2 font-semibold text-gray-700">Community ID</th>
+                        <th className="text-left px-2 py-2 font-semibold text-gray-700">Temp password</th>
+                        <th className="text-left px-2 py-2 font-semibold text-gray-700">Created</th>
+                        <th className="text-left px-2 py-2 font-semibold text-gray-700">Expires</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tempCredentialLoading ? (
+                        <tr>
+                          <td colSpan={5} className="px-2 py-4 text-center text-gray-500">Loading…</td>
+                        </tr>
+                      ) : tempCredentials.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-2 py-4 text-center text-gray-500">No temporary credentials found for this event.</td>
+                        </tr>
+                      ) : (
+                        tempCredentials.map((item) => (
+                          <tr key={item.id} className="border-t">
+                            <td className="px-2 py-2">{item.firstName} {item.lastName}</td>
+                            <td className="px-2 py-2 font-mono">{item.communityId}</td>
+                            <td className="px-2 py-2 font-mono">{item.tempPassword}</td>
+                            <td className="px-2 py-2">{new Date(item.createdAt).toLocaleString()}</td>
+                            <td className="px-2 py-2">{new Date(item.expiresAt).toLocaleString()}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowTempCredentialDialog(false)}>Close</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>

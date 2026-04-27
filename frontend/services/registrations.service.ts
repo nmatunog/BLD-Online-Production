@@ -223,6 +223,20 @@ export interface CandidateDuplicatePreview {
   }>;
 }
 
+export interface TempCredentialLogItem {
+  id: string;
+  firstName: string;
+  lastName: string;
+  communityId: string;
+  tempPassword: string;
+  createdAt: string;
+  expiresAt: string;
+  createdBy: {
+    id: string;
+    email: string | null;
+  };
+}
+
 class RegistrationsService {
   async importCandidatesCsv(
     eventId: string,
@@ -319,6 +333,17 @@ class RegistrationsService {
         tempPassword?: string | null;
       }>
     >(`/registrations/events/${eventId}/candidates/claim`, data, { timeout: 60000 });
+    return response.data;
+  }
+
+  async getTempCredentials(
+    eventId: string,
+    includeExpired = false,
+  ): Promise<ApiResponse<TempCredentialLogItem[]>> {
+    const response = await apiClient.get<ApiResponse<TempCredentialLogItem[]>>(
+      `/registrations/events/${eventId}/temp-credentials`,
+      { params: { includeExpired } },
+    );
     return response.data;
   }
 
