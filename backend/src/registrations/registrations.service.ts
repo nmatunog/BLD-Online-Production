@@ -1739,25 +1739,25 @@ export class RegistrationsService {
       );
     }
 
-    // Find existing members for this city, encounter type, and class number
+    const formattedClassNumber = String(parsedClassNumber).padStart(2, '0');
+    const prefix = `${cityCode}-${encounterCode}${formattedClassNumber}`;
+
+    // Find existing community IDs by actual ID prefix (more reliable than legacy city/encounter/class columns).
     const existingMembers = await this.prisma.member.findMany({
       where: {
-        city: cityCode,
-        encounterType: encounterCode,
-        classNumber: parsedClassNumber,
+        communityId: {
+          startsWith: prefix,
+        },
       },
       select: {
         communityId: true,
-      },
-      orderBy: {
-        createdAt: 'asc',
       },
     });
 
     let nextSequence = 1;
     if (existingMembers.length > 0) {
       const maxSequence = existingMembers.reduce((max, member) => {
-        const match = member.communityId.match(/(\d{2})$/);
+        const match = member.communityId.match(new RegExp(`^${prefix}(\\d{2})$`));
         if (match) {
           return Math.max(max, parseInt(match[1], 10));
         }
@@ -1772,10 +1772,8 @@ export class RegistrationsService {
       );
     }
 
-    const formattedClassNumber = String(parsedClassNumber).padStart(2, '0');
     const formattedSequence = String(nextSequence).padStart(2, '0');
-
-    return `${cityCode}-${encounterCode}${formattedClassNumber}${formattedSequence}`;
+    return `${prefix}${formattedSequence}`;
   }
 
   private isCommunityIdUniqueConflict(error: unknown): boolean {
