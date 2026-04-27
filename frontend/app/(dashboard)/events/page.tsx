@@ -43,11 +43,18 @@ function isUnauthorizedError(error: unknown): boolean {
   return e?.response?.status === 401;
 }
 
+function normalizeSlotToken(value?: string | null): string {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 function recurringDisplaySlotKey(event: Event): string {
-  if (!event.recurrenceTemplateId) return event.id;
   const d = new Date(event.startDate);
-  const dayKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-  return `${event.recurrenceTemplateId}|${dayKey}|${event.startTime || ''}`;
+  const weekday = d.getUTCDay();
+  const ministry = normalizeSlotToken(event.ministry);
+  // Use venue first; fallback to location to handle legacy rows with empty venue.
+  const venue = normalizeSlotToken(event.venue || event.location);
+  const startTime = normalizeSlotToken(event.startTime);
+  return `recurring|${weekday}|${startTime}|${ministry}|${venue}`;
 }
 
 function eventQualityScore(event: Event): number {
@@ -61,7 +68,7 @@ function dedupeRecurringDisplayEvents(list: Event[]): Event[] {
 
   for (const event of list) {
     // Non-recurring rows are shown as-is.
-    if (!event.recurrenceTemplateId) {
+    if (!event.isRecurring) {
       bySlot.set(`single|${event.id}`, event);
       continue;
     }
