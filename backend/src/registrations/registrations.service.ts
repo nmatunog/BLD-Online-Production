@@ -1608,6 +1608,9 @@ export class RegistrationsService {
             userCreated,
             tempPassword,
           };
+        }, {
+          maxWait: 5000,
+          timeout: 20000,
         });
         break;
       } catch (error) {
