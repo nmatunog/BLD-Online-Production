@@ -1464,75 +1464,81 @@ export class RegistrationsService {
     const parsedClass = this.parseCandidateClass(candidate.candidateClass);
     const cityCode = this.deriveCityCode(event.location);
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      let member = candidate.memberId
-        ? await tx.member.findUnique({ where: { id: candidate.memberId }, include: { user: true } })
-        : null;
-      let tempPassword: string | null = null;
-      let userCreated = false;
-      let generatedCommunityId: string | null = null;
+    let result: {
+      candidateId: string;
+      memberId: string;
+      communityId: string;
+      registrationId: string;
+      generatedCommunityId: string | null;
+      userCreated: boolean;
+      tempPassword: string | null;
+    } | null = null;
 
-      if (!member) {
-        const existingMember = await tx.member.findFirst({
-          where: {
-            firstName: { equals: candidate.firstName, mode: 'insensitive' },
-            lastName: { equals: candidate.familyName, mode: 'insensitive' },
-            encounterType: parsedClass.encounterType,
-            classNumber: parsedClass.classNumber,
-          },
-          include: { user: true },
-        });
-        if (existingMember) {
-          member = existingMember as any;
-        }
-      }
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        result = await this.prisma.$transaction(async (tx) => {
+          let member = candidate.memberId
+            ? await tx.member.findUnique({ where: { id: candidate.memberId }, include: { user: true } })
+            : null;
+          let tempPassword: string | null = null;
+          let userCreated = false;
+          let generatedCommunityId: string | null = null;
 
-      if (!member) {
-        const email = dto.email?.trim().toLowerCase() || null;
-        const mobile = normalizedMobile || candidate.cleanMobile || null;
-        if (!email && !mobile) {
-          throw new BadRequestException(
-            'Mobile number or email is required for first-time claim so login can be created.',
-          );
-        }
+          if (!member) {
+            const existingMember = await tx.member.findFirst({
+              where: {
+                firstName: { equals: candidate.firstName, mode: 'insensitive' },
+                lastName: { equals: candidate.familyName, mode: 'insensitive' },
+                encounterType: parsedClass.encounterType,
+                classNumber: parsedClass.classNumber,
+              },
+              include: { user: true },
+            });
+            if (existingMember) {
+              member = existingMember as any;
+            }
+          }
 
-        let user = email
-          ? await tx.user.findUnique({ where: { email }, include: { member: true } })
-          : null;
-        if (!user && mobile) {
-          user = await tx.user.findFirst({ where: { phone: mobile }, include: { member: true } });
-        }
+          if (!member) {
+            const email = dto.email?.trim().toLowerCase() || null;
+            const mobile = normalizedMobile || candidate.cleanMobile || null;
+            if (!email && !mobile) {
+              throw new BadRequestException(
+                'Mobile number or email is required for first-time claim so login can be created.',
+              );
+            }
 
-        if (!user) {
-          tempPassword = `Temp${Math.random().toString(36).slice(-8)}!`;
-          const passwordHash = await bcrypt.hash(tempPassword, 10);
-          user = await tx.user.create({
-            data: {
-              email,
-              phone: mobile,
-              passwordHash,
-              role: UserRole.MEMBER,
-              isActive: true,
-            },
-            include: { member: true },
-          });
-          userCreated = true;
-        }
+            let user = email
+              ? await tx.user.findUnique({ where: { email }, include: { member: true } })
+              : null;
+            if (!user && mobile) {
+              user = await tx.user.findFirst({ where: { phone: mobile }, include: { member: true } });
+            }
 
-        if (user.member) {
-          member = await tx.member.findUnique({ where: { id: user.member.id }, include: { user: true } }) as any;
-        } else {
-          // Retry a few times in case concurrent claims generate the same community ID.
-          let createdMember = false;
-          let attempts = 0;
-          while (!createdMember && attempts < 5) {
-            attempts += 1;
-            generatedCommunityId = await this.generateCommunityId(
-              cityCode,
-              parsedClass.encounterType,
-              String(parsedClass.classNumber),
-            );
-            try {
+            if (!user) {
+              tempPassword = `Temp${Math.random().toString(36).slice(-8)}!`;
+              const passwordHash = await bcrypt.hash(tempPassword, 10);
+              user = await tx.user.create({
+                data: {
+                  email,
+                  phone: mobile,
+                  passwordHash,
+                  role: UserRole.MEMBER,
+                  isActive: true,
+                },
+                include: { member: true },
+              });
+              userCreated = true;
+            }
+
+            if (user.member) {
+              member = await tx.member.findUnique({ where: { id: user.member.id }, include: { user: true } }) as any;
+            } else {
+              generatedCommunityId = await this.generateCommunityId(
+                cityCode,
+                parsedClass.encounterType,
+                String(parsedClass.classNumber),
+              );
               member = await tx.member.create({
                 data: {
                   userId: user.id,
@@ -1547,66 +1553,70 @@ export class RegistrationsService {
                 },
                 include: { user: true },
               }) as any;
-              createdMember = true;
-            } catch (error) {
-              if (!this.isCommunityIdUniqueConflict(error) || attempts >= 5) {
-                throw error;
-              }
             }
           }
+
+          if (!member) {
+            throw new ConflictException('Unable to resolve or create member profile for this candidate');
+          }
+
+          const existingReg = await tx.eventRegistration.findFirst({
+            where: { eventId, memberId: member.id },
+          });
+          let registration = existingReg;
+          if (!registration) {
+            const paymentAmount = event.registrationFee ? Number(event.registrationFee) : 0;
+            registration = await tx.eventRegistration.create({
+              data: {
+                eventId,
+                memberId: member.id,
+                registrationType: RegistrationType.MEMBER,
+                firstName: member.firstName,
+                lastName: member.lastName,
+                middleName: member.middleName,
+                email: member.user?.email || dto.email?.trim().toLowerCase() || null,
+                phone: member.user?.phone || normalizedMobile || candidate.cleanMobile || null,
+                memberCommunityId: member.communityId,
+                paymentStatus: PaymentStatus.PENDING,
+                paymentAmount: paymentAmount > 0 ? paymentAmount : null,
+              },
+            });
+          }
+
+          await tx.eventCandidate.update({
+            where: { id: candidate.id },
+            data: {
+              status: EventCandidateStatus.REGISTERED,
+              claimedAt: new Date(),
+              registeredAt: new Date(),
+              memberId: member.id,
+              registrationId: registration.id,
+              cleanMobile: normalizedMobile || candidate.cleanMobile,
+              mobileNumber: dto.mobileNumber || candidate.mobileNumber,
+            },
+          });
+
+          return {
+            candidateId: candidate.id,
+            memberId: member.id,
+            communityId: member.communityId,
+            registrationId: registration.id,
+            generatedCommunityId,
+            userCreated,
+            tempPassword,
+          };
+        });
+        break;
+      } catch (error) {
+        if (!this.isCommunityIdUniqueConflict(error) || attempt === 5) {
+          throw error;
         }
       }
+    }
 
-      if (!member) {
-        throw new ConflictException('Unable to resolve or create member profile for this candidate');
-      }
-
-      const existingReg = await tx.eventRegistration.findFirst({
-        where: { eventId, memberId: member.id },
-      });
-      let registration = existingReg;
-      if (!registration) {
-        const paymentAmount = event.registrationFee ? Number(event.registrationFee) : 0;
-        registration = await tx.eventRegistration.create({
-          data: {
-            eventId,
-            memberId: member.id,
-            registrationType: RegistrationType.MEMBER,
-            firstName: member.firstName,
-            lastName: member.lastName,
-            middleName: member.middleName,
-            email: member.user?.email || dto.email?.trim().toLowerCase() || null,
-            phone: member.user?.phone || normalizedMobile || candidate.cleanMobile || null,
-            memberCommunityId: member.communityId,
-            paymentStatus: PaymentStatus.PENDING,
-            paymentAmount: paymentAmount > 0 ? paymentAmount : null,
-          },
-        });
-      }
-
-      await tx.eventCandidate.update({
-        where: { id: candidate.id },
-        data: {
-          status: EventCandidateStatus.REGISTERED,
-          claimedAt: new Date(),
-          registeredAt: new Date(),
-          memberId: member.id,
-          registrationId: registration.id,
-          cleanMobile: normalizedMobile || candidate.cleanMobile,
-          mobileNumber: dto.mobileNumber || candidate.mobileNumber,
-        },
-      });
-
-      return {
-        candidateId: candidate.id,
-        memberId: member.id,
-        communityId: member.communityId,
-        registrationId: registration.id,
-        generatedCommunityId,
-        userCreated,
-        tempPassword,
-      };
-    });
+    if (!result) {
+      throw new ConflictException('Unable to claim candidate due to repeated Community ID conflicts');
+    }
 
     return result;
   }
