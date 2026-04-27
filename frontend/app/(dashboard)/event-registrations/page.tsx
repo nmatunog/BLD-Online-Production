@@ -82,6 +82,12 @@ function EventRegistrationsContent() {
   const [claimMobile, setClaimMobile] = useState('');
   const [claimEmail, setClaimEmail] = useState('');
   const [claimSubmitting, setClaimSubmitting] = useState(false);
+  const [showSetPasswordDialog, setShowSetPasswordDialog] = useState(false);
+  const [setupCommunityId, setSetupCommunityId] = useState('');
+  const [setupTempPassword, setSetupTempPassword] = useState('');
+  const [setupNewPassword, setSetupNewPassword] = useState('');
+  const [setupConfirmPassword, setSetupConfirmPassword] = useState('');
+  const [setupSubmitting, setSetupSubmitting] = useState(false);
   const [showTempCredentialDialog, setShowTempCredentialDialog] = useState(false);
   const [tempCredentialLoading, setTempCredentialLoading] = useState(false);
   const [tempCredentials, setTempCredentials] = useState<TempCredentialLogItem[]>([]);
@@ -483,10 +489,42 @@ function EventRegistrationsContent() {
           description: `Community ID: ${res.data.communityId}`,
         });
         if (res.data.userCreated && res.data.tempPassword) {
+          const copyText = `${claimingCandidate.firstName} ${claimingCandidate.familyName}: ${res.data.tempPassword}`;
+          let copied = false;
+          if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+            try {
+              await navigator.clipboard.writeText(res.data.tempPassword);
+              copied = true;
+            } catch {
+              copied = false;
+            }
+          }
           toast.info('Temporary password generated', {
-            description: `${claimingCandidate.firstName} ${claimingCandidate.familyName}: ${res.data.tempPassword}`,
+            description: copied
+              ? `${copyText} (auto-copied to clipboard)`
+              : `${copyText} (copy manually if needed)`,
             duration: 12000,
+            action: copied
+              ? undefined
+              : {
+                  label: 'Copy',
+                  onClick: async () => {
+                    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+                      try {
+                        await navigator.clipboard.writeText(res.data.tempPassword as string);
+                        toast.success('Temporary password copied');
+                      } catch {
+                        toast.error('Clipboard copy failed. Please copy manually.');
+                      }
+                    }
+                  },
+                },
           });
+          setSetupCommunityId(res.data.communityId);
+          setSetupTempPassword(res.data.tempPassword);
+          setSetupNewPassword('');
+          setSetupConfirmPassword('');
+          setShowSetPasswordDialog(true);
         }
         setShowClaimDialog(false);
         setClaimingCandidate(null);
@@ -499,6 +537,37 @@ function EventRegistrationsContent() {
       toast.error('Claim failed', { description: getErrorMessage(error, 'Failed to claim candidate') });
     } finally {
       setClaimSubmitting(false);
+    }
+  };
+
+  const submitSetPasswordFromTemp = async () => {
+    if (!setupCommunityId || !setupTempPassword) {
+      toast.error('Missing temporary credentials');
+      return;
+    }
+    if (!setupNewPassword || setupNewPassword.length < 6) {
+      toast.error('New password must be at least 6 characters');
+      return;
+    }
+    if (setupNewPassword !== setupConfirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+    try {
+      setSetupSubmitting(true);
+      await authService.setPasswordFromTemp({
+        communityId: setupCommunityId,
+        tempPassword: setupTempPassword,
+        newPassword: setupNewPassword,
+      });
+      toast.success('Permanent password set successfully');
+      setShowSetPasswordDialog(false);
+    } catch (error) {
+      toast.error('Failed to set password', {
+        description: getErrorMessage(error, 'Invalid temporary credentials or password update failed'),
+      });
+    } finally {
+      setSetupSubmitting(false);
     }
   };
 
@@ -1213,6 +1282,58 @@ function EventRegistrationsContent() {
                 >
                   <Loader2 className={`w-4 h-4 mr-2 ${claimSubmitting ? 'animate-spin' : 'hidden'}`} />
                   Claim + Register
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={showSetPasswordDialog} onOpenChange={setShowSetPasswordDialog}>
+            <DialogContent className="bg-white sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Set New Password</DialogTitle>
+                <DialogDescription>
+                  Temporary credentials are prefilled. Set the claimant&apos;s permanent password now.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Community ID</label>
+                  <Input value={setupCommunityId} readOnly className="bg-gray-50 font-mono" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Temporary Password</label>
+                  <Input value={setupTempPassword} readOnly className="bg-gray-50 font-mono" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+                  <Input
+                    type="password"
+                    value={setupNewPassword}
+                    onChange={(e) => setSetupNewPassword(e.target.value)}
+                    placeholder="At least 6 characters"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
+                  <Input
+                    type="password"
+                    value={setupConfirmPassword}
+                    onChange={(e) => setSetupConfirmPassword(e.target.value)}
+                    placeholder="Re-enter new password"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowSetPasswordDialog(false)} disabled={setupSubmitting}>
+                  Later
+                </Button>
+                <Button
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                  onClick={submitSetPasswordFromTemp}
+                  disabled={setupSubmitting}
+                >
+                  <Loader2 className={`w-4 h-4 mr-2 ${setupSubmitting ? 'animate-spin' : 'hidden'}`} />
+                  Set New Password
                 </Button>
               </DialogFooter>
             </DialogContent>

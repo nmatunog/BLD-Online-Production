@@ -12,6 +12,7 @@ import { LoginByQrDto } from './dto/login-by-qr.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RequestPasswordResetDto, ResetPasswordDto } from './dto/reset-password.dto';
+import { SetPasswordFromTempDto } from './dto/set-password-from-temp.dto';
 import { AuthResult } from './interfaces/auth-result.interface';
 import { UserRole } from '@prisma/client';
 import { normalizePhoneNumber } from '../common/utils/phone.util';
@@ -427,6 +428,31 @@ export class AuthService {
     } catch (error) {
       throw new UnauthorizedException('Invalid or expired reset token');
     }
+  }
+
+  async setPasswordFromTemp(dto: SetPasswordFromTempDto): Promise<{ message: string }> {
+    const communityId = dto.communityId.trim().toUpperCase();
+    const member = await this.prisma.member.findUnique({
+      where: { communityId },
+      include: { user: true },
+    });
+
+    if (!member?.user) {
+      throw new UnauthorizedException('Invalid temporary credentials');
+    }
+
+    const validTempPassword = await bcrypt.compare(dto.tempPassword, member.user.passwordHash);
+    if (!validTempPassword) {
+      throw new UnauthorizedException('Invalid temporary credentials');
+    }
+
+    const newPasswordHash = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: member.user.id },
+      data: { passwordHash: newPasswordHash },
+    });
+
+    return { message: 'Password updated successfully' };
   }
 
   private async generateTokens(

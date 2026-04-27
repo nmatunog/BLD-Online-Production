@@ -19,6 +19,7 @@ import {
   RequestPasswordResetDto,
   ResetPasswordDto,
 } from './dto/reset-password.dto';
+import { SetPasswordFromTempDto } from './dto/set-password-from-temp.dto';
 import { AuthResult } from './interfaces/auth-result.interface';
 import { ApiResponse as ApiResponseDto } from '../common/interfaces/api-response.interface';
 import { Public } from './decorators/public.decorator';
@@ -151,6 +152,29 @@ export class AuthController {
     @Body() resetDto: ResetPasswordDto,
   ): Promise<ApiResponseDto<{ message: string }>> {
     const result = await this.authService.resetPassword(resetDto);
+    return {
+      success: true,
+      data: result,
+      message: result.message,
+    };
+  }
+
+  @Public()
+  @Post('password/set-from-temp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Set a new password using temporary credentials' })
+  @ApiResponse({
+    status: 200,
+    description: 'Password updated successfully',
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Invalid temporary credentials',
+  })
+  async setPasswordFromTemp(
+    @Body() dto: SetPasswordFromTempDto,
+  ): Promise<ApiResponseDto<{ message: string }>> {
+    const result = await this.authService.setPasswordFromTemp(dto);
     return {
       success: true,
       data: result,

@@ -119,6 +119,21 @@ export class AuthService {
     throw new Error(response.data.error || 'Password reset failed');
   }
 
+  async setPasswordFromTemp(data: {
+    communityId: string;
+    tempPassword: string;
+    newPassword: string;
+  }): Promise<{ message: string }> {
+    const response = await apiClient.post<ApiResponse<{ message: string }>>(
+      '/auth/password/set-from-temp',
+      data,
+    );
+    if (response.data.success && response.data.data) {
+      return response.data.data;
+    }
+    throw new Error(response.data.error || 'Failed to set password');
+  }
+
   logout(): void {
     if (typeof window === 'undefined') return;
     localStorage.removeItem('accessToken');
