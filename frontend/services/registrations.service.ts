@@ -318,7 +318,7 @@ class RegistrationsService {
         userCreated: boolean;
         tempPassword?: string | null;
       }>
-    >(`/registrations/events/${eventId}/candidates/claim`, data);
+    >(`/registrations/events/${eventId}/candidates/claim`, data, { timeout: 60000 });
     return response.data;
   }
 
