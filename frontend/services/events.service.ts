@@ -26,6 +26,8 @@ export interface Event {
   cancellationReason: string | null;
   hasRegistration: boolean;
   registrationFee: number | null;
+  paymentInstructions: string | null;
+  gcashQrCodeUrl: string | null;
   maxParticipants: number | null;
   qrCodeUrl: string | null;
   isRecurring: boolean;
@@ -77,6 +79,8 @@ export interface CreateEventRequest {
   status?: 'UPCOMING' | 'ONGOING' | 'COMPLETED' | 'CANCELLED';
   hasRegistration?: boolean;
   registrationFee?: number;
+  paymentInstructions?: string;
+  gcashQrCodeUrl?: string;
   maxParticipants?: number;
   isRecurring?: boolean;
   recurrencePattern?: string;

@@ -43,6 +43,8 @@ function eventToSnapshot(event: {
   location: string;
   venue?: string | null;
   status: string;
+  paymentInstructions?: string | null;
+  gcashQrCodeUrl?: string | null;
   [key: string]: unknown;
 }): Record<string, unknown> {
   const snap: Record<string, unknown> = {
@@ -60,6 +62,8 @@ function eventToSnapshot(event: {
     status: event.status,
     hasRegistration: event.hasRegistration ?? false,
     registrationFee: event.registrationFee != null ? Number(event.registrationFee) : null,
+    paymentInstructions: event.paymentInstructions ?? null,
+    gcashQrCodeUrl: event.gcashQrCodeUrl ?? null,
     maxParticipants: event.maxParticipants ?? null,
     encounterType: event.encounterType ?? null,
     classNumber: event.classNumber ?? null,
@@ -208,6 +212,8 @@ export class EventsService implements OnModuleInit {
         status: createEventDto.status || EventStatus.UPCOMING,
         hasRegistration: createEventDto.hasRegistration || false,
         registrationFee: createEventDto.registrationFee ? createEventDto.registrationFee : null,
+        paymentInstructions: createEventDto.paymentInstructions?.trim() || null,
+        gcashQrCodeUrl: createEventDto.gcashQrCodeUrl?.trim() || null,
         maxParticipants: createEventDto.maxParticipants || null,
         encounterType: createEventDto.encounterType || null,
         classNumber: createEventDto.classNumber || null,
@@ -373,6 +379,8 @@ export class EventsService implements OnModuleInit {
               status: occEnd < now ? EventStatus.COMPLETED : occStart <= now && occEnd >= now ? EventStatus.ONGOING : EventStatus.UPCOMING,
               hasRegistration: template.hasRegistration,
               registrationFee: template.registrationFee,
+              paymentInstructions: template.paymentInstructions,
+              gcashQrCodeUrl: template.gcashQrCodeUrl,
               maxParticipants: template.maxParticipants,
               encounterType: template.encounterType,
               classNumber: template.classNumber,
@@ -748,6 +756,8 @@ export class EventsService implements OnModuleInit {
       ['status', 'status'],
       ['hasRegistration', 'hasRegistration'],
       ['registrationFee', 'registrationFee'],
+      ['paymentInstructions', 'paymentInstructions'],
+      ['gcashQrCodeUrl', 'gcashQrCodeUrl'],
       ['maxParticipants', 'maxParticipants'],
       ['ministry', 'ministry'],
     ];
@@ -777,6 +787,8 @@ export class EventsService implements OnModuleInit {
         ...(updateEventDto.status && { status: updateEventDto.status }),
         ...(updateEventDto.hasRegistration !== undefined && { hasRegistration: updateEventDto.hasRegistration }),
         ...(updateEventDto.registrationFee !== undefined && { registrationFee: updateEventDto.registrationFee ? updateEventDto.registrationFee : null }),
+        ...(updateEventDto.paymentInstructions !== undefined && { paymentInstructions: updateEventDto.paymentInstructions?.trim() || null }),
+        ...(updateEventDto.gcashQrCodeUrl !== undefined && { gcashQrCodeUrl: updateEventDto.gcashQrCodeUrl?.trim() || null }),
         ...(updateEventDto.maxParticipants !== undefined && { maxParticipants: updateEventDto.maxParticipants || null }),
         ...(updateEventDto.isRecurring !== undefined && { isRecurring: updateEventDto.isRecurring }),
         ...(updateEventDto.recurrencePattern !== undefined && { recurrencePattern: updateEventDto.recurrencePattern || null }),
@@ -921,6 +933,8 @@ export class EventsService implements OnModuleInit {
           status: (rest.status as EventStatus) ?? EventStatus.UPCOMING,
           hasRegistration: (rest.hasRegistration as boolean) ?? false,
           registrationFee: rest.registrationFee != null ? (rest.registrationFee as number) : undefined,
+          paymentInstructions: (rest.paymentInstructions as string | null) ?? undefined,
+          gcashQrCodeUrl: (rest.gcashQrCodeUrl as string | null) ?? undefined,
           maxParticipants: (rest.maxParticipants as number | null) ?? undefined,
           encounterType: (rest.encounterType as string | null) ?? undefined,
           classNumber: (rest.classNumber as number | null) ?? undefined,
@@ -956,6 +970,8 @@ export class EventsService implements OnModuleInit {
           status: (snap.status as EventStatus) ?? EventStatus.UPCOMING,
           hasRegistration: (snap.hasRegistration as boolean) ?? false,
           registrationFee: snap.registrationFee != null ? (snap.registrationFee as number) : null,
+          paymentInstructions: (snap.paymentInstructions as string | null) ?? null,
+          gcashQrCodeUrl: (snap.gcashQrCodeUrl as string | null) ?? null,
           maxParticipants: (snap.maxParticipants as number | null) ?? null,
           ministry: (snap.ministry as string | null) ?? null,
           isRecurring: (snap.isRecurring as boolean) ?? false,

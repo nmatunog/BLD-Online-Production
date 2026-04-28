@@ -88,6 +88,10 @@ function EventRegistrationsContent() {
   const [setupNewPassword, setSetupNewPassword] = useState('');
   const [setupConfirmPassword, setSetupConfirmPassword] = useState('');
   const [setupSubmitting, setSetupSubmitting] = useState(false);
+  const [showPaymentPromptDialog, setShowPaymentPromptDialog] = useState(false);
+  const [claimPaymentAmount, setClaimPaymentAmount] = useState<number>(0);
+  const [claimPaymentInstructions, setClaimPaymentInstructions] = useState<string>('');
+  const [claimPaymentQrUrl, setClaimPaymentQrUrl] = useState<string>('');
   const [showTempCredentialDialog, setShowTempCredentialDialog] = useState(false);
   const [tempCredentialLoading, setTempCredentialLoading] = useState(false);
   const [tempCredentials, setTempCredentials] = useState<TempCredentialLogItem[]>([]);
@@ -525,6 +529,16 @@ function EventRegistrationsContent() {
           setSetupNewPassword('');
           setSetupConfirmPassword('');
           setShowSetPasswordDialog(true);
+        }
+        if (res.data.payment?.required) {
+          setClaimPaymentAmount(Number(res.data.payment.amount || 0));
+          setClaimPaymentInstructions(res.data.payment.instructions || '');
+          setClaimPaymentQrUrl(res.data.payment.gcashQrCodeUrl || '');
+          setShowPaymentPromptDialog(true);
+          toast.info('Registration fee required', {
+            description: `Please pay PHP ${Number(res.data.payment.amount || 0).toLocaleString()} via the provided GCash QR code.`,
+            duration: 10000,
+          });
         }
         setShowClaimDialog(false);
         setClaimingCandidate(null);
@@ -1334,6 +1348,58 @@ function EventRegistrationsContent() {
                 >
                   <Loader2 className={`w-4 h-4 mr-2 ${setupSubmitting ? 'animate-spin' : 'hidden'}`} />
                   Set New Password
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          <Dialog open={showPaymentPromptDialog} onOpenChange={setShowPaymentPromptDialog}>
+            <DialogContent className="bg-white sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Registration Fee Required</DialogTitle>
+                <DialogDescription>
+                  This event requires payment before completion. Please share this with the claimant immediately.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div className="rounded-md border bg-indigo-50 px-3 py-2">
+                  <p className="text-xs text-indigo-700">Amount Due</p>
+                  <p className="text-2xl font-semibold text-indigo-900">
+                    PHP {claimPaymentAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+                {claimPaymentInstructions ? (
+                  <div className="rounded-md border bg-gray-50 px-3 py-2">
+                    <p className="text-xs text-gray-600 mb-1">Payment Instructions</p>
+                    <p className="text-sm text-gray-800 whitespace-pre-wrap">{claimPaymentInstructions}</p>
+                  </div>
+                ) : null}
+                {claimPaymentQrUrl ? (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-gray-700">GCash QR Code</p>
+                    <a
+                      href={claimPaymentQrUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block rounded-md border overflow-hidden hover:opacity-90 transition"
+                    >
+                      <img src={claimPaymentQrUrl} alt="GCash QR Code" className="w-full h-auto max-h-80 object-contain bg-white" />
+                    </a>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => window.open(claimPaymentQrUrl, '_blank', 'noopener,noreferrer')}
+                    >
+                      Open payment link
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-amber-700">No GCash QR code configured for this event yet. Please provide payment details manually.</p>
+                )}
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowPaymentPromptDialog(false)}>
+                  Close
                 </Button>
               </DialogFooter>
             </DialogContent>

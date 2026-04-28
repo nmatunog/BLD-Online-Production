@@ -165,6 +165,8 @@ model Event {
   cancellationReason String? // Reason for cancellation (optional)
   hasRegistration   Boolean      @default(false)
   registrationFee   Decimal?
+  paymentInstructions String?
+  gcashQrCodeUrl    String?
   maxParticipants   Int?
   qrCodeUrl         String? // BunnyCDN URL
   // Encounter Event fields - for Encounter type events (ME, SE, SPE, FE, YE)

@@ -320,6 +320,12 @@ class RegistrationsService {
       generatedCommunityId?: string | null;
       userCreated: boolean;
       tempPassword?: string | null;
+      payment?: {
+        required: boolean;
+        amount: number;
+        instructions?: string | null;
+        gcashQrCodeUrl?: string | null;
+      };
     }>
   > {
     const response = await apiClient.post<
@@ -331,6 +337,12 @@ class RegistrationsService {
         generatedCommunityId?: string | null;
         userCreated: boolean;
         tempPassword?: string | null;
+        payment?: {
+          required: boolean;
+          amount: number;
+          instructions?: string | null;
+          gcashQrCodeUrl?: string | null;
+        };
       }>
     >(`/registrations/events/${eventId}/candidates/claim`, data, { timeout: 60000 });
     return response.data;

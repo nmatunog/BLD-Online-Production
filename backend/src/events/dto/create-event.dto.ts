@@ -74,6 +74,16 @@ export class CreateEventDto {
   registrationFee?: number;
 
   @ValidateIf((o) => o.hasRegistration === true)
+  @IsString()
+  @IsOptional()
+  paymentInstructions?: string;
+
+  @ValidateIf((o) => o.hasRegistration === true)
+  @IsString()
+  @IsOptional()
+  gcashQrCodeUrl?: string;
+
+  @ValidateIf((o) => o.hasRegistration === true)
   @IsInt()
   @Min(1)
   @IsOptional()

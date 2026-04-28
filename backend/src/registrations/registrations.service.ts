@@ -1474,6 +1474,12 @@ export class RegistrationsService {
       generatedCommunityId: string | null;
       userCreated: boolean;
       tempPassword: string | null;
+      payment: {
+        required: boolean;
+        amount: number;
+        instructions: string | null;
+        gcashQrCodeUrl: string | null;
+      };
     } | null = null;
 
     for (let attempt = 1; attempt <= 5; attempt++) {
@@ -1627,6 +1633,12 @@ export class RegistrationsService {
             generatedCommunityId,
             userCreated,
             tempPassword,
+            payment: {
+              required: Number(event.registrationFee || 0) > 0,
+              amount: Number(event.registrationFee || 0),
+              instructions: event.paymentInstructions || null,
+              gcashQrCodeUrl: event.gcashQrCodeUrl || null,
+            },
           };
         }, {
           maxWait: 5000,
