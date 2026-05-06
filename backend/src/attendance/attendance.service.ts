@@ -485,6 +485,8 @@ export class AttendanceService {
 
     const start = new Date(event.startDate);
     const weekday = start.getUTCDay();
+    const title = (event.title || '').trim().toLowerCase();
+    const category = (event.category || '').trim().toLowerCase();
     const ministry = (event.ministry || '').trim().toLowerCase();
     const venue = (event.venue || '').trim().toLowerCase();
 
@@ -492,6 +494,8 @@ export class AttendanceService {
       where: {
         id: { not: event.id },
         isRecurring: true,
+        title: event.title,
+        category: event.category,
         startTime: event.startTime,
         venue: event.venue || null,
         status: { in: [EventStatus.UPCOMING, EventStatus.ONGOING, EventStatus.COMPLETED] },
@@ -504,17 +508,20 @@ export class AttendanceService {
         location: true,
         venue: true,
         ministry: true,
+        category: true,
         createdAt: true,
       },
     });
 
     const sameSlot = candidates.filter((e) => {
       const sameWeekday = new Date(e.startDate).getUTCDay() === weekday;
+      const sameTitle = (e.title || '').trim().toLowerCase() === title;
+      const sameCategory = (e.category || '').trim().toLowerCase() === category;
       const eMinistry = (e.ministry || '').trim().toLowerCase();
       const eVenue = (e.venue || '').trim().toLowerCase();
       const sameMinistry = eMinistry === ministry;
       const sameVenue = eVenue === venue;
-      return sameWeekday && sameMinistry && sameVenue;
+      return sameWeekday && sameTitle && sameCategory && sameMinistry && sameVenue;
     });
 
     if (sameSlot.length === 0) return null;

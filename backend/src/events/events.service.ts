@@ -162,15 +162,21 @@ export class EventsService implements OnModuleInit {
       }
     }
 
-    // Fresh duplicate rule:
-    // same time + same day-of-week + same ministry + same venue => duplicate slot
-    // (regardless of who created it or title differences).
+    // Duplicate recurring template rule:
+    // prevent creating the same recurring template definition twice.
+    // We include title/category so different recurring programs can share
+    // the same day/time/ministry/venue slot (e.g. Community Worship vs WSC).
     const newWeekday = startDate.getUTCDay();
     const newMinistry = (createEventDto.ministry || '').trim().toLowerCase();
     const newVenue = (createEventDto.venue || '').trim().toLowerCase();
+    const newTitle = (createEventDto.title || '').trim().toLowerCase();
+    const newCategory = (createEventDto.category || '').trim().toLowerCase();
     const slotCandidates = await this.prisma.event.findMany({
       where: {
         isRecurring: true,
+        recurrenceTemplateId: null,
+        title: createEventDto.title,
+        category: createEventDto.category,
         startTime: createEventDto.startTime || null,
         venue: createEventDto.venue || null,
         status: { in: [EventStatus.UPCOMING, EventStatus.ONGOING, EventStatus.COMPLETED] },
@@ -182,13 +188,16 @@ export class EventsService implements OnModuleInit {
         startTime: true,
         venue: true,
         ministry: true,
+        category: true,
       },
     });
     const existingSameSlot = slotCandidates.find((e) => {
       const sameWeekday = new Date(e.startDate).getUTCDay() === newWeekday;
       const sameMinistry = ((e.ministry || '').trim().toLowerCase() === newMinistry);
       const sameVenue = ((e.venue || '').trim().toLowerCase() === newVenue);
-      return sameWeekday && sameMinistry && sameVenue;
+      const sameTitle = ((e.title || '').trim().toLowerCase() === newTitle);
+      const sameCategory = ((e.category || '').trim().toLowerCase() === newCategory);
+      return sameWeekday && sameMinistry && sameVenue && sameTitle && sameCategory;
     });
     if (existingSameSlot) {
       throw new BadRequestException(
@@ -292,116 +301,113 @@ export class EventsService implements OnModuleInit {
     templateId: string,
     weeksAhead: number,
   ): Promise<number> {
-    const template = await this.prisma.event.findUnique({
-      where: { id: templateId, isRecurring: true, recurrenceTemplateId: null },
-    });
-    if (!template) return 0;
+    return this.prisma.$transaction(async (tx) => {
+      // Cross-instance guard: only one generator run per template at a time.
+      // This protects against duplicate occurrence creation when multiple app instances run.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${templateId}))`;
 
-    const pattern = (template.recurrencePattern || '').toLowerCase();
-    const recurrenceDays = (template.recurrenceDays || []).map((d) => String(d).toLowerCase());
-    const interval = template.recurrenceInterval ?? 1;
-
-    const templateStart = new Date(template.startDate);
-    const templateEnd = new Date(template.endDate);
-    const durationMs = templateEnd.getTime() - templateStart.getTime();
-
-    const now = new Date();
-    let count = 0;
-
-    if (pattern === 'weekly' && recurrenceDays.length > 0) {
-      // Day of week: 0 = Sunday, 1 = Monday, ... 6 = Saturday
-      const dayNumbers = recurrenceDays.map((d) => {
-        const map: Record<string, number> = {
-          sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
-        };
-        return map[d] ?? 1;
+      const template = await tx.event.findUnique({
+        where: { id: templateId, isRecurring: true, recurrenceTemplateId: null },
       });
+      if (!template) return 0;
 
-      const weekStart = getStartOfWeekUTC(templateStart > now ? templateStart : now);
+      const pattern = (template.recurrencePattern || '').toLowerCase();
+      const recurrenceDays = (template.recurrenceDays || []).map((d) => String(d).toLowerCase());
+      const interval = template.recurrenceInterval ?? 1;
 
-      for (let w = 0; w < weeksAhead; w++) {
-        const baseWeek = new Date(weekStart);
-        baseWeek.setUTCDate(baseWeek.getUTCDate() + w * 7 * interval);
+      const templateStart = new Date(template.startDate);
+      const templateEnd = new Date(template.endDate);
+      const durationMs = templateEnd.getTime() - templateStart.getTime();
 
-        for (const dayNum of dayNumbers) {
-          const occStart = new Date(baseWeek);
-          occStart.setUTCDate(baseWeek.getUTCDate() + (dayNum === 0 ? 6 : dayNum - 1));
-          occStart.setUTCHours(
-            templateStart.getUTCHours(),
-            templateStart.getUTCMinutes(),
-            0,
-            0,
-          );
-          if (occStart < now) continue;
+      const now = new Date();
+      let count = 0;
 
-          const occEnd = new Date(occStart.getTime() + durationMs);
+      if (pattern === 'weekly' && recurrenceDays.length > 0) {
+        // Day of week: 0 = Sunday, 1 = Monday, ... 6 = Saturday
+        const dayNumbers = recurrenceDays.map((d) => {
+          const map: Record<string, number> = {
+            sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
+          };
+          return map[d] ?? 1;
+        });
 
-          // Prevent duplicate occurrences even if timestamps drift slightly across environments:
-          // treat "same day + same startTime + same template" as the same occurrence.
-          const dayStart = new Date(Date.UTC(
-            occStart.getUTCFullYear(),
-            occStart.getUTCMonth(),
-            occStart.getUTCDate(),
-            0, 0, 0, 0,
-          ));
-          const dayEnd = new Date(dayStart);
-          dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+        const weekStart = getStartOfWeekUTC(templateStart > now ? templateStart : now);
 
-          // Fresh idempotency rule: one visible recurring slot per title/day/time/ministry,
-          // even if templates were accidentally duplicated.
-          const ministry = template.ministry?.trim() || null;
-          const existing = await this.prisma.event.findFirst({
-            where: {
-              isRecurring: true,
-              title: template.title,
-              category: template.category,
-              startTime: template.startTime,
-              startDate: { gte: dayStart, lt: dayEnd },
-              ...(ministry
-                ? { ministry }
-                : { OR: [{ ministry: null }, { ministry: '' }] }),
-            },
-          });
-          if (existing) continue;
+        for (let w = 0; w < weeksAhead; w++) {
+          const baseWeek = new Date(weekStart);
+          baseWeek.setUTCDate(baseWeek.getUTCDate() + w * 7 * interval);
 
-          await this.prisma.event.create({
-            data: {
-              title: template.title,
-              eventType: template.eventType,
-              category: template.category,
-              description: template.description,
-              startDate: occStart,
-              endDate: occEnd,
-              startTime: template.startTime,
-              endTime: template.endTime,
-              location: template.location,
-              venue: template.venue,
-              status: occEnd < now ? EventStatus.COMPLETED : occStart <= now && occEnd >= now ? EventStatus.ONGOING : EventStatus.UPCOMING,
-              hasRegistration: template.hasRegistration,
-              registrationFee: template.registrationFee,
-              paymentInstructions: template.paymentInstructions,
-              gcashQrCodeUrl: template.gcashQrCodeUrl,
-              maxParticipants: template.maxParticipants,
-              encounterType: template.encounterType,
-              classNumber: template.classNumber,
-              ministry: template.ministry,
-              isRecurring: true,
-              recurrencePattern: template.recurrencePattern,
-              recurrenceDays: template.recurrenceDays,
-              recurrenceInterval: template.recurrenceInterval,
-              monthlyType: template.monthlyType,
-              monthlyDayOfMonth: template.monthlyDayOfMonth,
-              monthlyWeekOfMonth: template.monthlyWeekOfMonth,
-              monthlyDayOfWeek: template.monthlyDayOfWeek,
-              recurrenceTemplateId: templateId,
-            },
-          });
-          count++;
+          for (const dayNum of dayNumbers) {
+            const occStart = new Date(baseWeek);
+            occStart.setUTCDate(baseWeek.getUTCDate() + (dayNum === 0 ? 6 : dayNum - 1));
+            occStart.setUTCHours(
+              templateStart.getUTCHours(),
+              templateStart.getUTCMinutes(),
+              0,
+              0,
+            );
+            if (occStart < now) continue;
+
+            const occEnd = new Date(occStart.getTime() + durationMs);
+
+            // Per-template idempotency rule: one occurrence row per template/day/startTime.
+            const dayStart = new Date(Date.UTC(
+              occStart.getUTCFullYear(),
+              occStart.getUTCMonth(),
+              occStart.getUTCDate(),
+              0, 0, 0, 0,
+            ));
+            const dayEnd = new Date(dayStart);
+            dayEnd.setUTCDate(dayEnd.getUTCDate() + 1);
+
+            const existing = await tx.event.findFirst({
+              where: {
+                recurrenceTemplateId: templateId,
+                startDate: { gte: dayStart, lt: dayEnd },
+                startTime: template.startTime,
+              },
+            });
+            if (existing) continue;
+
+            await tx.event.create({
+              data: {
+                title: template.title,
+                eventType: template.eventType,
+                category: template.category,
+                description: template.description,
+                startDate: occStart,
+                endDate: occEnd,
+                startTime: template.startTime,
+                endTime: template.endTime,
+                location: template.location,
+                venue: template.venue,
+                status: occEnd < now ? EventStatus.COMPLETED : occStart <= now && occEnd >= now ? EventStatus.ONGOING : EventStatus.UPCOMING,
+                hasRegistration: template.hasRegistration,
+                registrationFee: template.registrationFee,
+                paymentInstructions: template.paymentInstructions,
+                gcashQrCodeUrl: template.gcashQrCodeUrl,
+                maxParticipants: template.maxParticipants,
+                encounterType: template.encounterType,
+                classNumber: template.classNumber,
+                ministry: template.ministry,
+                isRecurring: true,
+                recurrencePattern: template.recurrencePattern,
+                recurrenceDays: template.recurrenceDays,
+                recurrenceInterval: template.recurrenceInterval,
+                monthlyType: template.monthlyType,
+                monthlyDayOfMonth: template.monthlyDayOfMonth,
+                monthlyWeekOfMonth: template.monthlyWeekOfMonth,
+                monthlyDayOfWeek: template.monthlyDayOfWeek,
+                recurrenceTemplateId: templateId,
+              },
+            });
+            count++;
+          }
         }
       }
-    }
 
-    return count;
+      return count;
+    });
   }
 
   /**

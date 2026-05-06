@@ -50,11 +50,13 @@ function normalizeSlotToken(value?: string | null): string {
 function recurringDisplaySlotKey(event: Event): string {
   const d = new Date(event.startDate);
   const weekday = d.getUTCDay();
+  const title = normalizeSlotToken(event.title);
+  const category = normalizeSlotToken(event.category);
   const ministry = normalizeSlotToken(event.ministry);
   // Use venue first; fallback to location to handle legacy rows with empty venue.
   const venue = normalizeSlotToken(event.venue || event.location);
   const startTime = normalizeSlotToken(event.startTime);
-  return `recurring|${weekday}|${startTime}|${ministry}|${venue}`;
+  return `recurring|${title}|${category}|${weekday}|${startTime}|${ministry}|${venue}`;
 }
 
 function eventQualityScore(event: Event): number {
