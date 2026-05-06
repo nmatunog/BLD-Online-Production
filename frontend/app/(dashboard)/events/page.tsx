@@ -108,6 +108,7 @@ export default function EventsPage() {
   const router = useRouter();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
+  const [eventsLoadError, setEventsLoadError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [filterType, setFilterType] = useState<string>('ALL');
@@ -286,6 +287,7 @@ export default function EventsPage() {
 
   const loadEvents = async () => {
     setLoading(true);
+    setEventsLoadError(null);
     try {
       const params: EventQueryParams = {
         search: searchTerm || undefined,
@@ -307,14 +309,23 @@ export default function EventsPage() {
           toast.error('Could not load events', {
             description: result.error || result.message || 'Please try again.',
           });
+          setEventsLoadError(result.error || result.message || 'Could not load events.');
         }
       }
     } catch (error: unknown) {
-      const description = isUnauthorizedError(error)
+      const unauthorized = isUnauthorizedError(error);
+      const description = unauthorized
         ? 'Your session expired or you were signed out. Please sign in again.'
         : getErrorMessage(error, 'Failed to load events');
       toast.error('Error loading events', { description });
+      setEventsLoadError(description);
       setEvents([]);
+      if (unauthorized && typeof window !== 'undefined') {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('authData');
+        window.location.href = '/login';
+      }
     } finally {
       setLoading(false);
     }
@@ -1841,7 +1852,15 @@ export default function EventsPage() {
         </div>
 
         {/* Empty State */}
-        {!loading && events.length === 0 && (
+        {!loading && eventsLoadError && (
+          <div className="text-center py-12 bg-amber-50 rounded-xl border border-amber-200">
+            <div className="text-xl font-semibold text-amber-900 mb-2">Could not load events</div>
+            <div className="text-sm text-amber-800 mb-4">{eventsLoadError}</div>
+            <Button variant="outline" onClick={loadEvents}>Retry</Button>
+          </div>
+        )}
+
+        {!loading && !eventsLoadError && events.length === 0 && (
           <div className="text-center py-16 bg-white rounded-xl border-2 border-dashed border-gray-300">
             <Calendar className="w-20 h-20 mx-auto mb-4 text-gray-400" />
             <div className="text-2xl font-semibold text-gray-900 mb-2">No events found</div>
