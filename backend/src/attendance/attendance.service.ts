@@ -483,8 +483,15 @@ export class AttendanceService {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event || !event.startTime) return null;
 
-    const start = new Date(event.startDate);
-    const weekday = start.getUTCDay();
+    const manilaDayKey = (d: Date) =>
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(d);
+
+    const eventDayKey = manilaDayKey(new Date(event.startDate));
     const title = (event.title || '').trim().toLowerCase();
     const category = (event.category || '').trim().toLowerCase();
     const ministry = (event.ministry || '').trim().toLowerCase();
@@ -514,14 +521,14 @@ export class AttendanceService {
     });
 
     const sameSlot = candidates.filter((e) => {
-      const sameWeekday = new Date(e.startDate).getUTCDay() === weekday;
+      const sameDay = manilaDayKey(new Date(e.startDate)) === eventDayKey;
       const sameTitle = (e.title || '').trim().toLowerCase() === title;
       const sameCategory = (e.category || '').trim().toLowerCase() === category;
       const eMinistry = (e.ministry || '').trim().toLowerCase();
       const eVenue = (e.venue || '').trim().toLowerCase();
       const sameMinistry = eMinistry === ministry;
       const sameVenue = eVenue === venue;
-      return sameWeekday && sameTitle && sameCategory && sameMinistry && sameVenue;
+      return sameDay && sameTitle && sameCategory && sameMinistry && sameVenue;
     });
 
     if (sameSlot.length === 0) return null;
