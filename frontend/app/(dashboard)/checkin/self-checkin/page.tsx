@@ -156,6 +156,7 @@ function SelfCheckInContent() {
       sortBy: 'startDate' as const,
       sortOrder: (status === 'COMPLETED' ? 'desc' : 'asc') as 'asc' | 'desc',
       limit: 50,
+      collapseDuplicateDisplay: true,
     });
     try {
       const [upcomingRes, ongoingRes, completedRes, meRes] = await Promise.all([
@@ -181,8 +182,7 @@ function SelfCheckInContent() {
 
       const now = new Date();
       const mainList = all.filter((e) => isRelevantForCheckIn(e, now));
-      const deduped = dedupeCheckInEventsBySlot(mainList);
-      const sorted = sortEventsNearestFirst(deduped, now);
+      const sorted = sortEventsNearestFirst(mainList, now);
       const checkedInIds = new Set(attendances.map((a) => a.eventId));
       const reSorted = [
         ...sorted.filter((e) => !checkedInIds.has(e.id)),
@@ -214,6 +214,7 @@ function SelfCheckInContent() {
         sortBy: 'startDate',
         sortOrder: 'desc',
         limit: 30,
+        collapseDuplicateDisplay: true,
       });
       const list = res.success && res.data?.data && Array.isArray(res.data.data) ? res.data.data : [];
       const past = list.filter((e) => isPastEventCategory(e.category)).slice(0, 10);

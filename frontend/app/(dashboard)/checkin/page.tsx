@@ -211,6 +211,7 @@ function CheckInContent() {
       sortOrder: (status === 'COMPLETED' ? 'desc' : 'asc') as 'asc' | 'desc',
       limit: 50,
       includeAllMinistryEvents: canIncludeAll ? includeAll : undefined,
+      collapseDuplicateDisplay: true,
     });
     try {
       // Fetch UPCOMING, ONGOING, and COMPLETED (recurring only). Default: general + my ministry only.
@@ -239,8 +240,7 @@ function CheckInContent() {
       });
       const now = new Date();
       const relevant = merged.filter((e) => isRelevantForCheckIn(e, now));
-      const deduped = dedupeCheckInEventsBySlot(relevant);
-      const eventList = sortEventsNearestFirst(deduped, now);
+      const eventList = sortEventsNearestFirst(relevant, now);
 
       setEvents(eventList);
 

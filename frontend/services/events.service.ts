@@ -63,6 +63,8 @@ export interface EventQueryParams {
   limit?: number;
   /** Admin/Super User: include all ministry-specific events (e.g. all WSC). Default: general + user ministry only. */
   includeAllMinistryEvents?: boolean;
+  /** Collapse visually duplicated rows for list UIs */
+  collapseDuplicateDisplay?: boolean;
 }
 
 export interface CreateEventRequest {

@@ -79,42 +79,8 @@ function eventQualityScore(event: Event): number {
 }
 
 function dedupeRecurringDisplayEvents(list: Event[]): Event[] {
-  const bySlot = new Map<string, Event>();
-
-  for (const event of list) {
-    // Non-recurring rows are shown as-is.
-    if (!event.isRecurring) {
-      bySlot.set(`single|${event.id}`, event);
-      continue;
-    }
-
-    const key = recurringDisplaySlotKey(event);
-    const existing = bySlot.get(key);
-    if (!existing) {
-      bySlot.set(key, event);
-      continue;
-    }
-
-    // Keep the richer row for same recurring slot:
-    // 1) more registration/attendance data
-    // 2) newer updatedAt
-    // 3) stable fallback on id
-    const existingScore = eventQualityScore(existing);
-    const nextScore = eventQualityScore(event);
-    if (nextScore > existingScore) {
-      bySlot.set(key, event);
-      continue;
-    }
-    if (nextScore === existingScore) {
-      const existingUpdated = new Date(existing.updatedAt).getTime();
-      const nextUpdated = new Date(event.updatedAt).getTime();
-      if (nextUpdated > existingUpdated || (nextUpdated === existingUpdated && event.id > existing.id)) {
-        bySlot.set(key, event);
-      }
-    }
-  }
-
-  return Array.from(bySlot.values());
+  // Backward-compat shim. Dedupe is now handled by backend collapseDuplicateDisplay.
+  return list;
 }
 
 export default function EventsPage() {
@@ -311,6 +277,7 @@ export default function EventsPage() {
         page: 1,
         limit: 100,
         includeAllMinistryEvents: (userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR' || userRole === 'DCS') ? includeAllMinistryEvents : undefined,
+        collapseDuplicateDisplay: true,
       };
 
       const result = await eventsService.getAll(params);
@@ -495,6 +462,7 @@ export default function EventsPage() {
         sortBy: 'startDate',
         sortOrder: 'desc',
         limit: 30,
+        collapseDuplicateDisplay: true,
       });
       const list = res?.success && res.data?.data && Array.isArray(res.data.data) ? res.data.data : [];
       const past = list.filter((e) => isPastEventCategory(e.category)).slice(0, 10);

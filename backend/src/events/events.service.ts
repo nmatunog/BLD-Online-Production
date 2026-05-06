@@ -93,6 +93,76 @@ export class EventsService implements OnModuleInit {
     private bunnyCDN: BunnyCDNService,
   ) {}
 
+  private eventDisplayDayKey(isoLike: Date | string): string {
+    try {
+      const dt = new Date(isoLike);
+      return new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Manila',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      }).format(dt);
+    } catch {
+      return String(isoLike);
+    }
+  }
+
+  private normalizeDisplayToken(value?: string | null): string {
+    return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  private normalizeDisplayTime(value?: string | null): string {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const parts = raw.split(':');
+    const hour = String(parts[0] || '').padStart(2, '0');
+    const minute = String(parts[1] || '0').padStart(2, '0');
+    return `${hour}:${minute}`;
+  }
+
+  private collapseDisplayDuplicateEvents<T extends {
+    id: string;
+    title: string;
+    startDate: Date | string;
+    startTime?: string | null;
+    location?: string | null;
+    updatedAt?: Date | string;
+    createdAt?: Date | string;
+    _count?: { attendances?: number; registrations?: number };
+  }>(events: T[]): T[] {
+    const byKey = new Map<string, T>();
+    for (const event of events) {
+      const key = [
+        this.normalizeDisplayToken(event.title),
+        this.eventDisplayDayKey(event.startDate),
+        this.normalizeDisplayTime(event.startTime),
+        this.normalizeDisplayToken(event.location),
+      ].join('|');
+
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, event);
+        continue;
+      }
+
+      const score = (e: T) => Number(e._count?.attendances || 0) + Number(e._count?.registrations || 0);
+      const existingScore = score(existing);
+      const nextScore = score(event);
+      if (nextScore > existingScore) {
+        byKey.set(key, event);
+        continue;
+      }
+      if (nextScore === existingScore) {
+        const existingUpdated = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+        const nextUpdated = new Date(event.updatedAt || event.createdAt || 0).getTime();
+        if (nextUpdated > existingUpdated || (nextUpdated === existingUpdated && event.id > existing.id)) {
+          byKey.set(key, event);
+        }
+      }
+    }
+    return Array.from(byKey.values());
+  }
+
   onModuleInit() {
     // Auto-generate future recurring occurrences (Community Worship, WSC, etc.) so they show every week without manual creation
     setTimeout(() => {
@@ -450,6 +520,7 @@ export class EventsService implements OnModuleInit {
       page = 1,
       limit = 50,
       includeAllMinistryEvents,
+      collapseDuplicateDisplay = false,
     } = query;
 
     const skip = (page - 1) * limit;
@@ -563,13 +634,16 @@ export class EventsService implements OnModuleInit {
       this.prisma.event.count({ where }),
     ]);
 
+    const finalData = collapseDuplicateDisplay ? this.collapseDisplayDuplicateEvents(data) : data;
+    const finalTotal = collapseDuplicateDisplay ? finalData.length : total;
+
     return {
-      data,
+      data: finalData,
       pagination: {
         page,
         limit,
-        total,
-        totalPages: Math.ceil(total / limit),
+        total: finalTotal,
+        totalPages: Math.ceil(finalTotal / limit),
       },
     };
   }

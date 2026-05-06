@@ -17,6 +17,12 @@ export class EventQueryDto {
   @IsBoolean()
   includeAllMinistryEvents?: boolean;
 
+  /** Collapse visually duplicated event rows for list UIs (same title/day/time/location) */
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  collapseDuplicateDisplay?: boolean;
+
   @IsOptional()
   @IsString()
   search?: string;
