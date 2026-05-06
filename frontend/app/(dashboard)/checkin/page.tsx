@@ -34,6 +34,66 @@ import { toast } from 'sonner';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { QRScanner, qrUtils } from '@/lib/qr-scanner-service';
 
+function normalizeCheckInToken(value?: string | null): string {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function normalizeCheckInTime(value?: string | null): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const parts = raw.split(':');
+  const hour = String(parts[0] || '').padStart(2, '0');
+  const minute = String(parts[1] || '0').padStart(2, '0');
+  return `${hour}:${minute}`;
+}
+
+function manilaDateKey(isoDate: string): string {
+  try {
+    const dt = new Date(isoDate);
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(dt);
+  } catch {
+    return isoDate;
+  }
+}
+
+function dedupeCheckInEventsBySlot(list: Event[]): Event[] {
+  const byKey = new Map<string, Event>();
+  for (const event of list) {
+    const key = [
+      normalizeCheckInToken(event.title),
+      normalizeCheckInToken(event.category),
+      manilaDateKey(event.startDate),
+      normalizeCheckInTime(event.startTime),
+      normalizeCheckInToken(event.ministry),
+      normalizeCheckInToken(event.venue || event.location),
+    ].join('|');
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, event);
+      continue;
+    }
+    const existingScore = (existing._count?.attendances || 0) + (existing._count?.registrations || 0);
+    const nextScore = (event._count?.attendances || 0) + (event._count?.registrations || 0);
+    if (nextScore > existingScore) {
+      byKey.set(key, event);
+      continue;
+    }
+    if (nextScore === existingScore) {
+      const existingUpdated = new Date(existing.updatedAt).getTime();
+      const nextUpdated = new Date(event.updatedAt).getTime();
+      if (nextUpdated > existingUpdated || (nextUpdated === existingUpdated && event.id > existing.id)) {
+        byKey.set(key, event);
+      }
+    }
+  }
+  return Array.from(byKey.values());
+}
+
 function CheckInContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -155,7 +215,8 @@ function CheckInContent() {
       });
       const now = new Date();
       const relevant = merged.filter((e) => isRelevantForCheckIn(e, now));
-      const eventList = sortEventsNearestFirst(relevant, now);
+      const deduped = dedupeCheckInEventsBySlot(relevant);
+      const eventList = sortEventsNearestFirst(deduped, now);
 
       setEvents(eventList);
 

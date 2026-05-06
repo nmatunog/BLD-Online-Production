@@ -452,6 +452,10 @@ export class EventsService implements OnModuleInit {
     // Build where clause
     const where: Prisma.EventWhereInput = {};
 
+    // Never show recurring template rows in the regular listing endpoint.
+    // The UI should display concrete occurrences only; template management is via super/all.
+    where.NOT = { isRecurring: true, recurrenceTemplateId: null };
+
     // Ministry visibility: default = general (ministry null) + user's ministry only. Admin/Super can include all.
     const canSeeAllMinistryEvents =
       user?.role === UserRole.SUPER_USER ||
@@ -1058,7 +1062,15 @@ export class EventsService implements OnModuleInit {
             ),
             'community'
           ) AS norm_ministry,
-          coalesce(e."startTime", '') AS norm_start_time
+          coalesce(
+            nullif(
+              lpad(split_part(coalesce(e."startTime", ''), ':', 1), 2, '0')
+              || ':'
+              || lpad(split_part(coalesce(e."startTime", ''), ':', 2), 2, '0'),
+              ':'
+            ),
+            ''
+          ) AS norm_start_time
         FROM "Event" e
         WHERE e."isRecurring" = true
       ),
