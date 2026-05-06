@@ -77,7 +77,7 @@ function dedupeCheckInEventsBySlot(list: Event[]): Event[] {
       normalizeCheckInToken(event.title),
       manilaDateKey(event.startDate),
       normalizeCheckInTime(event.startTime),
-      normalizeCheckInToken(event.venue || event.location),
+      normalizeCheckInToken(event.location),
     ].join('|');
     const existing = byKey.get(key);
     if (!existing) {

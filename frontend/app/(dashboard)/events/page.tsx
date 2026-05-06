@@ -47,16 +47,29 @@ function normalizeSlotToken(value?: string | null): string {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
+function manilaDateKey(isoDate: string): string {
+  try {
+    const dt = new Date(isoDate);
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(dt);
+  } catch {
+    return isoDate;
+  }
+}
+
 function recurringDisplaySlotKey(event: Event): string {
-  const d = new Date(event.startDate);
-  const weekday = d.getUTCDay();
+  const dayKey = manilaDateKey(event.startDate);
   const title = normalizeSlotToken(event.title);
   const category = normalizeSlotToken(event.category);
   const ministry = normalizeSlotToken(event.ministry);
   // Use venue first; fallback to location to handle legacy rows with empty venue.
   const venue = normalizeSlotToken(event.venue || event.location);
   const startTime = normalizeSlotToken(event.startTime);
-  return `recurring|${title}|${category}|${weekday}|${startTime}|${ministry}|${venue}`;
+  return `recurring|${title}|${category}|${dayKey}|${startTime}|${ministry}|${venue}`;
 }
 
 function eventQualityScore(event: Event): number {
