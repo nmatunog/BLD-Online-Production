@@ -69,14 +69,38 @@ function manilaDateKey(isoDate: string): string {
 }
 
 function dedupeCheckInEventsBySlot(list: Event[]): Event[] {
+  const visibleDate = (isoDate: string): string => {
+    try {
+      const date = new Date(isoDate);
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      });
+    } catch {
+      return isoDate;
+    }
+  };
+  const visibleTime = (timeString: string | null): string => {
+    if (!timeString) return '';
+    try {
+      const [hours, minutes] = timeString.split(':');
+      const hour = parseInt(hours, 10);
+      const ampm = hour >= 12 ? 'PM' : 'AM';
+      const displayHour = hour % 12 || 12;
+      return `${displayHour}:${minutes} ${ampm}`;
+    } catch {
+      return timeString;
+    }
+  };
+
   const byKey = new Map<string, Event>();
   for (const event of list) {
     // Deduplicate exactly by what the dropdown displays to users.
-    // This removes visually duplicated rows even when backend metadata differs.
     const key = [
       normalizeCheckInToken(event.title),
-      manilaDateKey(event.startDate),
-      normalizeCheckInTime(event.startTime),
+      normalizeCheckInToken(visibleDate(event.startDate)),
+      normalizeCheckInToken(visibleTime(event.startTime)),
       normalizeCheckInToken(event.location),
     ].join('|');
     const existing = byKey.get(key);
