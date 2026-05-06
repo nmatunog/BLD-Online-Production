@@ -64,12 +64,12 @@ function manilaDateKey(isoDate: string): string {
 function dedupeCheckInEventsBySlot(list: Event[]): Event[] {
   const byKey = new Map<string, Event>();
   for (const event of list) {
+    // Deduplicate exactly by what the dropdown displays to users.
+    // This removes visually duplicated rows even when backend metadata differs.
     const key = [
       normalizeCheckInToken(event.title),
-      normalizeCheckInToken(event.category),
       manilaDateKey(event.startDate),
       normalizeCheckInTime(event.startTime),
-      normalizeCheckInToken(event.ministry),
       normalizeCheckInToken(event.venue || event.location),
     ].join('|');
     const existing = byKey.get(key);

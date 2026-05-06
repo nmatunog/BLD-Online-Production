@@ -1054,7 +1054,7 @@ export class EventsService implements OnModuleInit {
           e."createdAt",
           e."createdById",
           regexp_replace(lower(btrim(e.title)), '\\s+', ' ', 'g') AS norm_title,
-          (e."startDate")::date AS day_utc,
+          (e."startDate" AT TIME ZONE 'Asia/Manila')::date AS day_manila,
           coalesce(
             nullif(
               regexp_replace(lower(btrim(coalesce(e.ministry, ''))), '\\s+', ' ', 'g'),
@@ -1077,15 +1077,15 @@ export class EventsService implements OnModuleInit {
       dup_keys AS (
         SELECT
           norm_title,
-          day_utc,
+          day_manila,
           norm_start_time,
           norm_ministry
         FROM normalized
-        GROUP BY norm_title, day_utc, norm_start_time, norm_ministry
+        GROUP BY norm_title, day_manila, norm_start_time, norm_ministry
         HAVING count(*) > 1
       )
       SELECT
-        (n.norm_title || '|' || n.day_utc::text || '|' || n.norm_start_time || '|' || n.norm_ministry) AS keys,
+        (n.norm_title || '|' || n.day_manila::text || '|' || n.norm_start_time || '|' || n.norm_ministry) AS keys,
         n.id,
         n.title,
         n."startDate" as "startDate",
@@ -1104,7 +1104,7 @@ export class EventsService implements OnModuleInit {
       FROM normalized n
       JOIN dup_keys d
         ON d.norm_title = n.norm_title
-       AND d.day_utc = n.day_utc
+       AND d.day_manila = n.day_manila
        AND d.norm_start_time = n.norm_start_time
        AND d.norm_ministry = n.norm_ministry
       LEFT JOIN "User" u ON u.id = n."createdById"
