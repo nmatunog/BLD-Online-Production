@@ -18,6 +18,7 @@ import { MINISTRIES_BY_APOSTOLATE } from '../common/constants/organization.const
 
 /** Number of weeks ahead to auto-create recurring occurrence rows */
 const RECURRING_OCCURRENCE_WEEKS_AHEAD = 24;
+const RECURRING_BACKFILL_DAYS = 7;
 
 /** Monday 00:00:00 UTC for the week containing d */
 function getStartOfWeekUTC(d: Date): Date {
@@ -320,6 +321,7 @@ export class EventsService implements OnModuleInit {
       const durationMs = templateEnd.getTime() - templateStart.getTime();
 
       const now = new Date();
+      const recentPastCutoff = new Date(now.getTime() - RECURRING_BACKFILL_DAYS * 24 * 60 * 60 * 1000);
       let count = 0;
 
       if (pattern === 'weekly' && recurrenceDays.length > 0) {
@@ -331,7 +333,10 @@ export class EventsService implements OnModuleInit {
           return map[d] ?? 1;
         });
 
-        const weekStart = getStartOfWeekUTC(templateStart > now ? templateStart : now);
+        // Also backfill recent past occurrences so completed recurring events (last 7 days)
+        // remain visible if rows were previously cleaned or missed by earlier runs.
+        const generationAnchor = templateStart > now ? templateStart : recentPastCutoff;
+        const weekStart = getStartOfWeekUTC(generationAnchor);
 
         for (let w = 0; w < weeksAhead; w++) {
           const baseWeek = new Date(weekStart);
@@ -346,7 +351,7 @@ export class EventsService implements OnModuleInit {
               0,
               0,
             );
-            if (occStart < now) continue;
+            if (occStart < recentPastCutoff) continue;
 
             const occEnd = new Date(occStart.getTime() + durationMs);
 
