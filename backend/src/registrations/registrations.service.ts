@@ -1659,6 +1659,358 @@ export class RegistrationsService {
     return result;
   }
 
+  /**
+   * Aided search for event candidates by family name + first name.
+   * Used by the simplified candidate quick check-in flow.
+   * Returns up to `limit` candidates ordered by closeness of match.
+   */
+  async searchCandidatesByName(
+    eventId: string,
+    params: { firstName?: string; familyName?: string; limit?: number },
+  ) {
+    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) throw new NotFoundException(`Event with ID "${eventId}" not found`);
+
+    const firstNorm = this.normalizeText(params.firstName || '');
+    const familyNorm = this.normalizeText(params.familyName || '');
+    const limit = Math.min(Math.max(params.limit || 25, 1), 100);
+
+    if (!firstNorm && !familyNorm) {
+      return [];
+    }
+
+    // Build OR conditions: prefix-match on either field. Avoid `contains` for performance
+    // on the indexed normalized columns; later we score in JS for ranking.
+    const orConditions: Prisma.EventCandidateWhereInput[] = [];
+    if (familyNorm) {
+      orConditions.push({ familyNameNorm: { startsWith: familyNorm } });
+      orConditions.push({ familyNameNorm: { contains: familyNorm } });
+    }
+    if (firstNorm) {
+      orConditions.push({ firstNameNorm: { startsWith: firstNorm } });
+      orConditions.push({ firstNameNorm: { contains: firstNorm } });
+    }
+
+    const candidates = await this.prisma.eventCandidate.findMany({
+      where: {
+        eventId,
+        OR: orConditions,
+      },
+      include: {
+        member: { select: { id: true, communityId: true, firstName: true, lastName: true } },
+      },
+      take: limit * 4, // Over-fetch then rank.
+    });
+
+    const score = (c: { firstNameNorm: string; familyNameNorm: string }): number => {
+      let s = 0;
+      if (familyNorm) {
+        if (c.familyNameNorm === familyNorm) s += 100;
+        else if (c.familyNameNorm.startsWith(familyNorm)) s += 60;
+        else if (c.familyNameNorm.includes(familyNorm)) s += 30;
+      }
+      if (firstNorm) {
+        if (c.firstNameNorm === firstNorm) s += 100;
+        else if (c.firstNameNorm.startsWith(firstNorm)) s += 60;
+        else if (c.firstNameNorm.includes(firstNorm)) s += 30;
+      }
+      return s;
+    };
+
+    return candidates
+      .map((c) => ({ c, s: score(c) }))
+      .filter((row) => row.s > 0)
+      .sort((a, b) => {
+        if (b.s !== a.s) return b.s - a.s;
+        const fam = a.c.familyNameNorm.localeCompare(b.c.familyNameNorm);
+        if (fam !== 0) return fam;
+        return a.c.firstNameNorm.localeCompare(b.c.firstNameNorm);
+      })
+      .slice(0, limit)
+      .map((row) => row.c);
+  }
+
+  /**
+   * Simplified flow: register a candidate AND check them in for the event in one transaction.
+   *
+   * The staff/admin selects a candidate by ID (after the aided search) and confirms
+   * the encounter type + class number. The system:
+   *  - parses or accepts overrides for encounterType/classNumber (manual confirmation)
+   *  - allocates a Community ID via the counter-based allocator
+   *  - creates Member + User if missing (issues temp credentials)
+   *  - creates EventRegistration if missing
+   *  - creates Attendance record (idempotent on the unique [memberId, eventId] index)
+   */
+  async quickRegisterAndCheckInCandidate(
+    eventId: string,
+    candidateId: string,
+    dto: import('./dto/quick-register-checkin.dto').QuickRegisterCheckinDto,
+    createdByUserId: string,
+  ) {
+    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) throw new NotFoundException(`Event with ID "${eventId}" not found`);
+    if (!event.hasRegistration) {
+      throw new BadRequestException('This event does not have registration enabled');
+    }
+
+    const candidate = await this.prisma.eventCandidate.findFirst({
+      where: { id: candidateId, eventId },
+    });
+    if (!candidate) {
+      throw new NotFoundException('Candidate not found for this event');
+    }
+
+    // Resolve encounterType + classNumber: allow staff override, otherwise parse.
+    let encounterType: string;
+    let classNumber: number;
+    if (dto.encounterType && dto.classNumber) {
+      encounterType = String(dto.encounterType).trim().toUpperCase();
+      classNumber = Number(dto.classNumber);
+      if (!/^[A-Z]{1,4}$/.test(encounterType)) {
+        throw new BadRequestException('Encounter type must be 1-4 letters (e.g. ME, SE, SPE).');
+      }
+      if (!Number.isInteger(classNumber) || classNumber < 1 || classNumber > 999) {
+        throw new BadRequestException('Class number must be an integer between 1 and 999.');
+      }
+    } else {
+      const parsed = this.parseCandidateClass(candidate.candidateClass);
+      encounterType = dto.encounterType
+        ? String(dto.encounterType).trim().toUpperCase()
+        : parsed.encounterType;
+      classNumber = dto.classNumber ? Number(dto.classNumber) : parsed.classNumber;
+    }
+
+    const cityCode = this.deriveCityCode(event.location);
+    const normalizedMobile = dto.mobileNumber ? normalizePhoneNumber(dto.mobileNumber) : null;
+
+    type StepResult = {
+      candidateId: string;
+      memberId: string;
+      communityId: string;
+      registrationId: string;
+      attendanceId: string;
+      alreadyAttended: boolean;
+      generatedCommunityId: string | null;
+      userCreated: boolean;
+      tempPassword: string | null;
+      encounterType: string;
+      classNumber: number;
+    };
+
+    let result: StepResult | null = null;
+
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        result = await this.prisma.$transaction(async (tx) => {
+          // 1) Resolve or create Member.
+          let member = candidate.memberId
+            ? await tx.member.findUnique({ where: { id: candidate.memberId }, include: { user: true } })
+            : null;
+          let resolvedUserId: string | null = member?.userId || null;
+          let tempPassword: string | null = null;
+          let userCreated = false;
+          let generatedCommunityId: string | null = null;
+
+          if (!member) {
+            const existingMember = await tx.member.findFirst({
+              where: {
+                firstName: { equals: candidate.firstName, mode: 'insensitive' },
+                lastName: { equals: candidate.familyName, mode: 'insensitive' },
+                encounterType,
+                classNumber,
+              },
+              include: { user: true },
+            });
+            if (existingMember) member = existingMember as any;
+          }
+
+          if (!member) {
+            const email = dto.email?.trim().toLowerCase() || null;
+            const mobile = normalizedMobile || candidate.cleanMobile || null;
+            if (!email && !mobile) {
+              throw new BadRequestException(
+                'Mobile number or email is required for first-time registration so login can be created.',
+              );
+            }
+
+            let user = email
+              ? await tx.user.findUnique({ where: { email }, include: { member: true } })
+              : null;
+            if (!user && mobile) {
+              user = await tx.user.findFirst({ where: { phone: mobile }, include: { member: true } });
+            }
+
+            if (!user) {
+              tempPassword = `Temp${Math.random().toString(36).slice(-8)}!`;
+              const passwordHash = await bcrypt.hash(tempPassword, 10);
+              user = await tx.user.create({
+                data: {
+                  email,
+                  phone: mobile,
+                  passwordHash,
+                  role: UserRole.MEMBER,
+                  isActive: true,
+                },
+                include: { member: true },
+              });
+              userCreated = true;
+            }
+            resolvedUserId = user.id;
+
+            if (user.member) {
+              member = (await tx.member.findUnique({
+                where: { id: user.member.id },
+                include: { user: true },
+              })) as any;
+            } else {
+              generatedCommunityId = await this.reserveNextCommunityId(
+                tx,
+                cityCode,
+                encounterType,
+                String(classNumber),
+              );
+              member = (await tx.member.create({
+                data: {
+                  userId: user.id,
+                  firstName: candidate.firstName,
+                  lastName: candidate.familyName,
+                  communityId: generatedCommunityId,
+                  city: cityCode,
+                  encounterType,
+                  classNumber,
+                  ministry: null,
+                  apostolate: null,
+                },
+                include: { user: true },
+              })) as any;
+            }
+          }
+
+          if (!member) {
+            throw new ConflictException('Unable to resolve or create member profile for this candidate');
+          }
+
+          // 2) Ensure EventRegistration exists.
+          const existingReg = await tx.eventRegistration.findFirst({
+            where: { eventId, memberId: member.id },
+          });
+          let registration = existingReg;
+          if (!registration) {
+            const paymentAmount = event.registrationFee ? Number(event.registrationFee) : 0;
+            registration = await tx.eventRegistration.create({
+              data: {
+                eventId,
+                memberId: member.id,
+                registrationType: RegistrationType.MEMBER,
+                firstName: member.firstName,
+                lastName: member.lastName,
+                middleName: member.middleName,
+                email: member.user?.email || dto.email?.trim().toLowerCase() || null,
+                phone: member.user?.phone || normalizedMobile || candidate.cleanMobile || null,
+                memberCommunityId: member.communityId,
+                paymentStatus: PaymentStatus.PENDING,
+                paymentAmount: paymentAmount > 0 ? paymentAmount : null,
+              },
+            });
+          }
+
+          // 3) Mark candidate REGISTERED + link.
+          await tx.eventCandidate.update({
+            where: { id: candidate.id },
+            data: {
+              status: EventCandidateStatus.REGISTERED,
+              claimedAt: candidate.claimedAt || new Date(),
+              registeredAt: candidate.registeredAt || new Date(),
+              memberId: member.id,
+              registrationId: registration.id,
+              cleanMobile: normalizedMobile || candidate.cleanMobile,
+              mobileNumber: dto.mobileNumber || candidate.mobileNumber,
+            },
+          });
+
+          // 4) Idempotent attendance create. Unique index on [memberId,eventId]
+          //    means a duplicate insert raises P2002; we then return the existing row.
+          let alreadyAttended = false;
+          let attendance = await tx.attendance.findFirst({
+            where: { memberId: member.id, eventId },
+          });
+          if (attendance) {
+            alreadyAttended = true;
+          } else {
+            try {
+              attendance = await tx.attendance.create({
+                data: {
+                  memberId: member.id,
+                  eventId,
+                  method: 'MANUAL' as any,
+                },
+              });
+            } catch (err) {
+              if (
+                err instanceof Prisma.PrismaClientKnownRequestError &&
+                err.code === 'P2002'
+              ) {
+                attendance = await tx.attendance.findFirst({
+                  where: { memberId: member.id, eventId },
+                });
+                alreadyAttended = true;
+              } else {
+                throw err;
+              }
+            }
+          }
+
+          // 5) Log temp credentials if a new user was created.
+          if (userCreated && tempPassword && resolvedUserId && member?.id) {
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + 30);
+            await tx.tempCredentialLog.create({
+              data: {
+                eventId,
+                userId: resolvedUserId,
+                memberId: member.id,
+                createdByUserId,
+                firstName: member.firstName,
+                lastName: member.lastName,
+                communityId: member.communityId,
+                tempPassword,
+                expiresAt,
+              },
+            });
+          }
+
+          return {
+            candidateId: candidate.id,
+            memberId: member.id,
+            communityId: member.communityId,
+            registrationId: registration.id,
+            attendanceId: attendance!.id,
+            alreadyAttended,
+            generatedCommunityId,
+            userCreated,
+            tempPassword,
+            encounterType,
+            classNumber,
+          };
+        }, {
+          maxWait: 5000,
+          timeout: 20000,
+        });
+        break;
+      } catch (error) {
+        if (!this.isCommunityIdUniqueConflict(error) || attempt === 5) {
+          throw error;
+        }
+      }
+    }
+
+    if (!result) {
+      throw new ConflictException('Unable to register candidate due to repeated Community ID conflicts');
+    }
+
+    return result;
+  }
+
   async listTempCredentialLogs(eventId: string, includeExpired = false) {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException(`Event with ID "${eventId}" not found`);

@@ -28,6 +28,7 @@ import { RegistrationQueryDto } from './dto/registration-query.dto';
 import { ClaimEventCandidateDto } from './dto/claim-event-candidate.dto';
 import { EventCandidateQueryDto } from './dto/event-candidate-query.dto';
 import { ResolveCandidateDuplicateDto } from './dto/resolve-candidate-duplicate.dto';
+import { QuickRegisterCheckinDto } from './dto/quick-register-checkin.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -139,6 +140,70 @@ export class RegistrationsController {
       success: true,
       data,
       message: 'Candidate claimed and registered successfully',
+    };
+  }
+
+  @Get('events/:eventId/candidates/search-by-name')
+  @UseGuards(RolesGuard)
+  @Roles(
+    UserRole.SUPER_USER,
+    UserRole.ADMINISTRATOR,
+    UserRole.DCS,
+    UserRole.MINISTRY_COORDINATOR,
+    UserRole.CLASS_SHEPHERD,
+  )
+  @ApiOperation({
+    summary: 'Aided search for event candidates by family name + first name (for simplified check-in)',
+  })
+  @ApiQuery({ name: 'firstName', required: false, type: String })
+  @ApiQuery({ name: 'familyName', required: false, type: String })
+  @ApiQuery({ name: 'limit', required: false, type: Number })
+  async searchCandidatesByName(
+    @Param('eventId') eventId: string,
+    @Query('firstName') firstName?: string,
+    @Query('familyName') familyName?: string,
+    @Query('limit') limit?: string,
+  ): Promise<ApiResponseDto<unknown>> {
+    const parsedLimit = limit ? parseInt(limit, 10) : undefined;
+    const data = await this.registrationsService.searchCandidatesByName(eventId, {
+      firstName,
+      familyName,
+      limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+    });
+    return { success: true, data, message: 'Candidate search results' };
+  }
+
+  @Post('events/:eventId/candidates/:candidateId/quick-register-checkin')
+  @UseGuards(RolesGuard)
+  @Roles(
+    UserRole.SUPER_USER,
+    UserRole.ADMINISTRATOR,
+    UserRole.DCS,
+    UserRole.MINISTRY_COORDINATOR,
+    UserRole.CLASS_SHEPHERD,
+  )
+  @ApiOperation({
+    summary:
+      'Simplified flow: register the candidate (auto-assign Community ID upon staff confirmation of encounter no.) and check them in to the event in one transaction',
+  })
+  async quickRegisterAndCheckInCandidate(
+    @Param('eventId') eventId: string,
+    @Param('candidateId') candidateId: string,
+    @Body() dto: QuickRegisterCheckinDto,
+    @CurrentUser() user: { id: string },
+  ): Promise<ApiResponseDto<unknown>> {
+    const data = await this.registrationsService.quickRegisterAndCheckInCandidate(
+      eventId,
+      candidateId,
+      dto,
+      user.id,
+    );
+    return {
+      success: true,
+      data,
+      message: data.alreadyAttended
+        ? 'Candidate registered (already checked in earlier).'
+        : 'Candidate registered and checked in successfully.',
     };
   }
 

@@ -717,6 +717,32 @@ function CheckInContent() {
             <p className="text-base text-gray-600">
               Scan QR code or manually check in members for events
             </p>
+            {userRole && userRole !== 'MEMBER' && (
+              <div className="mt-4 bg-emerald-50 border border-emerald-200 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-emerald-900 font-semibold mb-0.5">
+                    Candidate Quick Check-In
+                  </p>
+                  <p className="text-xs text-emerald-800">
+                    For first-time encounter candidates: search by family name + first name,
+                    confirm the encounter no., and the system auto-assigns a Community ID + checks them in.
+                  </p>
+                </div>
+                <Button
+                  onClick={() =>
+                    router.push(
+                      selectedEvent
+                        ? `/checkin/candidates?eventId=${selectedEvent}`
+                        : '/checkin/candidates',
+                    )
+                  }
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  <Users className="w-4 h-4 mr-2" />
+                  Open Candidate Check-In
+                </Button>
+              </div>
+            )}
             {userRole === 'MEMBER' && (
               <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <p className="text-sm text-blue-800 mb-2">

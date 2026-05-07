@@ -302,6 +302,63 @@ class RegistrationsService {
     return response.data;
   }
 
+  async searchCandidatesByName(
+    eventId: string,
+    params: { firstName?: string; familyName?: string; limit?: number },
+  ): Promise<ApiResponse<EventCandidate[]>> {
+    const response = await apiClient.get<ApiResponse<EventCandidate[]>>(
+      `/registrations/events/${eventId}/candidates/search-by-name`,
+      { params },
+    );
+    return response.data;
+  }
+
+  async quickRegisterAndCheckInCandidate(
+    eventId: string,
+    candidateId: string,
+    data: {
+      encounterType?: string;
+      classNumber?: number;
+      mobileNumber?: string;
+      email?: string;
+    },
+  ): Promise<
+    ApiResponse<{
+      candidateId: string;
+      memberId: string;
+      communityId: string;
+      registrationId: string;
+      attendanceId: string;
+      alreadyAttended: boolean;
+      generatedCommunityId?: string | null;
+      userCreated: boolean;
+      tempPassword?: string | null;
+      encounterType: string;
+      classNumber: number;
+    }>
+  > {
+    const response = await apiClient.post<
+      ApiResponse<{
+        candidateId: string;
+        memberId: string;
+        communityId: string;
+        registrationId: string;
+        attendanceId: string;
+        alreadyAttended: boolean;
+        generatedCommunityId?: string | null;
+        userCreated: boolean;
+        tempPassword?: string | null;
+        encounterType: string;
+        classNumber: number;
+      }>
+    >(
+      `/registrations/events/${eventId}/candidates/${candidateId}/quick-register-checkin`,
+      data,
+      { timeout: 60000 },
+    );
+    return response.data;
+  }
+
   async claimCandidate(
     eventId: string,
     data: {
