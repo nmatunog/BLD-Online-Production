@@ -15,6 +15,11 @@ export class CreateAttendanceDto {
   @IsNotEmpty()
   eventId!: string;
 
+  /** Legacy single check-in uses "". Multi-session events use YYYY-MM-DD_AM / _PM (Manila). */
+  @IsString()
+  @IsOptional()
+  sessionSlot?: string;
+
   @IsEnum(CheckInMethod)
   @IsOptional()
   method?: CheckInMethod;

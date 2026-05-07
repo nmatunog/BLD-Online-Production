@@ -173,6 +173,26 @@ export class RegistrationsController {
     return { success: true, data, message: 'Candidate search results' };
   }
 
+  @Get('events/:eventId/candidates/checkin-sessions')
+  @UseGuards(RolesGuard)
+  @Roles(
+    UserRole.SUPER_USER,
+    UserRole.ADMINISTRATOR,
+    UserRole.DCS,
+    UserRole.MINISTRY_COORDINATOR,
+    UserRole.CLASS_SHEPHERD,
+  )
+  @ApiOperation({
+    summary:
+      'List AM/PM check-in sessions for each Manila calendar day of the event (multi-day events)',
+  })
+  async getCandidateCheckinSessions(
+    @Param('eventId') eventId: string,
+  ): Promise<ApiResponseDto<unknown>> {
+    const data = await this.registrationsService.getCandidateCheckinSessions(eventId);
+    return { success: true, data, message: 'Check-in session options' };
+  }
+
   @Post('events/:eventId/candidates/:candidateId/quick-register-checkin')
   @UseGuards(RolesGuard)
   @Roles(
@@ -202,7 +222,7 @@ export class RegistrationsController {
       success: true,
       data,
       message: data.alreadyAttended
-        ? 'Candidate registered (already checked in earlier).'
+        ? 'Candidate registered (already checked in for this session).'
         : 'Candidate registered and checked in successfully.',
     };
   }

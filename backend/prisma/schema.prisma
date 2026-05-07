@@ -258,6 +258,8 @@ model Attendance {
   id          String        @id @default(uuid())
   memberId    String
   eventId     String
+  /// Manila calendar day + session: `YYYY-MM-DD_AM` or `YYYY-MM-DD_PM`. Empty string = legacy single check-in per event.
+  sessionSlot String        @default("")
   checkInTime DateTime      @default(now())
   method      CheckInMethod @default(MANUAL)
   createdAt   DateTime      @default(now())
@@ -265,7 +267,7 @@ model Attendance {
   member      Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)
   event       Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
-  @@unique([memberId, eventId])
+  @@unique([memberId, eventId, sessionSlot])
   @@index([eventId])
   @@index([memberId])
   @@index([checkInTime])

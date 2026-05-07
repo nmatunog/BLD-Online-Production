@@ -313,10 +313,20 @@ class RegistrationsService {
     return response.data;
   }
 
+  async getCandidateCheckinSessions(
+    eventId: string,
+  ): Promise<ApiResponse<Array<{ value: string; label: string }>>> {
+    const response = await apiClient.get<ApiResponse<Array<{ value: string; label: string }>>>(
+      `/registrations/events/${eventId}/candidates/checkin-sessions`,
+    );
+    return response.data;
+  }
+
   async quickRegisterAndCheckInCandidate(
     eventId: string,
     candidateId: string,
     data: {
+      sessionSlot: string;
       encounterType?: string;
       classNumber?: number;
       mobileNumber?: string;
@@ -335,6 +345,7 @@ class RegistrationsService {
       tempPassword?: string | null;
       encounterType: string;
       classNumber: number;
+      sessionSlot: string;
     }>
   > {
     const response = await apiClient.post<
@@ -350,6 +361,7 @@ class RegistrationsService {
         tempPassword?: string | null;
         encounterType: string;
         classNumber: number;
+        sessionSlot: string;
       }>
     >(
       `/registrations/events/${eventId}/candidates/${candidateId}/quick-register-checkin`,

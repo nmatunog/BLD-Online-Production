@@ -143,16 +143,18 @@ export class AttendanceService {
       }
     }
 
-    // Check if already checked in
+    // Check if already checked in (same member + event + session slot)
+    const sessionSlot = (createAttendanceDto.sessionSlot ?? '').trim();
     const existingAttendance = await this.prisma.attendance.findFirst({
       where: {
         memberId: createAttendanceDto.memberId,
         eventId: createAttendanceDto.eventId,
+        sessionSlot,
       },
     });
 
     if (existingAttendance) {
-      throw new ConflictException('Member is already checked in to this event');
+      throw new ConflictException('Member is already checked in to this event session');
     }
 
     // Create attendance record
@@ -160,6 +162,7 @@ export class AttendanceService {
       data: {
         memberId: createAttendanceDto.memberId,
         eventId: createAttendanceDto.eventId,
+        sessionSlot,
         method: createAttendanceDto.method || CheckInMethod.MANUAL,
       },
       include: {

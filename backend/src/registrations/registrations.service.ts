@@ -23,6 +23,11 @@ import {
   EventCandidateStatus,
 } from '@prisma/client';
 import { normalizePhoneNumber } from '../common/utils/phone.util';
+import {
+  getAllowedSessionSlotSet,
+  getCheckInSessionSlotsForEvent,
+  isValidSessionSlotFormat,
+} from '../common/utils/event-checkin-session-slots.util';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -1730,6 +1735,13 @@ export class RegistrationsService {
       .map((row) => row.c);
   }
 
+  /** AM/PM session options for each Manila day between event start and end (for multi-day check-in). */
+  async getCandidateCheckinSessions(eventId: string) {
+    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) throw new NotFoundException(`Event with ID "${eventId}" not found`);
+    return getCheckInSessionSlotsForEvent(event);
+  }
+
   /**
    * Simplified flow: register a candidate AND check them in for the event in one transaction.
    *
@@ -1739,7 +1751,7 @@ export class RegistrationsService {
    *  - allocates a Community ID via the counter-based allocator
    *  - creates Member + User if missing (issues temp credentials)
    *  - creates EventRegistration if missing
-   *  - creates Attendance record (idempotent on the unique [memberId, eventId] index)
+   *  - creates Attendance record for the chosen session (idempotent per sessionSlot)
    */
   async quickRegisterAndCheckInCandidate(
     eventId: string,
@@ -1758,6 +1770,19 @@ export class RegistrationsService {
     });
     if (!candidate) {
       throw new NotFoundException('Candidate not found for this event');
+    }
+
+    const sessionSlot = String(dto.sessionSlot || '').trim();
+    if (!isValidSessionSlotFormat(sessionSlot)) {
+      throw new BadRequestException(
+        'sessionSlot must be a Manila date plus AM or PM, e.g. 2026-05-09_AM or 2026-05-09_PM.',
+      );
+    }
+    const allowedSlots = getAllowedSessionSlotSet(event);
+    if (!allowedSlots.has(sessionSlot)) {
+      throw new BadRequestException(
+        `Invalid sessionSlot for this event. Allowed values: ${[...allowedSlots].sort().join(', ')}`,
+      );
     }
 
     // Resolve encounterType + classNumber: allow staff override, otherwise parse.
@@ -1795,6 +1820,7 @@ export class RegistrationsService {
       tempPassword: string | null;
       encounterType: string;
       classNumber: number;
+      sessionSlot: string;
     };
 
     let result: StepResult | null = null;
@@ -1928,11 +1954,10 @@ export class RegistrationsService {
             },
           });
 
-          // 4) Idempotent attendance create. Unique index on [memberId,eventId]
-          //    means a duplicate insert raises P2002; we then return the existing row.
+          // 4) Idempotent attendance create per session (AM/PM × each Manila day of the event).
           let alreadyAttended = false;
           let attendance = await tx.attendance.findFirst({
-            where: { memberId: member.id, eventId },
+            where: { memberId: member.id, eventId, sessionSlot },
           });
           if (attendance) {
             alreadyAttended = true;
@@ -1942,6 +1967,7 @@ export class RegistrationsService {
                 data: {
                   memberId: member.id,
                   eventId,
+                  sessionSlot,
                   method: 'MANUAL' as any,
                 },
               });
@@ -1951,7 +1977,7 @@ export class RegistrationsService {
                 err.code === 'P2002'
               ) {
                 attendance = await tx.attendance.findFirst({
-                  where: { memberId: member.id, eventId },
+                  where: { memberId: member.id, eventId, sessionSlot },
                 });
                 alreadyAttended = true;
               } else {
@@ -1991,6 +2017,7 @@ export class RegistrationsService {
             tempPassword,
             encounterType,
             classNumber,
+            sessionSlot,
           };
         }, {
           maxWait: 5000,

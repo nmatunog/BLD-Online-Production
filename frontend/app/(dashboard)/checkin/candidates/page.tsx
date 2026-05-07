@@ -54,6 +54,8 @@ interface QuickResult {
   tempPassword?: string | null;
   encounterType: string;
   classNumber: number;
+  sessionSlot: string;
+  sessionLabel: string;
 }
 
 function parseEncounterAndClass(candidateClass: string | null | undefined): {
@@ -134,6 +136,12 @@ function CandidateQuickCheckInPageInner() {
 
   const [lastResult, setLastResult] = useState<QuickResult | null>(null);
 
+  const [sessionOptions, setSessionOptions] = useState<Array<{ value: string; label: string }>>(
+    [],
+  );
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [selectedSessionSlot, setSelectedSessionSlot] = useState('');
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load registration-enabled events.
@@ -177,6 +185,42 @@ function CandidateQuickCheckInPageInner() {
     loadEvents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!selectedEventId) {
+      setSessionOptions([]);
+      setSelectedSessionSlot('');
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setSessionsLoading(true);
+      try {
+        const res = await registrationsService.getCandidateCheckinSessions(selectedEventId);
+        if (cancelled) return;
+        if (!res.success || !res.data?.length) {
+          setSessionOptions([]);
+          setSelectedSessionSlot('');
+          return;
+        }
+        setSessionOptions(res.data);
+        setSelectedSessionSlot((prev) => {
+          if (prev && res.data!.some((s) => s.value === prev)) return prev;
+          return res.data![0]?.value || '';
+        });
+      } catch {
+        if (!cancelled) {
+          setSessionOptions([]);
+          setSelectedSessionSlot('');
+        }
+      } finally {
+        if (!cancelled) setSessionsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEventId]);
 
   // Debounced search whenever inputs or selected event change.
   useEffect(() => {
@@ -227,6 +271,11 @@ function CandidateQuickCheckInPageInner() {
     [events, selectedEventId],
   );
 
+  const selectedSessionLabel = useMemo(
+    () => sessionOptions.find((s) => s.value === selectedSessionSlot)?.label ?? '',
+    [sessionOptions, selectedSessionSlot],
+  );
+
   const openConfirmDialog = (candidate: EventCandidate) => {
     const parsed = parseEncounterAndClass(candidate.candidateClass);
     setConfirmCandidate(candidate);
@@ -261,12 +310,18 @@ function CandidateQuickCheckInPageInner() {
       return;
     }
 
+    if (!selectedSessionSlot) {
+      toast.error('Select the check-in session (AM or PM for this day).');
+      return;
+    }
+
     setSubmitting(true);
     try {
       const res = await registrationsService.quickRegisterAndCheckInCandidate(
         selectedEventId,
         confirmCandidate.id,
         {
+          sessionSlot: selectedSessionSlot,
           encounterType,
           classNumber,
           mobileNumber: confirmMobile.trim() || undefined,
@@ -280,6 +335,9 @@ function CandidateQuickCheckInPageInner() {
       }
 
       const data = res.data;
+      const sessionLabel =
+        sessionOptions.find((s) => s.value === data.sessionSlot)?.label ||
+        data.sessionSlot;
       setLastResult({
         candidate: confirmCandidate,
         communityId: data.communityId,
@@ -289,6 +347,8 @@ function CandidateQuickCheckInPageInner() {
         tempPassword: data.tempPassword,
         encounterType: data.encounterType,
         classNumber: data.classNumber,
+        sessionSlot: data.sessionSlot,
+        sessionLabel,
       });
       closeConfirmDialog();
 
@@ -305,10 +365,10 @@ function CandidateQuickCheckInPageInner() {
 
       toast.success(
         data.alreadyAttended
-          ? 'Candidate registered (was already checked in earlier).'
-          : 'Candidate registered & checked in.',
+          ? 'Already checked in for this session.'
+          : 'Checked in for this session.',
         {
-          description: `Community ID: ${data.communityId}`,
+          description: `${sessionLabel} • Community ID: ${data.communityId}`,
         },
       );
     } catch (err) {
@@ -346,9 +406,9 @@ function CandidateQuickCheckInPageInner() {
                 Candidate Quick Check-In
               </h1>
               <p className="text-sm text-gray-600 mt-1">
-                Search a candidate by family name + first name. Confirm the
-                encounter no., and the system will auto-assign a Community ID and
-                check them in.
+                For weekend programs (e.g. May 9–10): choose morning or afternoon for each day.
+                Search by family name + first name, confirm encounter no., then check in — Community ID is
+                assigned on first registration; use the same flow for each AM/PM session.
               </p>
             </div>
           </div>
@@ -373,34 +433,72 @@ function CandidateQuickCheckInPageInner() {
                   No registration-enabled events found.
                 </div>
               ) : (
-                <Select
-                  value={selectedEventId}
-                  onValueChange={(v) => {
-                    setSelectedEventId(v);
-                    setResults([]);
-                    setLastResult(null);
-                  }}
-                >
-                  <SelectTrigger className="w-full h-14 border-2 border-red-300 bg-white text-base font-semibold">
-                    <SelectValue placeholder="Choose an event..." />
-                  </SelectTrigger>
-                  <SelectContent className="bg-white border-2 border-red-200 z-[100]">
-                    {events.map((e) => (
-                      <SelectItem key={e.id} value={e.id} className="py-3">
-                        <div className="flex flex-col">
-                          <span className="font-bold">{e.title}</span>
-                          <span className="text-xs text-gray-600 mt-0.5">
-                            {formatEventDate(e.startDate)}
-                            {e.location ? ` • ${e.location}` : ''}
-                            {e.encounterType && e.classNumber
-                              ? ` • ${e.encounterType} ${e.classNumber}`
-                              : ''}
-                          </span>
+                <>
+                  <Select
+                    value={selectedEventId}
+                    onValueChange={(v) => {
+                      setSelectedEventId(v);
+                      setResults([]);
+                      setLastResult(null);
+                    }}
+                  >
+                    <SelectTrigger className="w-full h-14 border-2 border-red-300 bg-white text-base font-semibold">
+                      <SelectValue placeholder="Choose an event..." />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white border-2 border-red-200 z-[100]">
+                      {events.map((e) => (
+                        <SelectItem key={e.id} value={e.id} className="py-3">
+                          <div className="flex flex-col">
+                            <span className="font-bold">{e.title}</span>
+                            <span className="text-xs text-gray-600 mt-0.5">
+                              {formatEventDate(e.startDate)}
+                              {e.location ? ` • ${e.location}` : ''}
+                              {e.encounterType && e.classNumber
+                                ? ` • ${e.encounterType} ${e.classNumber}`
+                                : ''}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {selectedEventId && (
+                    <div className="mt-4 space-y-2">
+                      <label className="block text-sm font-semibold text-gray-800">
+                        Check-in session (this AM or PM)
+                      </label>
+                      {sessionsLoading ? (
+                        <div className="flex items-center text-sm text-gray-600 py-2">
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Loading sessions...
                         </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                      ) : sessionOptions.length === 0 ? (
+                        <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                          No session list returned for this event. Ensure start and end dates span your event days (e.g. May 9–10).
+                        </p>
+                      ) : (
+                        <Select
+                          value={selectedSessionSlot}
+                          onValueChange={setSelectedSessionSlot}
+                        >
+                          <SelectTrigger className="w-full h-12 border-2 border-red-200 bg-white">
+                            <SelectValue placeholder="Choose morning or afternoon..." />
+                          </SelectTrigger>
+                          <SelectContent className="bg-white border-2 border-red-200 z-[100] max-h-[280px]">
+                            {sessionOptions.map((s) => (
+                              <SelectItem key={s.value} value={s.value} className="py-2">
+                                {s.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                      <p className="text-xs text-gray-500">
+                        Switch this dropdown when you move to the next day or session (four slots for a two-day event: Sat AM/PM, Sun AM/PM).
+                      </p>
+                    </div>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
@@ -431,6 +529,9 @@ function CandidateQuickCheckInPageInner() {
                       </strong>
                       {' • '}
                       {lastResult.encounterType} {lastResult.classNumber}
+                      <span className="block text-xs font-normal text-green-800 mt-1">
+                        Session: {lastResult.sessionLabel}
+                      </span>
                     </p>
                     <div className="bg-white border-2 border-green-200 rounded-lg p-3 mb-3">
                       <div className="flex items-center justify-between gap-3">
@@ -587,15 +688,21 @@ function CandidateQuickCheckInPageInner() {
                           onClick={() => openConfirmDialog(c)}
                           className="bg-red-600 hover:bg-red-700 text-white"
                           size="sm"
-                          disabled={isRegistered && !!c.registrationId}
+                          disabled={
+                            !selectedSessionSlot ||
+                            sessionOptions.length === 0 ||
+                            sessionsLoading
+                          }
                           title={
-                            isRegistered
-                              ? 'Already registered — confirming again will only check in if not yet attended.'
-                              : ''
+                            !selectedSessionSlot
+                              ? 'Select the check-in session (AM/PM) above first.'
+                              : isRegistered
+                                ? 'Adds attendance for the selected session (Community ID already assigned).'
+                                : ''
                           }
                         >
                           <UserCheck className="w-4 h-4 mr-1.5" />
-                          {isRegistered ? 'Check In' : 'Register & Check In'}
+                          {isRegistered ? 'Check in (this session)' : 'Register & check in'}
                         </Button>
                       </div>
                     );
@@ -622,7 +729,13 @@ function CandidateQuickCheckInPageInner() {
               <strong>
                 {confirmCandidate?.firstName} {confirmCandidate?.familyName}
               </strong>
-              . The system will assign a Community ID automatically.
+              . Community ID is assigned on first registration; later sessions reuse the same ID.
+              {selectedSessionLabel ? (
+                <>
+                  {' '}
+                  Checking in for: <strong>{selectedSessionLabel}</strong>.
+                </>
+              ) : null}
             </DialogDescription>
           </DialogHeader>
 

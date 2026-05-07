@@ -1320,11 +1320,11 @@ export class EventsService implements OnModuleInit {
     let candidatesMerged = 0;
 
     const insertedAttendances = await tx.$executeRaw`
-      INSERT INTO "Attendance" ("id", "memberId", "eventId", "checkInTime", "method", "createdAt")
-      SELECT gen_random_uuid(), a."memberId", ${retainId}, a."checkInTime", a."method", now()
+      INSERT INTO "Attendance" ("id", "memberId", "eventId", "sessionSlot", "checkInTime", "method", "createdAt")
+      SELECT gen_random_uuid(), a."memberId", ${retainId}, COALESCE(a."sessionSlot", ''), a."checkInTime", a."method", now()
       FROM "Attendance" a
       WHERE a."eventId" = ${duplicateId}
-      ON CONFLICT ("memberId", "eventId") DO NOTHING
+      ON CONFLICT ("memberId", "eventId", "sessionSlot") DO NOTHING
     `;
     attendancesMerged += Number(insertedAttendances || 0);
     await tx.attendance.deleteMany({ where: { eventId: duplicateId } });

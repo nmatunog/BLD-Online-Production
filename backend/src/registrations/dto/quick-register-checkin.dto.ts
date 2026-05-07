@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsInt, IsNotEmpty, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 /**
@@ -10,6 +10,15 @@ import { Type } from 'class-transformer';
  * and creates the attendance record in a single transaction.
  */
 export class QuickRegisterCheckinDto {
+  @ApiProperty({
+    description:
+      'Session to check in for: Manila calendar day + AM or PM (e.g. "2026-05-09_AM"). Each day of the event has a morning and afternoon session.',
+    example: '2026-05-09_AM',
+  })
+  @IsString()
+  @IsNotEmpty()
+  sessionSlot!: string;
+
   @ApiProperty({
     description: 'Encounter type confirmed by staff (e.g. "ME", "SE", "SPE", "YE"). Defaults to value parsed from candidateClass.',
     required: false,
