@@ -732,8 +732,8 @@ function CheckInContent() {
                   onClick={() =>
                     router.push(
                       selectedEvent
-                        ? `/checkin/candidates?eventId=${selectedEvent}`
-                        : '/checkin/candidates',
+                        ? `/candidate-checkin?eventId=${selectedEvent}`
+                        : '/candidate-checkin',
                     )
                   }
                   className="bg-emerald-600 hover:bg-emerald-700 text-white"
