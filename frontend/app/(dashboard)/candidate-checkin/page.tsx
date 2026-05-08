@@ -21,6 +21,7 @@ import {
   CloudUpload,
   Download,
   Database,
+  FileSpreadsheet,
 } from 'lucide-react';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { Button } from '@/components/ui/button';
@@ -48,6 +49,11 @@ import {
   registrationsService,
   type EventCandidate,
 } from '@/services/registrations.service';
+import {
+  attendanceService,
+  type AttendanceRoster,
+  type AttendanceRosterRow,
+} from '@/services/attendance.service';
 import { ENCOUNTER_TYPES } from '@/lib/member-constants';
 import { getErrorMessage } from '@/lib/get-error-message';
 import {
@@ -218,6 +224,13 @@ function CandidateQuickCheckInPageInner() {
   const [sessionOptions, setSessionOptions] = useState<SessionOption[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [selectedSessionSlot, setSelectedSessionSlot] = useState('');
+
+  // ---------- Roster state ----------
+  const [rosterDialogOpen, setRosterDialogOpen] = useState(false);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [roster, setRoster] = useState<AttendanceRoster | null>(null);
+  const [rosterSessionFilter, setRosterSessionFilter] = useState<string>('ALL');
+  const [rosterIncludePending, setRosterIncludePending] = useState(true);
 
   // ---------- Offline state ----------
   const [isOnline, setIsOnline] = useState<boolean>(
@@ -748,6 +761,185 @@ function CandidateQuickCheckInPageInner() {
     toast.success(`Exported ${pending.length} pending check-in${pending.length > 1 ? 's' : ''}.`);
   };
 
+  const openRosterDialog = useCallback(async () => {
+    if (!selectedEventId) {
+      toast.error('Select an event first.');
+      return;
+    }
+    setRosterDialogOpen(true);
+    setRoster(null);
+    setRosterSessionFilter('ALL');
+    setRosterLoading(true);
+    try {
+      const res = await attendanceService.getEventRoster(selectedEventId);
+      if (!res.success || !res.data) {
+        toast.error('Could not load roster', {
+          description: res.error || 'Server returned no data.',
+        });
+        setRosterDialogOpen(false);
+        return;
+      }
+      setRoster(res.data);
+    } catch (err) {
+      toast.error('Could not load roster', {
+        description: getErrorMessage(err, 'Network error'),
+      });
+      setRosterDialogOpen(false);
+    } finally {
+      setRosterLoading(false);
+    }
+  }, [selectedEventId]);
+
+  const handleRefreshRoster = useCallback(async () => {
+    if (!selectedEventId) return;
+    setRosterLoading(true);
+    try {
+      const res = await attendanceService.getEventRoster(selectedEventId);
+      if (!res.success || !res.data) {
+        toast.error('Could not refresh roster', {
+          description: res.error || 'Server returned no data.',
+        });
+        return;
+      }
+      setRoster(res.data);
+      toast.success('Roster refreshed');
+    } catch (err) {
+      toast.error('Could not refresh roster', {
+        description: getErrorMessage(err, 'Network error'),
+      });
+    } finally {
+      setRosterLoading(false);
+    }
+  }, [selectedEventId]);
+
+  /**
+   * Build the visible roster rows, optionally folding in this device's
+   * not-yet-synced check-ins so the printed sheet matches reality on the floor.
+   */
+  const rosterDisplayRows = useMemo<
+    Array<AttendanceRosterRow & { source: 'synced' | 'pending' }>
+  >(() => {
+    if (!roster) return [];
+
+    const baseRows: Array<AttendanceRosterRow & { source: 'synced' | 'pending' }> =
+      roster.rows.map((r) => ({ ...r, source: 'synced' as const }));
+
+    if (rosterIncludePending && pending.length > 0) {
+      const seenKey = new Set(
+        baseRows.map((r) => `${r.memberId}|${r.sessionSlot}`),
+      );
+      for (const p of pending) {
+        // Pending rows don't have a Community ID yet (assigned at sync time).
+        const sessionLabel =
+          roster.sessions.find((s) => s.value === p.sessionSlot)?.label ||
+          p.sessionSlot;
+        const key = `${p.candidateId}|${p.sessionSlot}`;
+        if (seenKey.has(key)) continue;
+        baseRows.push({
+          attendanceId: `pending:${p.localId}`,
+          memberId: `pending:${p.candidateId}`,
+          communityId: '— pending —',
+          familyName: p.candidateSnapshot.familyName,
+          firstName: p.candidateSnapshot.firstName,
+          encounterType: p.payload.encounterType || '',
+          classNumber: p.payload.classNumber || 0,
+          ministry: null,
+          apostolate: null,
+          candidateClass: p.candidateSnapshot.candidateClass || null,
+          classGroup: null,
+          mobileNumber:
+            p.candidateSnapshot.cleanMobile ||
+            p.candidateSnapshot.mobileNumber ||
+            null,
+          email: null,
+          sessionSlot: p.sessionSlot,
+          sessionLabel,
+          checkInTimeIso: new Date(p.queuedAt).toISOString(),
+          checkInTimeManila: new Date(p.queuedAt).toLocaleString('en-PH', {
+            timeZone: 'Asia/Manila',
+          }),
+          method: 'MANUAL' as const,
+          source: 'pending' as const,
+        });
+      }
+    }
+
+    const filtered =
+      rosterSessionFilter === 'ALL'
+        ? baseRows
+        : baseRows.filter((r) => r.sessionSlot === rosterSessionFilter);
+
+    return filtered.sort((a, b) => {
+      if (a.sessionSlot < b.sessionSlot) return -1;
+      if (a.sessionSlot > b.sessionSlot) return 1;
+      const fam = a.familyName.localeCompare(b.familyName);
+      if (fam !== 0) return fam;
+      return a.firstName.localeCompare(b.firstName);
+    });
+  }, [roster, rosterSessionFilter, rosterIncludePending, pending]);
+
+  const handleDownloadRoster = useCallback(() => {
+    if (!roster || rosterDisplayRows.length === 0) {
+      toast.info('No rows to download.');
+      return;
+    }
+    const headers = [
+      'Community ID',
+      'Family Name',
+      'First Name',
+      'Encounter',
+      'Class',
+      'Session',
+      'Check-in (Manila)',
+      'Method',
+      'Status',
+      'Mobile',
+      'Email',
+      'Class Group',
+      'Candidate Class',
+      'Ministry',
+      'Apostolate',
+    ];
+    const escape = (v: unknown): string => {
+      if (v === null || v === undefined) return '';
+      const s = String(v).replace(/"/g, '""');
+      return /[",\n]/.test(s) ? `"${s}"` : s;
+    };
+    const rows = rosterDisplayRows.map((r) =>
+      [
+        r.communityId,
+        r.familyName,
+        r.firstName,
+        r.encounterType,
+        r.classNumber || '',
+        r.sessionLabel,
+        r.checkInTimeManila,
+        r.method,
+        r.source === 'pending' ? 'Pending upload (this device)' : 'Synced',
+        r.mobileNumber || '',
+        r.email || '',
+        r.classGroup || '',
+        r.candidateClass || '',
+        r.ministry || '',
+        r.apostolate || '',
+      ]
+        .map(escape)
+        .join(','),
+    );
+    const csv = [headers.join(','), ...rows].join('\n');
+
+    const safeTitle = (roster.eventTitle || 'event')
+      .replace(/[^a-z0-9]+/gi, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase();
+    const sessionTag =
+      rosterSessionFilter === 'ALL' ? 'all-sessions' : rosterSessionFilter;
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    downloadCsv(`attendance-${safeTitle}-${sessionTag}-${stamp}.csv`, csv);
+
+    toast.success(`Downloaded ${rosterDisplayRows.length} row${rosterDisplayRows.length > 1 ? 's' : ''}.`);
+  }, [roster, rosterDisplayRows, rosterSessionFilter]);
+
   const cacheAgeLabel = useMemo(() => {
     if (!cachedBundle) return null;
     const ageMs = Date.now() - cachedBundle.cachedAt;
@@ -848,6 +1040,21 @@ function CandidateQuickCheckInPageInner() {
                 className="bg-emerald-600 hover:bg-emerald-700 text-white"
               >
                 <CloudUpload className="w-4 h-4 mr-1.5" /> Sync Now
+              </Button>
+              <Button
+                onClick={() => void openRosterDialog()}
+                size="sm"
+                disabled={!selectedEventId || !isOnline}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+                title={
+                  !selectedEventId
+                    ? 'Pick an event first.'
+                    : !isOnline
+                      ? 'Go online to fetch the latest roster.'
+                      : 'Download attendance roster for this event'
+                }
+              >
+                <FileSpreadsheet className="w-4 h-4 mr-1.5" /> Download roster
               </Button>
               {pendingCount > 0 ? (
                 <Button
@@ -1362,6 +1569,183 @@ function CandidateQuickCheckInPageInner() {
                   <UserCheck className="w-4 h-4 mr-1.5" /> Confirm & Check In
                 </>
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Roster dialog */}
+      <Dialog
+        open={rosterDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRosterDialogOpen(false);
+            setRoster(null);
+          }
+        }}
+      >
+        <DialogContent className="bg-white sm:max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5 text-blue-600" />
+              Attendance Roster
+            </DialogTitle>
+            <DialogDescription>
+              {roster ? (
+                <>
+                  <strong>{roster.eventTitle}</strong> · {roster.totalRows} check-in
+                  {roster.totalRows === 1 ? '' : 's'} · {roster.uniqueMembers} unique attendee
+                  {roster.uniqueMembers === 1 ? '' : 's'}.
+                  {pending.length > 0 ? (
+                    <span className="block text-amber-700 mt-1">
+                      Plus {pending.length} pending upload{pending.length > 1 ? 's' : ''} on this device — toggle below to include them.
+                    </span>
+                  ) : null}
+                </>
+              ) : rosterLoading ? (
+                'Loading…'
+              ) : (
+                'Choose options below, then download.'
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {rosterLoading && !roster ? (
+            <div className="flex items-center justify-center py-12 text-gray-600">
+              <Loader2 className="w-6 h-6 animate-spin mr-2" />
+              Fetching attendance from server…
+            </div>
+          ) : roster ? (
+            <>
+              <div className="flex flex-wrap items-end gap-3 border-b border-gray-200 pb-3 mb-2">
+                <div className="flex-1 min-w-[220px]">
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Filter by session
+                  </label>
+                  <Select
+                    value={rosterSessionFilter}
+                    onValueChange={setRosterSessionFilter}
+                  >
+                    <SelectTrigger className="h-10">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-white z-[300]">
+                      <SelectItem value="ALL">
+                        All sessions ({roster.totalRows + (rosterIncludePending ? pending.length : 0)})
+                      </SelectItem>
+                      {roster.sessions.map((s) => {
+                        const synced = roster.totalsBySession[s.value] || 0;
+                        const pendingCountForSession = rosterIncludePending
+                          ? pending.filter((p) => p.sessionSlot === s.value).length
+                          : 0;
+                        return (
+                          <SelectItem key={s.value} value={s.value}>
+                            {s.label} ({synced + pendingCountForSession})
+                          </SelectItem>
+                        );
+                      })}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <label className="flex items-center gap-2 text-sm text-gray-700 select-none cursor-pointer">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-blue-600"
+                    checked={rosterIncludePending}
+                    onChange={(e) => setRosterIncludePending(e.target.checked)}
+                    disabled={pending.length === 0}
+                  />
+                  Include pending uploads ({pending.length})
+                </label>
+                <Button
+                  onClick={() => void handleRefreshRoster()}
+                  variant="outline"
+                  size="sm"
+                  disabled={rosterLoading}
+                  className="bg-white"
+                >
+                  <RefreshCw className={`w-4 h-4 mr-1.5 ${rosterLoading ? 'animate-spin' : ''}`} />
+                  Refresh
+                </Button>
+              </div>
+
+              <div className="flex-1 overflow-auto border border-gray-200 rounded-lg">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200 sticky top-0">
+                    <tr className="text-left">
+                      <th className="px-3 py-2 font-semibold text-gray-700">Community ID</th>
+                      <th className="px-3 py-2 font-semibold text-gray-700">Name</th>
+                      <th className="px-3 py-2 font-semibold text-gray-700">Class</th>
+                      <th className="px-3 py-2 font-semibold text-gray-700">Session</th>
+                      <th className="px-3 py-2 font-semibold text-gray-700">Time</th>
+                      <th className="px-3 py-2 font-semibold text-gray-700">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {rosterDisplayRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-8 text-center text-gray-500">
+                          No check-ins for this filter yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      rosterDisplayRows.map((r) => (
+                        <tr key={r.attendanceId} className="hover:bg-gray-50">
+                          <td className="px-3 py-2 font-mono text-xs">{r.communityId}</td>
+                          <td className="px-3 py-2">
+                            <div className="font-semibold">
+                              {r.familyName}, {r.firstName}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2 text-gray-700">
+                            {r.encounterType} {r.classNumber || ''}
+                            {r.classGroup ? (
+                              <span className="block text-xs text-gray-500">
+                                Group: {r.classGroup}
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2 text-gray-700">{r.sessionLabel}</td>
+                          <td className="px-3 py-2 text-gray-600 text-xs">
+                            {r.checkInTimeManila}
+                          </td>
+                          <td className="px-3 py-2">
+                            {r.source === 'pending' ? (
+                              <Badge className="bg-amber-100 text-amber-800 border-amber-200">
+                                Pending
+                              </Badge>
+                            ) : (
+                              <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200">
+                                Synced
+                              </Badge>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : null}
+
+          <DialogFooter className="border-t border-gray-200 pt-3 mt-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRosterDialogOpen(false);
+                setRoster(null);
+              }}
+            >
+              Close
+            </Button>
+            <Button
+              onClick={handleDownloadRoster}
+              disabled={!roster || rosterDisplayRows.length === 0}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <Download className="w-4 h-4 mr-1.5" />
+              Download CSV ({rosterDisplayRows.length})
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -184,6 +184,31 @@ export class AttendanceController {
     };
   }
 
+  @Get('event/:eventId/roster')
+  @UseGuards(RolesGuard)
+  @Roles(
+    UserRole.SUPER_USER,
+    UserRole.ADMINISTRATOR,
+    UserRole.DCS,
+    UserRole.MINISTRY_COORDINATOR,
+    UserRole.CLASS_SHEPHERD,
+  )
+  @ApiOperation({
+    summary:
+      'Flat attendance roster for an event (one row per check-in, with Community ID, encounter, class, AM/PM session). Used for staff CSV export.',
+  })
+  @ApiResponse({ status: 200, description: 'Roster generated successfully' })
+  async getEventAttendanceRoster(
+    @Param('eventId') eventId: string,
+  ): Promise<ApiResponseDto<unknown>> {
+    const data = await this.attendanceService.getEventAttendanceRoster(eventId);
+    return {
+      success: true,
+      data,
+      message: 'Attendance roster generated successfully',
+    };
+  }
+
   @Public()
   @Post('public/check-in')
   @HttpCode(HttpStatus.CREATED)

@@ -60,6 +60,40 @@ export interface AttendanceQueryParams {
   limit?: number;
 }
 
+export interface AttendanceRosterRow {
+  attendanceId: string;
+  memberId: string;
+  communityId: string;
+  familyName: string;
+  firstName: string;
+  encounterType: string;
+  classNumber: number;
+  ministry: string | null;
+  apostolate: string | null;
+  candidateClass: string | null;
+  classGroup: string | null;
+  mobileNumber: string | null;
+  email: string | null;
+  sessionSlot: string;
+  sessionLabel: string;
+  checkInTimeIso: string;
+  checkInTimeManila: string;
+  method: 'QR_CODE' | 'MANUAL';
+}
+
+export interface AttendanceRoster {
+  eventId: string;
+  eventTitle: string;
+  eventStartDate: string;
+  eventEndDate: string;
+  sessions: Array<{ value: string; label: string }>;
+  totalsBySession: Record<string, number>;
+  totalRows: number;
+  uniqueMembers: number;
+  generatedAt: string;
+  rows: AttendanceRosterRow[];
+}
+
 class AttendanceService {
   async checkIn(data: CheckInRequest): Promise<ApiResponse<Attendance>> {
     if (data.communityId) {
@@ -115,6 +149,13 @@ class AttendanceService {
   async getEventStats(eventId: string): Promise<ApiResponse<{ total: number; qrCodeCount: number; manualCount: number }>> {
     const response = await apiClient.get<ApiResponse<{ total: number; qrCodeCount: number; manualCount: number }>>(
       `/attendance/event/${eventId}/stats`
+    );
+    return ensureBody(response);
+  }
+
+  async getEventRoster(eventId: string): Promise<ApiResponse<AttendanceRoster>> {
+    const response = await apiClient.get<ApiResponse<AttendanceRoster>>(
+      `/attendance/event/${eventId}/roster`,
     );
     return ensureBody(response);
   }

@@ -11,6 +11,7 @@ import { AttendanceQueryDto } from './dto/attendance-query.dto';
 import { MemberLookupService } from '../common/services/member-lookup.service';
 import { CheckInMethod, EventStatus, UserRole } from '@prisma/client';
 import { Prisma } from '@prisma/client';
+import { getCheckInSessionSlotsForEvent } from '../common/utils/event-checkin-session-slots.util';
 
 @Injectable()
 export class AttendanceService {
@@ -556,6 +557,132 @@ export class AttendanceService {
     });
 
     return all[0];
+  }
+
+  /**
+   * Build a clean, flat attendance roster for a specific event.
+   *
+   * Designed for the staff-facing "Download Attendance Roster" button on the
+   * candidate quick check-in page: one row per recorded check-in, joining the
+   * Member's identity (Community ID, name, encounter, class) with the
+   * EventCandidate's roster context (class group, candidate class label) and
+   * the human-readable AM/PM session label.
+   */
+  async getEventAttendanceRoster(eventId: string) {
+    const event = await this.prisma.event.findUnique({ where: { id: eventId } });
+    if (!event) {
+      throw new NotFoundException(`Event with ID "${eventId}" not found`);
+    }
+
+    const attendances = await this.prisma.attendance.findMany({
+      where: { eventId },
+      include: {
+        member: {
+          select: {
+            id: true,
+            communityId: true,
+            firstName: true,
+            lastName: true,
+            encounterType: true,
+            classNumber: true,
+            ministry: true,
+            apostolate: true,
+            user: { select: { phone: true, email: true } },
+          },
+        },
+      },
+    });
+
+    // Pull EventCandidate rows so we can attach class group / candidate class label
+    // to attendees who came in via the seeded candidate flow.
+    const candidates = await this.prisma.eventCandidate.findMany({
+      where: { eventId, memberId: { not: null } },
+      select: {
+        memberId: true,
+        candidateClass: true,
+        classGroup: true,
+        familyName: true,
+        firstName: true,
+        cleanMobile: true,
+        mobileNumber: true,
+      },
+    });
+    const candidateByMemberId = new Map<
+      string,
+      (typeof candidates)[number]
+    >();
+    for (const c of candidates) {
+      if (c.memberId) candidateByMemberId.set(c.memberId, c);
+    }
+
+    const sessionOptions = getCheckInSessionSlotsForEvent(event);
+    const sessionLabelByValue = new Map(sessionOptions.map((s) => [s.value, s.label]));
+
+    const manilaTimeFormatter = new Intl.DateTimeFormat('en-PH', {
+      timeZone: 'Asia/Manila',
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+
+    const rows = attendances
+      .map((a) => {
+        const cand = candidateByMemberId.get(a.memberId);
+        const sessionLabel =
+          sessionLabelByValue.get(a.sessionSlot) ||
+          (a.sessionSlot ? a.sessionSlot : 'Single check-in');
+        return {
+          attendanceId: a.id,
+          memberId: a.memberId,
+          communityId: a.member.communityId,
+          familyName: a.member.lastName,
+          firstName: a.member.firstName,
+          encounterType: a.member.encounterType,
+          classNumber: a.member.classNumber,
+          ministry: a.member.ministry || null,
+          apostolate: a.member.apostolate || null,
+          // Candidate-flow context (only present for attendees who came in via the seeded list)
+          candidateClass: cand?.candidateClass || null,
+          classGroup: cand?.classGroup || null,
+          mobileNumber:
+            cand?.cleanMobile || cand?.mobileNumber || a.member.user?.phone || null,
+          email: a.member.user?.email || null,
+          sessionSlot: a.sessionSlot,
+          sessionLabel,
+          checkInTimeIso: a.checkInTime.toISOString(),
+          checkInTimeManila: manilaTimeFormatter.format(a.checkInTime),
+          method: a.method,
+        };
+      })
+      // Stable, human-friendly ordering: session first, then family/first name.
+      .sort((a, b) => {
+        if (a.sessionSlot < b.sessionSlot) return -1;
+        if (a.sessionSlot > b.sessionSlot) return 1;
+        const fam = a.familyName.localeCompare(b.familyName);
+        if (fam !== 0) return fam;
+        return a.firstName.localeCompare(b.firstName);
+      });
+
+    const totalsBySession: Record<string, number> = {};
+    for (const r of rows) {
+      totalsBySession[r.sessionSlot] = (totalsBySession[r.sessionSlot] || 0) + 1;
+    }
+
+    return {
+      eventId: event.id,
+      eventTitle: event.title,
+      eventStartDate: event.startDate.toISOString(),
+      eventEndDate: event.endDate.toISOString(),
+      sessions: sessionOptions,
+      totalsBySession,
+      totalRows: rows.length,
+      uniqueMembers: new Set(rows.map((r) => r.memberId)).size,
+      generatedAt: new Date().toISOString(),
+      rows,
+    };
   }
 }
 
