@@ -220,6 +220,8 @@ function CandidateQuickCheckInPageInner() {
   const [confirmClassNumber, setConfirmClassNumber] = useState<string>('');
   const [confirmMobile, setConfirmMobile] = useState<string>('');
   const [confirmEmail, setConfirmEmail] = useState<string>('');
+  const [confirmPaymentStatus, setConfirmPaymentStatus] =
+    useState<EventRegistration['paymentStatus']>('PENDING');
   const [submitting, setSubmitting] = useState(false);
 
   const [lastResult, setLastResult] = useState<QuickResult | null>(null);
@@ -628,6 +630,10 @@ function CandidateQuickCheckInPageInner() {
     );
     setConfirmMobile(candidate.cleanMobile || candidate.mobileNumber || '');
     setConfirmEmail('');
+    const existingReg = candidate.registrationId
+      ? registrationsById.get(candidate.registrationId)
+      : undefined;
+    setConfirmPaymentStatus(existingReg?.paymentStatus ?? 'PENDING');
   };
 
   const closeConfirmDialog = () => {
@@ -636,6 +642,7 @@ function CandidateQuickCheckInPageInner() {
     setConfirmClassNumber('');
     setConfirmMobile('');
     setConfirmEmail('');
+    setConfirmPaymentStatus('PENDING');
   };
 
   const runDrain = useCallback(
@@ -794,6 +801,32 @@ function CandidateQuickCheckInPageInner() {
       };
       await recordSyncedCheckin(syncedRow);
       await refreshQueueState(selectedEventId);
+
+      // Optionally update payment status now if the staff changed it in the dialog.
+      if (
+        canUpdatePayment &&
+        data.registrationId &&
+        confirmPaymentStatus &&
+        confirmPaymentStatus !== 'PENDING'
+      ) {
+        try {
+          const payRes = await registrationsService.updatePaymentStatus(
+            data.registrationId,
+            { paymentStatus: confirmPaymentStatus },
+          );
+          if (!payRes.success) {
+            toast.warning('Registered, but payment update failed', {
+              description: payRes.error || 'Please update payment from the admin roster.',
+            });
+          } else {
+            toast.success(`Payment marked ${confirmPaymentStatus.toLowerCase()}.`);
+          }
+        } catch (payErr) {
+          toast.warning('Registered, but payment update failed', {
+            description: getErrorMessage(payErr, 'Please retry from the admin roster.'),
+          });
+        }
+      }
 
       setLastResult({
         candidate: confirmCandidate,
@@ -1853,6 +1886,37 @@ function CandidateQuickCheckInPageInner() {
               />
               <p className="text-[11px] text-gray-500 mt-1">
                 Mobile or email is required only if no member account exists yet.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-700 mb-1">
+                Payment status
+              </label>
+              <Select
+                value={confirmPaymentStatus}
+                onValueChange={(v) =>
+                  setConfirmPaymentStatus(
+                    v as EventRegistration['paymentStatus'],
+                  )
+                }
+                disabled={!canUpdatePayment}
+              >
+                <SelectTrigger className="h-11">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-white z-[200]">
+                  <SelectItem value="PENDING">Pending</SelectItem>
+                  <SelectItem value="PAID">Paid</SelectItem>
+                  <SelectItem value="REFUNDED">Refunded</SelectItem>
+                  <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-gray-500 mt-1">
+                {canUpdatePayment
+                  ? 'Pre-fills from the existing registration. Change to Paid to settle now.'
+                  : 'Read-only — only Administrator / DCS / MC / Super User can update payment.'}
+                {!isOnline ? ' Offline check-ins skip payment update.' : ''}
               </p>
             </div>
           </div>
