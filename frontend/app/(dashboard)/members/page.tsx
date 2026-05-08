@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Search, Users, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Loader2, RefreshCw, Download, Save, ChevronUp } from 'lucide-react';
+import { Search, Users, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Loader2, RefreshCw, Download, Save, ChevronUp, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { membersService, type Member, type MemberQueryParams, type UpdateMemberRequest } from '@/services/members.service';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
@@ -73,9 +73,8 @@ export default function MembersPage() {
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [membersLoading, setMembersLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  const [totalPages, setTotalPages] = useState(1);
   const [totalMembers, setTotalMembers] = useState<number>(0);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterRole, setFilterRole] = useState<string>('ALL');
@@ -128,29 +127,12 @@ export default function MembersPage() {
     dateOfEncounter: '',
   });
 
-  const getPageSize = (width: number): number => {
-    // Slightly larger chunks reduce request churn while keeping table rendering snappy.
-    if (width < 640) return 35; // phones
-    if (width < 1024) return 55; // tablets / small laptops
-    return 80; // desktop
-  };
-
-  const [pageSize, setPageSize] = useState<number>(60);
+  // Page-size choices for the manual selector. Default tuned for snappy table rendering
+  // (each row has multiple <Select>s/Buttons which are heavy to mount).
+  const PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
+  const [pageSize, setPageSize] = useState<number>(25);
   const [showBackToTop, setShowBackToTop] = useState(false);
-  const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const loadMembersRequestIdRef = useRef(0);
-
-  // Responsive page size (auto-pick per device / viewport)
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const apply = () => {
-      const next = getPageSize(window.innerWidth);
-      setPageSize((prev) => (prev === next ? prev : next));
-    };
-    apply();
-    window.addEventListener('resize', apply);
-    return () => window.removeEventListener('resize', apply);
-  }, []);
 
   // Load user role and data (auth redirect handled by dashboard layout)
   useEffect(() => {
@@ -198,14 +180,10 @@ export default function MembersPage() {
   );
 
   const loadMembersPage = useCallback(
-    async (targetPage: number, mode: 'replace' | 'append') => {
+    async (targetPage: number) => {
       const requestId = ++loadMembersRequestIdRef.current;
-      if (mode === 'replace') {
-        setMembersLoading(true);
-        setLoading(true);
-      } else {
-        setLoadingMore(true);
-      }
+      setMembersLoading(true);
+      setLoading(true);
 
       try {
         const params = buildQueryParams(targetPage);
@@ -217,94 +195,64 @@ export default function MembersPage() {
         const list = Array.isArray(result.data) ? result.data : [];
         const pagination = result.pagination;
         const total = pagination?.total ?? list.length;
+        const computedTotalPages =
+          pagination?.totalPages ??
+          (total > 0 ? Math.max(1, Math.ceil(total / pageSize)) : 1);
 
         setTotalMembers(total);
-        setPage(targetPage);
-
-        // Derive hasMore from the accumulated loaded count vs server-reported total.
-        // This is more robust than `page < totalPages` against re-orderings / partial pages
-        // and lets the manual "Load more" button stay accurate even after a viewport resize.
-        setMembers((prev) => {
-          let merged: Member[];
-          if (mode === 'replace') {
-            merged = list;
-          } else {
-            const seen = new Set(prev.map((m) => m.id));
-            merged = [...prev];
-            for (const m of list) {
-              if (!seen.has(m.id)) {
-                seen.add(m.id);
-                merged.push(m);
-              }
-            }
-          }
-          // If the server returns a full page but pagination says it's the last,
-          // trust pagination; otherwise fall back to length-based comparison.
-          const fullPage = list.length >= (pagination?.limit ?? pageSize);
-          const moreByCount = merged.length < total;
-          const moreByPage = pagination ? pagination.page < pagination.totalPages : fullPage;
-          setHasMore(moreByCount || moreByPage);
-          return merged;
-        });
+        setTotalPages(computedTotalPages);
+        setPage(pagination?.page ?? targetPage);
+        setMembers(list);
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Failed to load members';
         toast.error('Error Loading Members', { description: errorMessage });
       } finally {
-        if (mode === 'replace') {
-          setMembersLoading(false);
-          setLoading(false);
-        } else {
-          setLoadingMore(false);
-        }
+        if (requestId !== loadMembersRequestIdRef.current) return;
+        setMembersLoading(false);
+        setLoading(false);
       }
     },
     [buildQueryParams, pageSize],
   );
 
-  const loadMembers = useCallback(() => {
-    setMembers([]);
-    setPage(1);
-    setHasMore(true);
-    void loadMembersPage(1, 'replace');
-  }, [loadMembersPage]);
-
-  // If the device/viewport changes enough to change page size, restart pagination to keep "hasMore" correct.
+  // When filters or page size change, jump back to page 1 and reload.
   useEffect(() => {
     if (authLoading) return;
-    loadMembers();
-  }, [pageSize]);
+    const timeoutId = setTimeout(() => {
+      void loadMembersPage(1);
+    }, 300); // Debounce search input + filter changes
+    return () => clearTimeout(timeoutId);
+  }, [
+    searchTerm,
+    filterRole,
+    filterStatus,
+    filterApostolate,
+    filterMinistry,
+    pageSize,
+    authLoading,
+    loadMembersPage,
+  ]);
 
-  useEffect(() => {
-    if (!authLoading) {
-      const timeoutId = setTimeout(() => {
-        loadMembers();
-      }, 300); // Debounce search
+  const goToPage = useCallback(
+    (target: number) => {
+      const clamped = Math.min(Math.max(1, target), Math.max(1, totalPages));
+      if (clamped === page) return;
+      // Scroll to top of the table area when paging so the user sees row 1 of the new page.
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+      void loadMembersPage(clamped);
+    },
+    [page, totalPages, loadMembersPage],
+  );
 
-      return () => clearTimeout(timeoutId);
-    }
-  }, [searchTerm, filterRole, filterStatus, filterApostolate, filterMinistry, authLoading, loadMembers]);
-
-  // Infinite scrolling: load next page when sentinel is near viewport
-  useEffect(() => {
-    if (!canAccess) return;
-    if (!hasMore) return;
-    if (membersLoading || loadingMore) return;
-    const el = loadMoreRef.current;
-    if (!el) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const first = entries[0];
-        if (!first?.isIntersecting) return;
-        void loadMembersPage(page + 1, 'append');
-      },
-      // Start loading earlier so users rarely hit the visible bottom before next rows arrive.
-      { root: null, rootMargin: '500px', threshold: 0.01 },
-    );
-
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [canAccess, hasMore, membersLoading, loadingMore, loadMembersPage, page]);
+  /**
+   * Reload the page the user is currently looking at — used after edits/deletes/role
+   * changes so the row reflects the new state without losing the current pagination spot.
+   */
+  const reloadCurrentPage = useCallback(() => {
+    void loadMembersPage(page);
+  }, [page, loadMembersPage]);
 
   // Show a quick back-to-top shortcut on long scrolls.
   useEffect(() => {
@@ -487,7 +435,7 @@ export default function MembersPage() {
       toast.success('Role Updated', {
         description: `Role updated to ${getRoleDisplayName(pendingRole)}`,
       });
-      loadMembers();
+      reloadCurrentPage();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update role';
       toast.error('Error', { description: errorMessage });
@@ -534,7 +482,7 @@ export default function MembersPage() {
       
       setShowRoleAssignmentDialog(false);
       setRoleAssignmentMember(null);
-      loadMembers();
+      reloadCurrentPage();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to assign role';
       toast.error('Error', { description: errorMessage });
@@ -560,7 +508,7 @@ export default function MembersPage() {
       toast.success('Role Removed', {
         description: `Successfully removed ${getRoleDisplayName(role)} role`,
       });
-      loadMembers();
+      reloadCurrentPage();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to remove role';
       toast.error('Error', { description: errorMessage });
@@ -579,7 +527,7 @@ export default function MembersPage() {
       toast.info('Status update feature coming soon');
       // await membersService.updateStatus(memberId, newStatus);
       // toast.success('Member status updated', { description: `Status updated to ${newStatus}` });
-      // loadMembers();
+      // reloadCurrentPage();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to update status';
       toast.error('Error', { description: errorMessage });
@@ -604,7 +552,7 @@ export default function MembersPage() {
       toast.success('Member Deactivated', {
         description: 'The member has been deactivated successfully.',
       });
-      loadMembers();
+      reloadCurrentPage();
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string | string[] } }; message?: string };
       const msg = Array.isArray(err.response?.data?.message)
@@ -637,7 +585,7 @@ export default function MembersPage() {
       toast.success('Account removed', {
         description: 'The member and account have been permanently removed.',
       });
-      loadMembers();
+      reloadCurrentPage();
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string | string[] } }; message?: string };
       const msg = Array.isArray(err.response?.data?.message)
@@ -820,7 +768,7 @@ export default function MembersPage() {
       });
       setShowEditDialog(false);
       setEditingMember(null);
-      loadMembers();
+      reloadCurrentPage();
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string | string[] }; status?: number } };
       const raw = err.response?.data?.message;
@@ -892,7 +840,7 @@ export default function MembersPage() {
                 </Button>
               )}
               <Button 
-                onClick={loadMembers}
+                onClick={reloadCurrentPage}
                 disabled={loading}
                 variant="outline"
                 className="bg-gray-600 text-white hover:bg-gray-700"
@@ -1193,47 +1141,94 @@ export default function MembersPage() {
             </div>
           </div>
 
-          <div className="mt-4 text-sm text-gray-500 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span>
-              Showing <strong>{filteredMembers.length}</strong> matching
-            </span>
-            {filteredMembers.length !== members.length ? (
-              <span className="text-gray-400">· {members.length} loaded</span>
-            ) : null}
-            {totalMembers > 0 ? (
-              <span className="text-gray-400">· {totalMembers} total</span>
-            ) : null}
-          </div>
-
-          {/* Infinite scroll sentinel + manual fallback. */}
-          <div
-            ref={loadMoreRef}
-            className="min-h-10 flex flex-col items-center justify-center gap-2 mt-3"
-          >
-            {loadingMore ? (
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Loading more…
-              </div>
-            ) : hasMore ? (
-              <>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void loadMembersPage(page + 1, 'append')}
-                  className="bg-white"
+          {/* Pagination bar */}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 pt-4">
+            <div className="text-sm text-gray-600 flex flex-wrap items-center gap-x-2 gap-y-1">
+              {totalMembers > 0 ? (
+                <span>
+                  Showing{' '}
+                  <strong>
+                    {(page - 1) * pageSize + 1}
+                    –{Math.min(page * pageSize, totalMembers)}
+                  </strong>{' '}
+                  of <strong>{totalMembers}</strong>
+                </span>
+              ) : (
+                <span>No members</span>
+              )}
+              {filteredMembers.length !== members.length ? (
+                <span className="text-amber-700">
+                  · {filteredMembers.length} match local filter on this page
+                </span>
+              ) : null}
+              <span className="hidden sm:inline text-gray-400">·</span>
+              <label className="flex items-center gap-1 text-gray-600">
+                Rows per page:
+                <Select
+                  value={String(pageSize)}
+                  onValueChange={(v) => setPageSize(parseInt(v, 10))}
                 >
-                  Load more
-                  {totalMembers > members.length
-                    ? ` (${totalMembers - members.length} remaining)`
-                    : ''}
-                </Button>
-                <div className="text-xs text-gray-400">or scroll to load automatically</div>
-              </>
-            ) : (
-              <div className="text-xs text-gray-400">End of list</div>
-            )}
+                  <SelectTrigger className="h-8 w-[78px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white">
+                    {PAGE_SIZE_OPTIONS.map((size) => (
+                      <SelectItem key={size} value={String(size)}>
+                        {size}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </label>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="bg-white"
+                onClick={() => goToPage(1)}
+                disabled={page <= 1 || membersLoading}
+                title="First page"
+              >
+                <ChevronsLeft className="w-4 h-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="bg-white"
+                onClick={() => goToPage(page - 1)}
+                disabled={page <= 1 || membersLoading}
+              >
+                <ChevronLeft className="w-4 h-4 mr-1" /> Previous
+              </Button>
+              <span className="px-2 text-sm font-medium text-gray-700 whitespace-nowrap">
+                Page {page} of {Math.max(1, totalPages)}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="bg-white"
+                onClick={() => goToPage(page + 1)}
+                disabled={page >= totalPages || membersLoading}
+              >
+                Next <ChevronRight className="w-4 h-4 ml-1" />
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="bg-white"
+                onClick={() => goToPage(totalPages)}
+                disabled={page >= totalPages || membersLoading}
+                title="Last page"
+              >
+                <ChevronsRight className="w-4 h-4" />
+              </Button>
+            </div>
           </div>
         </div>
         {showBackToTop && (
