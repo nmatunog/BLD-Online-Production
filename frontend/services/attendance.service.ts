@@ -45,6 +45,8 @@ export interface CheckInRequest {
   communityId?: string;
   eventId: string;
   method?: 'QR_CODE' | 'MANUAL';
+  /** Manila session slot for multi-day AM/PM events (e.g. 2026-05-09_AM). Omit or "" for legacy single check-in. */
+  sessionSlot?: string;
 }
 
 export interface AttendanceQueryParams {
@@ -112,6 +114,9 @@ class AttendanceService {
           memberId: data.memberId,
           eventId: data.eventId,
           method: data.method || 'MANUAL',
+          ...(data.sessionSlot !== undefined && data.sessionSlot !== ''
+            ? { sessionSlot: data.sessionSlot }
+            : {}),
         },
       );
       return ensureBody(response);

@@ -22,6 +22,8 @@ import {
   Download,
   Database,
   FileSpreadsheet,
+  ClipboardList,
+  Wallet,
 } from 'lucide-react';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { Button } from '@/components/ui/button';
@@ -48,6 +50,7 @@ import { eventsService, type Event } from '@/services/events.service';
 import {
   registrationsService,
   type EventCandidate,
+  type EventRegistration,
 } from '@/services/registrations.service';
 import {
   attendanceService,
@@ -231,6 +234,17 @@ function CandidateQuickCheckInPageInner() {
   const [roster, setRoster] = useState<AttendanceRoster | null>(null);
   const [rosterSessionFilter, setRosterSessionFilter] = useState<string>('ALL');
   const [rosterIncludePending, setRosterIncludePending] = useState(true);
+
+  // ---------- Admin roster (register / check-in / payment) ----------
+  const [userRole, setUserRole] = useState('');
+  const [fullCandidateList, setFullCandidateList] = useState<EventCandidate[]>([]);
+  const [registrationsById, setRegistrationsById] = useState<
+    Map<string, EventRegistration>
+  >(() => new Map());
+  const [adminRosterRefresh, setAdminRosterRefresh] = useState(0);
+  const [adminBusyId, setAdminBusyId] = useState<string | null>(null);
+  const [actionEpoch, setActionEpoch] = useState<Record<string, number>>({});
+  const [paymentEpoch, setPaymentEpoch] = useState<Record<string, number>>({});
 
   // ---------- Offline state ----------
   const [isOnline, setIsOnline] = useState<boolean>(
@@ -508,6 +522,72 @@ function CandidateQuickCheckInPageInner() {
     [sessionOptions, selectedSessionSlot],
   );
 
+  const canUpdatePayment = useMemo(
+    () =>
+      ['SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR'].includes(userRole),
+    [userRole],
+  );
+
+  const sortedAdminCandidates = useMemo(() => {
+    return [...fullCandidateList].sort((a, b) => {
+      const fam = a.familyName.localeCompare(b.familyName, undefined, { sensitivity: 'base' });
+      if (fam !== 0) return fam;
+      return a.firstName.localeCompare(b.firstName, undefined, { sensitivity: 'base' });
+    });
+  }, [fullCandidateList]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const raw = localStorage.getItem('authData');
+      if (raw) {
+        const j = JSON.parse(raw);
+        setUserRole(String(j?.user?.role || ''));
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!selectedEventId || !isOnline) {
+      if (!selectedEventId) {
+        setFullCandidateList([]);
+        setRegistrationsById(new Map());
+      }
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const [listRes, regRes] = await Promise.all([
+          registrationsService.listCandidates(selectedEventId),
+          registrationsService.getRegistrations(selectedEventId, { limit: 500 }),
+        ]);
+        if (cancelled) return;
+        if (listRes.success && listRes.data) {
+          setFullCandidateList(listRes.data);
+        }
+        if (regRes.success && regRes.data?.data) {
+          const m = new Map<string, EventRegistration>();
+          for (const r of regRes.data.data) {
+            m.set(r.id, r);
+          }
+          setRegistrationsById(m);
+        }
+      } catch {
+        // keep existing lists
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEventId, isOnline, adminRosterRefresh]);
+
+  const bumpAdminRoster = useCallback(() => {
+    setAdminRosterRefresh((n) => n + 1);
+  }, []);
+
   const candidateStatusForSession = useCallback(
     (candidateId: string): 'pending' | 'synced' | undefined => {
       if (!selectedSessionSlot) return undefined;
@@ -727,6 +807,8 @@ function CandidateQuickCheckInPageInner() {
         .catch(() => null);
       if (refreshed?.success && refreshed.data) setResults(refreshed.data);
 
+      bumpAdminRoster();
+
       toast.success(
         data.alreadyAttended
           ? 'Already checked in for this session.'
@@ -748,6 +830,109 @@ function CandidateQuickCheckInPageInner() {
       .writeText(value)
       .then(() => toast.success(`${label} copied`))
       .catch(() => toast.error(`Could not copy ${label}`));
+  };
+
+  const handleAdminRowAction = async (c: EventCandidate, action: string) => {
+    if (!selectedEventId || !action) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      toast.error('Connect to the internet to use admin roster actions.');
+      return;
+    }
+    if (action === 'register_checkin') {
+      openConfirmDialog(c);
+      setActionEpoch((prev) => ({ ...prev, [c.id]: (prev[c.id] || 0) + 1 }));
+      return;
+    }
+    setAdminBusyId(c.id);
+    try {
+      if (action === 'register_only') {
+        const mobile = (c.cleanMobile || c.mobileNumber || '').trim();
+        if (!mobile) {
+          toast.error('This candidate has no mobile on file. Use "Register & check in…" to enter contact details.');
+          return;
+        }
+        const res = await registrationsService.claimCandidate(selectedEventId, {
+          candidateClass: c.candidateClass,
+          familyName: c.familyName,
+          firstName: c.firstName,
+          mobileNumber: mobile,
+        });
+        if (!res.success) {
+          toast.error('Register failed', { description: res.error || 'Unknown error' });
+          return;
+        }
+        toast.success('Candidate registered (no check-in for this step).', {
+          description: 'Create an account / Community ID as with the standard claim flow.',
+        });
+        bumpAdminRoster();
+        return;
+      }
+      if (action === 'checkin_only') {
+        if (!c.memberId) {
+          toast.error('Register this candidate first (no member linked yet).');
+          return;
+        }
+        if (!selectedSessionSlot) {
+          toast.error('Select the check-in session (AM/PM) in the event bar above first.');
+          return;
+        }
+        const res = await attendanceService.checkIn({
+          memberId: c.memberId,
+          eventId: selectedEventId,
+          sessionSlot: selectedSessionSlot,
+          method: 'MANUAL',
+        });
+        if (!res.success) {
+          toast.error('Check-in failed', { description: res.error || 'Unknown error' });
+          return;
+        }
+        toast.success('Checked in for the selected session.');
+        bumpAdminRoster();
+        return;
+      }
+    } catch (err) {
+      toast.error('Action failed', { description: getErrorMessage(err, 'Request failed') });
+    } finally {
+      setAdminBusyId(null);
+      setActionEpoch((prev) => ({ ...prev, [c.id]: (prev[c.id] || 0) + 1 }));
+    }
+  };
+
+  const handleAdminPaymentChange = async (
+    c: EventCandidate,
+    paymentStatus: EventRegistration['paymentStatus'],
+  ) => {
+    if (!c.registrationId) {
+      toast.error('This candidate has no event registration record yet.');
+      return;
+    }
+    if (!canUpdatePayment) {
+      toast.error('Your role cannot update payment status.');
+      return;
+    }
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      toast.error('Connect to the internet to update payment.');
+      return;
+    }
+    setAdminBusyId(c.id);
+    try {
+      const res = await registrationsService.updatePaymentStatus(c.registrationId, {
+        paymentStatus,
+      });
+      if (!res.success) {
+        toast.error('Payment update failed', { description: res.error || 'Unknown error' });
+        return;
+      }
+      toast.success('Payment status updated.');
+      bumpAdminRoster();
+    } catch (err) {
+      toast.error('Payment update failed', {
+        description: getErrorMessage(err, 'Request failed'),
+      });
+    } finally {
+      setAdminBusyId(null);
+      setPaymentEpoch((prev) => ({ ...prev, [c.id]: (prev[c.id] || 0) + 1 }));
+    }
   };
 
   const handleExportPending = async () => {
@@ -1411,6 +1596,116 @@ function CandidateQuickCheckInPageInner() {
               )}
             </CardContent>
           </Card>
+
+          {/* Admin roster: actions + payment from full candidate list */}
+          {selectedEventId && (
+            <Card className="border-2 border-indigo-200 bg-indigo-50/30">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex flex-wrap items-center gap-2 text-lg">
+                  <ClipboardList className="w-5 h-5 text-indigo-600" />
+                  Admin roster
+                  <Badge variant="outline" className="font-normal text-xs border-indigo-300">
+                    {sortedAdminCandidates.length} candidates
+                  </Badge>
+                </CardTitle>
+                <p className="text-sm text-gray-600 mt-1">
+                  Full imported list for this event. Use the action menu to register or check in without search.
+                  Payment updates require Administrator / DCS / Ministry Coordinator (or Super User).
+                </p>
+              </CardHeader>
+              <CardContent>
+                {!isOnline ? (
+                  <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    Admin roster actions require an internet connection.
+                  </p>
+                ) : sortedAdminCandidates.length === 0 ? (
+                  <p className="text-sm text-gray-600">Loading candidates…</p>
+                ) : (
+                  <div className="max-h-[min(70vh,520px)] overflow-y-auto border border-indigo-100 rounded-lg bg-white">
+                    <div className="divide-y divide-gray-100">
+                      {sortedAdminCandidates.map((c) => {
+                        const reg = c.registrationId
+                          ? registrationsById.get(c.registrationId)
+                          : undefined;
+                        const busy = adminBusyId === c.id;
+                        return (
+                          <div
+                            key={c.id}
+                            className="flex flex-wrap items-center gap-2 px-3 py-2.5 hover:bg-gray-50/80"
+                          >
+                            <div className="min-w-[140px] flex-1">
+                              <div className="font-semibold text-gray-900 text-sm">
+                                {c.familyName}, {c.firstName}
+                              </div>
+                              <div className="text-[11px] text-gray-500 truncate max-w-[240px]">
+                                {c.candidateClass}
+                                {c.memberId ? ` • Member linked` : ''}
+                              </div>
+                            </div>
+                            <div className="shrink-0">{statusBadge(c.status)}</div>
+                            <Select
+                              key={`adm-act-${c.id}-${actionEpoch[c.id] || 0}`}
+                              disabled={busy || !sessionOptions.length}
+                              onValueChange={(v) => void handleAdminRowAction(c, v)}
+                            >
+                              <SelectTrigger className="w-[200px] h-9 text-xs bg-white">
+                                <SelectValue placeholder="Register / check in…" />
+                              </SelectTrigger>
+                              <SelectContent className="bg-white z-[120]">
+                                <SelectItem value="register_only">Register only</SelectItem>
+                                <SelectItem value="register_checkin">
+                                  Register & check in…
+                                </SelectItem>
+                                <SelectItem
+                                  value="checkin_only"
+                                  disabled={!c.memberId || !selectedSessionSlot}
+                                >
+                                  Check in (this session only)
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <div className="flex items-center gap-1.5">
+                              <Wallet className="w-4 h-4 text-gray-400 shrink-0" />
+                              {!c.registrationId ? (
+                                <span className="text-xs text-gray-400 w-[140px] inline-block">
+                                  No registration
+                                </span>
+                              ) : (
+                                <Select
+                                  key={`adm-pay-${c.id}-${paymentEpoch[c.id] || 0}`}
+                                  disabled={busy || !canUpdatePayment}
+                                  value={reg?.paymentStatus ?? 'PENDING'}
+                                  onValueChange={(v) =>
+                                    void handleAdminPaymentChange(
+                                      c,
+                                      v as EventRegistration['paymentStatus'],
+                                    )
+                                  }
+                                >
+                                  <SelectTrigger className="w-[140px] h-9 text-xs bg-white">
+                                    <SelectValue placeholder="Payment" />
+                                  </SelectTrigger>
+                                  <SelectContent className="bg-white z-[120]">
+                                    <SelectItem value="PENDING">Pending</SelectItem>
+                                    <SelectItem value="PAID">Paid</SelectItem>
+                                    <SelectItem value="REFUNDED">Refunded</SelectItem>
+                                    <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              )}
+                            </div>
+                            {busy ? (
+                              <Loader2 className="w-4 h-4 animate-spin text-indigo-600 shrink-0" />
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Pending list */}
           {pendingCount > 0 && (
