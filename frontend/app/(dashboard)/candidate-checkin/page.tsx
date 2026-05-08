@@ -24,6 +24,7 @@ import {
   FileSpreadsheet,
   ClipboardList,
   Wallet,
+  ShieldCheck,
 } from 'lucide-react';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { Button } from '@/components/ui/button';
@@ -57,7 +58,7 @@ import {
   type AttendanceRoster,
   type AttendanceRosterRow,
 } from '@/services/attendance.service';
-import { ENCOUNTER_TYPES } from '@/lib/member-constants';
+import { ENCOUNTER_TYPES, MINISTRIES_BY_APOSTOLATE } from '@/lib/member-constants';
 import { getErrorMessage } from '@/lib/get-error-message';
 import {
   enqueueCheckin,
@@ -247,6 +248,9 @@ function CandidateQuickCheckInPageInner() {
   const [adminBusyId, setAdminBusyId] = useState<string | null>(null);
   const [actionEpoch, setActionEpoch] = useState<Record<string, number>>({});
   const [paymentEpoch, setPaymentEpoch] = useState<Record<string, number>>({});
+
+  // ---------- Inline event ministry editor (Super/Admin/DCS only) ----------
+  const [ministrySaving, setMinistrySaving] = useState(false);
 
   // ---------- Offline state ----------
   const [isOnline, setIsOnline] = useState<boolean>(
@@ -528,6 +532,66 @@ function CandidateQuickCheckInPageInner() {
     () =>
       ['SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR'].includes(userRole),
     [userRole],
+  );
+
+  const canEditEventMinistry = useMemo(
+    () => ['SUPER_USER', 'ADMINISTRATOR', 'DCS'].includes(userRole),
+    [userRole],
+  );
+
+  const allMinistryOptions = useMemo(() => {
+    const out: Array<{ apostolate: string; ministry: string }> = [];
+    for (const [apostolate, ministries] of Object.entries(MINISTRIES_BY_APOSTOLATE)) {
+      for (const m of ministries) out.push({ apostolate, ministry: m });
+    }
+    return out.sort((a, b) =>
+      a.ministry.localeCompare(b.ministry, undefined, { sensitivity: 'base' }),
+    );
+  }, []);
+
+  const handleEventMinistryChange = useCallback(
+    async (newValue: string) => {
+      if (!selectedEvent || !canEditEventMinistry) return;
+      // Sentinel "__GENERAL__" means clear the ministry (general event for all).
+      const ministryToSave = newValue === '__GENERAL__' ? null : newValue;
+      const currentMinistry = selectedEvent.ministry || null;
+      if ((ministryToSave || null) === currentMinistry) return;
+
+      setMinistrySaving(true);
+      try {
+        const res = await eventsService.update(selectedEvent.id, {
+          ministry: ministryToSave ?? '',
+        });
+        if (!res.success) {
+          toast.error('Could not update event ministry', {
+            description: res.error || 'Unknown error',
+          });
+          return;
+        }
+        // Optimistically refresh local events list.
+        setEvents((prev) =>
+          prev.map((e) =>
+            e.id === selectedEvent.id ? { ...e, ministry: ministryToSave } : e,
+          ),
+        );
+        toast.success(
+          ministryToSave
+            ? `Event ministry set to ${ministryToSave}.`
+            : 'Event marked as general (visible to all ministries).',
+          {
+            description: 'Ministry Coordinators of that ministry now have admin access.',
+          },
+        );
+        setAdminRosterRefresh((n) => n + 1);
+      } catch (err) {
+        toast.error('Could not update event ministry', {
+          description: getErrorMessage(err, 'Network error'),
+        });
+      } finally {
+        setMinistrySaving(false);
+      }
+    },
+    [selectedEvent, canEditEventMinistry],
   );
 
   const sortedAdminCandidates = useMemo(() => {
@@ -1384,6 +1448,64 @@ function CandidateQuickCheckInPageInner() {
                       )}
                       <p className="text-xs text-gray-500">
                         Switch this dropdown when you move to the next day or session (four slots for a two-day event: Sat AM/PM, Sun AM/PM).
+                      </p>
+                    </div>
+                  )}
+                  {canEditEventMinistry && selectedEvent && (
+                    <div className="mt-4 space-y-2 rounded-lg border-2 border-purple-200 bg-purple-50 px-3 py-3">
+                      <div className="flex items-start gap-2">
+                        <ShieldCheck className="w-5 h-5 text-purple-700 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <label className="block text-sm font-semibold text-purple-900">
+                            Event ministry (admin tool)
+                          </label>
+                          <p className="text-xs text-purple-800 mt-0.5">
+                            Controls who has admin access to this event. Ministry
+                            Coordinators of the chosen ministry will be able to register,
+                            check in, and update payments for candidates of this event.
+                          </p>
+                        </div>
+                      </div>
+                      <Select
+                        value={selectedEvent.ministry || '__GENERAL__'}
+                        onValueChange={handleEventMinistryChange}
+                        disabled={ministrySaving}
+                      >
+                        <SelectTrigger className="w-full h-11 border-2 border-purple-300 bg-white">
+                          <SelectValue placeholder="Choose ministry..." />
+                        </SelectTrigger>
+                        <SelectContent className="bg-white border-2 border-purple-200 z-[100] max-h-[320px]">
+                          <SelectItem value="__GENERAL__" className="py-2">
+                            <span className="font-semibold">
+                              General — visible to all ministries
+                            </span>
+                          </SelectItem>
+                          {allMinistryOptions.map((opt) => (
+                            <SelectItem
+                              key={opt.ministry}
+                              value={opt.ministry}
+                              className="py-2"
+                            >
+                              <div className="flex flex-col">
+                                <span className="font-medium">{opt.ministry}</span>
+                                <span className="text-xs text-gray-600">
+                                  {opt.apostolate}
+                                </span>
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-purple-900">
+                        Currently:{' '}
+                        <strong>
+                          {selectedEvent.ministry || 'General (no ministry)'}
+                        </strong>
+                        {ministrySaving && (
+                          <span className="ml-2 inline-flex items-center text-purple-700">
+                            <Loader2 className="w-3 h-3 mr-1 animate-spin" /> Saving...
+                          </span>
+                        )}
                       </p>
                     </div>
                   )}
