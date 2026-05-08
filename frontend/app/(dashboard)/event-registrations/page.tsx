@@ -493,11 +493,12 @@ function EventRegistrationsContent() {
           description: `Community ID: ${res.data.communityId}`,
         });
         if (res.data.userCreated && res.data.tempPassword) {
-          const copyText = `${claimingCandidate.firstName} ${claimingCandidate.familyName}: ${res.data.tempPassword}`;
+          const tempPassword = res.data.tempPassword;
+          const copyText = `${claimingCandidate.firstName} ${claimingCandidate.familyName}: ${tempPassword}`;
           let copied = false;
           if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
             try {
-              await navigator.clipboard.writeText(res.data.tempPassword);
+              await navigator.clipboard.writeText(tempPassword);
               copied = true;
             } catch {
               copied = false;
@@ -515,7 +516,7 @@ function EventRegistrationsContent() {
                   onClick: async () => {
                     if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
                       try {
-                        await navigator.clipboard.writeText(res.data.tempPassword as string);
+                        await navigator.clipboard.writeText(tempPassword);
                         toast.success('Temporary password copied');
                       } catch {
                         toast.error('Clipboard copy failed. Please copy manually.');
