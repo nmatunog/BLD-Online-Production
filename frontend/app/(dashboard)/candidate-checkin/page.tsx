@@ -2,7 +2,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
@@ -15,6 +15,12 @@ import {
   X,
   Copy,
   KeyRound,
+  Wifi,
+  WifiOff,
+  RefreshCw,
+  CloudUpload,
+  Download,
+  Database,
 } from 'lucide-react';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { Button } from '@/components/ui/button';
@@ -44,10 +50,30 @@ import {
 } from '@/services/registrations.service';
 import { ENCOUNTER_TYPES } from '@/lib/member-constants';
 import { getErrorMessage } from '@/lib/get-error-message';
+import {
+  enqueueCheckin,
+  generateLocalId,
+  listCachedEventIds,
+  listPendingCheckins,
+  listSyncedForEvent,
+  loadCachedEvent,
+  recordSyncedCheckin,
+  saveCachedEvent,
+} from '@/lib/offline/db';
+import {
+  downloadCsv,
+  drainPendingCheckins,
+  pendingCheckinsToCsv,
+} from '@/lib/offline/sync';
+import type {
+  CachedEventBundle,
+  PendingCheckin,
+  SessionOption,
+} from '@/lib/offline/types';
 
 interface QuickResult {
   candidate: EventCandidate;
-  communityId: string;
+  communityId?: string | null;
   generatedCommunityId?: string | null;
   alreadyAttended: boolean;
   userCreated: boolean;
@@ -56,6 +82,8 @@ interface QuickResult {
   classNumber: number;
   sessionSlot: string;
   sessionLabel: string;
+  /** True when the check-in was queued offline and not yet uploaded. */
+  queuedOffline: boolean;
 }
 
 function parseEncounterAndClass(candidateClass: string | null | undefined): {
@@ -110,6 +138,57 @@ function formatEventDate(iso: string): string {
   }
 }
 
+function normalizeText(s: string): string {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/**
+ * Local replica of the backend's family/first name search. Used when the page is
+ * offline (or just for a fast first render before the API responds).
+ */
+function searchCandidatesLocally(
+  candidates: EventCandidate[],
+  firstName: string,
+  familyName: string,
+  limit = 25,
+): EventCandidate[] {
+  const firstNorm = normalizeText(firstName);
+  const familyNorm = normalizeText(familyName);
+  if (!firstNorm && !familyNorm) return [];
+
+  const score = (c: EventCandidate): number => {
+    const fam = normalizeText(c.familyName);
+    const first = normalizeText(c.firstName);
+    let s = 0;
+    if (familyNorm) {
+      if (fam === familyNorm) s += 100;
+      else if (fam.startsWith(familyNorm)) s += 60;
+      else if (fam.includes(familyNorm)) s += 30;
+    }
+    if (firstNorm) {
+      if (first === firstNorm) s += 100;
+      else if (first.startsWith(firstNorm)) s += 60;
+      else if (first.includes(firstNorm)) s += 30;
+    }
+    return s;
+  };
+
+  return candidates
+    .map((c) => ({ c, s: score(c) }))
+    .filter((row) => row.s > 0)
+    .sort((a, b) => {
+      if (b.s !== a.s) return b.s - a.s;
+      const fam = normalizeText(a.c.familyName).localeCompare(normalizeText(b.c.familyName));
+      if (fam !== 0) return fam;
+      return normalizeText(a.c.firstName).localeCompare(normalizeText(b.c.firstName));
+    })
+    .slice(0, limit)
+    .map((row) => row.c);
+}
+
 function CandidateQuickCheckInPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -136,13 +215,62 @@ function CandidateQuickCheckInPageInner() {
 
   const [lastResult, setLastResult] = useState<QuickResult | null>(null);
 
-  const [sessionOptions, setSessionOptions] = useState<Array<{ value: string; label: string }>>(
-    [],
-  );
+  const [sessionOptions, setSessionOptions] = useState<SessionOption[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [selectedSessionSlot, setSelectedSessionSlot] = useState('');
 
+  // ---------- Offline state ----------
+  const [isOnline, setIsOnline] = useState<boolean>(
+    typeof navigator === 'undefined' ? true : navigator.onLine,
+  );
+  const [cachedBundle, setCachedBundle] = useState<CachedEventBundle | null>(null);
+  const [cacheStatus, setCacheStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>(
+    'idle',
+  );
+  const [pending, setPending] = useState<PendingCheckin[]>([]);
+  const [synced, setSynced] = useState<PendingCheckin[]>([]);
+  const [syncing, setSyncing] = useState(false);
+
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const drainTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const refreshQueueState = useCallback(async (eventId: string) => {
+    try {
+      const [pendingItems, syncedItems] = await Promise.all([
+        listPendingCheckins(eventId),
+        listSyncedForEvent(eventId),
+      ]);
+      setPending(pendingItems);
+      setSynced(syncedItems);
+    } catch {
+      // IndexedDB unavailable — silently keep state.
+    }
+  }, []);
+
+  // ---------- Online/offline listeners + auto-drain loop ----------
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleOnline = () => {
+      setIsOnline(true);
+      void runDrain('auto');
+    };
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    drainTimerRef.current = setInterval(() => {
+      if (navigator.onLine) {
+        void runDrain('auto');
+      }
+    }, 30_000);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      if (drainTimerRef.current) clearInterval(drainTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load registration-enabled events.
   useEffect(() => {
@@ -156,10 +284,35 @@ function CandidateQuickCheckInPageInner() {
           collapseDuplicateDisplay: true,
         });
         if (!res.success) {
-          toast.error('Failed to load events', {
-            description: res.error || 'Unknown error',
+          // When offline, fall back to whatever events we have cached so the staff can still pick.
+          const cachedIds = await safeListCachedEventIds();
+          if (cachedIds.length === 0) {
+            toast.error('Failed to load events', {
+              description: res.error || 'Unknown error',
+            });
+            setEvents([]);
+            return;
+          }
+          const cachedEvents: Event[] = [];
+          for (const id of cachedIds) {
+            const bundle = await loadCachedEvent(id);
+            if (bundle) {
+              cachedEvents.push({
+                id: bundle.eventId,
+                title: bundle.eventTitle,
+                hasRegistration: true,
+                startDate: new Date().toISOString(),
+                endDate: new Date().toISOString(),
+              } as Event);
+            }
+          }
+          setEvents(cachedEvents);
+          if (!selectedEventId && cachedEvents[0]) {
+            setSelectedEventId(cachedEvents[0].id);
+          }
+          toast.info('Showing cached events (offline).', {
+            description: 'Connect to the internet to refresh the event list.',
           });
-          setEvents([]);
           return;
         }
         const list = (res.data?.data || []).filter((e) => e.hasRegistration);
@@ -186,43 +339,96 @@ function CandidateQuickCheckInPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Pre-cache candidates + sessions for the selected event whenever it changes (or when going online).
   useEffect(() => {
     if (!selectedEventId) {
+      setCachedBundle(null);
       setSessionOptions([]);
       setSelectedSessionSlot('');
       return;
     }
     let cancelled = false;
     (async () => {
-      setSessionsLoading(true);
-      try {
-        const res = await registrationsService.getCandidateCheckinSessions(selectedEventId);
-        if (cancelled) return;
-        if (!res.success || !res.data?.length) {
-          setSessionOptions([]);
-          setSelectedSessionSlot('');
-          return;
-        }
-        setSessionOptions(res.data);
+      // Always load whatever cached bundle we have first so offline users see something instantly.
+      const cached = await loadCachedEvent(selectedEventId).catch(() => undefined);
+      if (cached && !cancelled) {
+        setCachedBundle(cached);
+        setSessionOptions(cached.sessions);
         setSelectedSessionSlot((prev) => {
-          if (prev && res.data!.some((s) => s.value === prev)) return prev;
-          return res.data![0]?.value || '';
+          if (prev && cached.sessions.some((s) => s.value === prev)) return prev;
+          return cached.sessions[0]?.value || '';
         });
-      } catch {
-        if (!cancelled) {
-          setSessionOptions([]);
-          setSelectedSessionSlot('');
-        }
-      } finally {
-        if (!cancelled) setSessionsLoading(false);
+        setCacheStatus('ready');
+      } else if (!cancelled) {
+        setCacheStatus('idle');
       }
+      void refreshQueueState(selectedEventId);
+
+      // Then refresh from the server when online.
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        if (!cached) setCacheStatus('error');
+        return;
+      }
+      void refreshCacheFromServer(selectedEventId, /*silent*/ Boolean(cached));
     })();
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedEventId]);
 
-  // Debounced search whenever inputs or selected event change.
+  const refreshCacheFromServer = useCallback(
+    async (eventId: string, silent: boolean) => {
+      if (!silent) setCacheStatus('loading');
+      setSessionsLoading(true);
+      try {
+        const eventInfo = events.find((e) => e.id === eventId);
+        const [candidatesRes, sessionsRes] = await Promise.all([
+          registrationsService.listCandidates(eventId),
+          registrationsService.getCandidateCheckinSessions(eventId),
+        ]);
+        if (!candidatesRes.success) {
+          throw new Error(candidatesRes.error || 'Failed to load candidates');
+        }
+        if (!sessionsRes.success) {
+          throw new Error(sessionsRes.error || 'Failed to load sessions');
+        }
+        const bundle: CachedEventBundle = {
+          eventId,
+          eventTitle: eventInfo?.title || eventId,
+          candidates: candidatesRes.data || [],
+          sessions: sessionsRes.data || [],
+          cachedAt: Date.now(),
+        };
+        await saveCachedEvent(bundle);
+        setCachedBundle(bundle);
+        setSessionOptions(bundle.sessions);
+        setSelectedSessionSlot((prev) => {
+          if (prev && bundle.sessions.some((s) => s.value === prev)) return prev;
+          return bundle.sessions[0]?.value || '';
+        });
+        setCacheStatus('ready');
+        if (!silent) {
+          toast.success('Cached for offline use', {
+            description: `${bundle.candidates.length} candidates ready.`,
+          });
+        }
+      } catch (err) {
+        if (!silent) {
+          toast.error('Could not refresh offline cache', {
+            description: getErrorMessage(err, 'Network error'),
+          });
+        }
+        if (cacheStatus !== 'ready') setCacheStatus('error');
+      } finally {
+        setSessionsLoading(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [events],
+  );
+
+  // Search effect: debounce + use cached candidates first, fall back to API for fresh hits when online.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
@@ -239,8 +445,20 @@ function CandidateQuickCheckInPageInner() {
       return;
     }
 
-    setSearching(true);
+    // Local match first — gives instant feedback even while offline.
+    const localHits = cachedBundle
+      ? searchCandidatesLocally(cachedBundle.candidates, first, fam, 25)
+      : [];
+    setResults(localHits);
     setSearchError(null);
+
+    // If offline, that's all we can do.
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setSearching(false);
+      return;
+    }
+
+    setSearching(true);
     debounceRef.current = setTimeout(async () => {
       try {
         const res = await registrationsService.searchCandidatesByName(
@@ -248,14 +466,15 @@ function CandidateQuickCheckInPageInner() {
           { firstName: first || undefined, familyName: fam || undefined, limit: 25 },
         );
         if (!res.success) {
-          setSearchError(res.error || 'Search failed');
-          setResults([]);
+          // Keep local hits if the server call fails.
+          if (localHits.length === 0) setSearchError(res.error || 'Search failed');
           return;
         }
         setResults(res.data || []);
       } catch (err) {
-        setSearchError(getErrorMessage(err, 'Search failed'));
-        setResults([]);
+        if (localHits.length === 0) {
+          setSearchError(getErrorMessage(err, 'Search failed'));
+        }
       } finally {
         setSearching(false);
       }
@@ -264,7 +483,7 @@ function CandidateQuickCheckInPageInner() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [familyName, firstName, selectedEventId]);
+  }, [familyName, firstName, selectedEventId, cachedBundle]);
 
   const selectedEvent = useMemo(
     () => events.find((e) => e.id === selectedEventId) || null,
@@ -274,6 +493,22 @@ function CandidateQuickCheckInPageInner() {
   const selectedSessionLabel = useMemo(
     () => sessionOptions.find((s) => s.value === selectedSessionSlot)?.label ?? '',
     [sessionOptions, selectedSessionSlot],
+  );
+
+  const candidateStatusForSession = useCallback(
+    (candidateId: string): 'pending' | 'synced' | undefined => {
+      if (!selectedSessionSlot) return undefined;
+      const isPending = pending.some(
+        (p) => p.candidateId === candidateId && p.sessionSlot === selectedSessionSlot,
+      );
+      if (isPending) return 'pending';
+      const isSynced = synced.some(
+        (p) => p.candidateId === candidateId && p.sessionSlot === selectedSessionSlot,
+      );
+      if (isSynced) return 'synced';
+      return undefined;
+    },
+    [pending, synced, selectedSessionSlot],
   );
 
   const openConfirmDialog = (candidate: EventCandidate) => {
@@ -295,6 +530,41 @@ function CandidateQuickCheckInPageInner() {
     setConfirmEmail('');
   };
 
+  const runDrain = useCallback(
+    async (mode: 'manual' | 'auto') => {
+      if (syncing) return;
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        if (mode === 'manual') {
+          toast.warning('Still offline', {
+            description: 'Pending check-ins will upload automatically when signal returns.',
+          });
+        }
+        return;
+      }
+      setSyncing(true);
+      try {
+        const summary = await drainPendingCheckins(selectedEventId || undefined);
+        if (selectedEventId) await refreshQueueState(selectedEventId);
+        if (mode === 'manual' || summary.attempted > 0) {
+          if (summary.succeeded > 0 && summary.failed === 0) {
+            toast.success(`Uploaded ${summary.succeeded} check-in${summary.succeeded > 1 ? 's' : ''}.`);
+          } else if (summary.succeeded > 0 && summary.failed > 0) {
+            toast.warning(`Uploaded ${summary.succeeded}, ${summary.failed} still pending.`);
+          } else if (summary.failed > 0) {
+            toast.error(`${summary.failed} check-in${summary.failed > 1 ? 's' : ''} failed to upload.`, {
+              description: summary.errors[0]?.error,
+            });
+          } else if (mode === 'manual') {
+            toast.info('Nothing to upload.');
+          }
+        }
+      } finally {
+        setSyncing(false);
+      }
+    },
+    [selectedEventId, syncing, refreshQueueState],
+  );
+
   const handleConfirmSubmit = async () => {
     if (!confirmCandidate || !selectedEventId) return;
 
@@ -309,35 +579,114 @@ function CandidateQuickCheckInPageInner() {
       toast.error('Class number must be between 1 and 999.');
       return;
     }
-
     if (!selectedSessionSlot) {
       toast.error('Select the check-in session (AM or PM for this day).');
       return;
     }
 
+    const payload = {
+      sessionSlot: selectedSessionSlot,
+      encounterType,
+      classNumber,
+      mobileNumber: confirmMobile.trim() || undefined,
+      email: confirmEmail.trim() || undefined,
+    };
+
     setSubmitting(true);
+
+    const sessionLabel =
+      sessionOptions.find((s) => s.value === selectedSessionSlot)?.label ||
+      selectedSessionSlot;
+
+    const queueLocally = async (reason?: string) => {
+      const item: PendingCheckin = {
+        localId: generateLocalId(),
+        eventId: selectedEventId,
+        candidateId: confirmCandidate.id,
+        sessionSlot: selectedSessionSlot,
+        candidateSnapshot: {
+          id: confirmCandidate.id,
+          familyName: confirmCandidate.familyName,
+          firstName: confirmCandidate.firstName,
+          candidateClass: confirmCandidate.candidateClass,
+          cleanMobile: confirmCandidate.cleanMobile,
+          mobileNumber: confirmCandidate.mobileNumber,
+        },
+        payload,
+        queuedAt: Date.now(),
+        attemptCount: 0,
+        lastError: reason,
+      };
+      await enqueueCheckin(item);
+      await refreshQueueState(selectedEventId);
+      setLastResult({
+        candidate: confirmCandidate,
+        communityId: null,
+        generatedCommunityId: null,
+        alreadyAttended: false,
+        userCreated: false,
+        tempPassword: null,
+        encounterType,
+        classNumber,
+        sessionSlot: selectedSessionSlot,
+        sessionLabel,
+        queuedOffline: true,
+      });
+      closeConfirmDialog();
+      toast.success('Saved for upload', {
+        description: `${confirmCandidate.firstName} ${confirmCandidate.familyName} • ${sessionLabel}. Will upload automatically when online.`,
+      });
+    };
+
     try {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        await queueLocally('Offline at submit time.');
+        return;
+      }
+
       const res = await registrationsService.quickRegisterAndCheckInCandidate(
         selectedEventId,
         confirmCandidate.id,
-        {
-          sessionSlot: selectedSessionSlot,
-          encounterType,
-          classNumber,
-          mobileNumber: confirmMobile.trim() || undefined,
-          email: confirmEmail.trim() || undefined,
-        },
+        payload,
       );
 
       if (!res.success || !res.data) {
-        toast.error('Registration failed', { description: res.error || 'Unknown error' });
+        // Fall back to local queue so the user is never blocked by transient errors.
+        await queueLocally(res.error || 'Server returned failure.');
         return;
       }
 
       const data = res.data;
-      const sessionLabel =
-        sessionOptions.find((s) => s.value === data.sessionSlot)?.label ||
-        data.sessionSlot;
+      // Persist the synced row so the UI keeps the chip across reloads.
+      const syncedRow: PendingCheckin = {
+        localId: generateLocalId(),
+        eventId: selectedEventId,
+        candidateId: confirmCandidate.id,
+        sessionSlot: data.sessionSlot,
+        candidateSnapshot: {
+          id: confirmCandidate.id,
+          familyName: confirmCandidate.familyName,
+          firstName: confirmCandidate.firstName,
+          candidateClass: confirmCandidate.candidateClass,
+          cleanMobile: confirmCandidate.cleanMobile,
+          mobileNumber: confirmCandidate.mobileNumber,
+        },
+        payload,
+        queuedAt: Date.now(),
+        attemptCount: 0,
+        succeeded: true,
+        succeededAt: Date.now(),
+        resultCommunityId: data.communityId,
+        resultGeneratedCommunityId: data.generatedCommunityId,
+        resultAlreadyAttended: data.alreadyAttended,
+        resultUserCreated: data.userCreated,
+        resultTempPassword: data.tempPassword,
+        resultEncounterType: data.encounterType,
+        resultClassNumber: data.classNumber,
+      };
+      await recordSyncedCheckin(syncedRow);
+      await refreshQueueState(selectedEventId);
+
       setLastResult({
         candidate: confirmCandidate,
         communityId: data.communityId,
@@ -348,33 +697,34 @@ function CandidateQuickCheckInPageInner() {
         encounterType: data.encounterType,
         classNumber: data.classNumber,
         sessionSlot: data.sessionSlot,
-        sessionLabel,
+        sessionLabel:
+          sessionOptions.find((s) => s.value === data.sessionSlot)?.label ||
+          data.sessionSlot,
+        queuedOffline: false,
       });
       closeConfirmDialog();
 
-      // Refresh search results so the row reflects the new REGISTERED status.
-      const refreshed = await registrationsService.searchCandidatesByName(
-        selectedEventId,
-        {
+      // Refresh search results so the row reflects the new REGISTERED status (best effort).
+      const refreshed = await registrationsService
+        .searchCandidatesByName(selectedEventId, {
           firstName: firstName.trim() || undefined,
           familyName: familyName.trim() || undefined,
           limit: 25,
-        },
-      );
-      if (refreshed.success) setResults(refreshed.data || []);
+        })
+        .catch(() => null);
+      if (refreshed?.success && refreshed.data) setResults(refreshed.data);
 
       toast.success(
         data.alreadyAttended
           ? 'Already checked in for this session.'
           : 'Checked in for this session.',
         {
-          description: `${sessionLabel} • Community ID: ${data.communityId}`,
+          description: `${syncedRow.candidateSnapshot.firstName} ${syncedRow.candidateSnapshot.familyName} • ${syncedRow.payload.sessionSlot} • Community ID: ${data.communityId}`,
         },
       );
     } catch (err) {
-      toast.error('Registration failed', {
-        description: getErrorMessage(err, 'Unable to register candidate'),
-      });
+      // Network or transport-level failure: queue and retry.
+      await queueLocally(getErrorMessage(err, 'Network error'));
     } finally {
       setSubmitting(false);
     }
@@ -386,6 +736,32 @@ function CandidateQuickCheckInPageInner() {
       .then(() => toast.success(`${label} copied`))
       .catch(() => toast.error(`Could not copy ${label}`));
   };
+
+  const handleExportPending = async () => {
+    if (pending.length === 0) {
+      toast.info('No pending check-ins to export.');
+      return;
+    }
+    const csv = pendingCheckinsToCsv(pending);
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    downloadCsv(`pending-checkins-${stamp}.csv`, csv);
+    toast.success(`Exported ${pending.length} pending check-in${pending.length > 1 ? 's' : ''}.`);
+  };
+
+  const cacheAgeLabel = useMemo(() => {
+    if (!cachedBundle) return null;
+    const ageMs = Date.now() - cachedBundle.cachedAt;
+    if (ageMs < 60_000) return 'just now';
+    const mins = Math.floor(ageMs / 60_000);
+    if (mins < 60) return `${mins} min ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours} hr ago`;
+    const days = Math.floor(hours / 24);
+    return `${days} day${days > 1 ? 's' : ''} ago`;
+  }, [cachedBundle]);
+
+  const pendingCount = pending.length;
+  const syncedCount = synced.length;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -401,15 +777,89 @@ function CandidateQuickCheckInPageInner() {
             >
               <ArrowLeft className="w-4 h-4 mr-1.5" /> Back
             </Button>
-            <div>
+            <div className="flex-1">
               <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
                 Candidate Quick Check-In
               </h1>
               <p className="text-sm text-gray-600 mt-1">
-                For weekend programs (e.g. May 9–10): choose morning or afternoon for each day.
-                Search by family name + first name, confirm encounter no., then check in — Community ID is
-                assigned on first registration; use the same flow for each AM/PM session.
+                Works offline. Open this page <strong>once while online</strong> to cache the
+                candidate list, then check people in even with no signal — uploads happen
+                automatically when the signal returns.
               </p>
+            </div>
+          </div>
+
+          {/* Status bar */}
+          <div
+            className={`rounded-xl border-2 p-4 flex flex-wrap items-center justify-between gap-3 ${
+              isOnline
+                ? 'bg-emerald-50 border-emerald-300'
+                : 'bg-amber-50 border-amber-300'
+            }`}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              {isOnline ? (
+                <Wifi className="w-6 h-6 text-emerald-700 flex-shrink-0" />
+              ) : (
+                <WifiOff className="w-6 h-6 text-amber-700 flex-shrink-0" />
+              )}
+              <div className="min-w-0">
+                <div className="font-bold text-gray-900">
+                  {isOnline ? 'Online' : 'Offline'}
+                  {pendingCount > 0 ? ` · ${pendingCount} pending upload${pendingCount > 1 ? 's' : ''}` : ''}
+                  {syncing ? ' · syncing…' : ''}
+                </div>
+                <div className="text-xs text-gray-700 mt-0.5 flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1">
+                    <Database className="w-3.5 h-3.5" />
+                    {cachedBundle
+                      ? `${cachedBundle.candidates.length} candidates cached${cacheAgeLabel ? ` (${cacheAgeLabel})` : ''}`
+                      : cacheStatus === 'loading'
+                        ? 'Caching for offline use…'
+                        : 'Not cached yet'}
+                  </span>
+                  {syncedCount > 0 ? (
+                    <span className="inline-flex items-center gap-1 text-emerald-700">
+                      · <CheckCircle2 className="w-3.5 h-3.5" /> {syncedCount} done this event
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                onClick={() =>
+                  selectedEventId &&
+                  void refreshCacheFromServer(selectedEventId, /*silent*/ false)
+                }
+                variant="outline"
+                size="sm"
+                disabled={!selectedEventId || !isOnline || cacheStatus === 'loading'}
+                className="bg-white"
+                title="Re-fetch the candidate list and session list"
+              >
+                <RefreshCw className={`w-4 h-4 mr-1.5 ${cacheStatus === 'loading' ? 'animate-spin' : ''}`} />
+                Refresh cache
+              </Button>
+              <Button
+                onClick={() => void runDrain('manual')}
+                size="sm"
+                disabled={syncing || !isOnline || pendingCount === 0}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                <CloudUpload className="w-4 h-4 mr-1.5" /> Sync Now
+              </Button>
+              {pendingCount > 0 ? (
+                <Button
+                  onClick={handleExportPending}
+                  variant="outline"
+                  size="sm"
+                  className="bg-white"
+                  title="Download pending check-ins as a CSV (emergency backup)"
+                >
+                  <Download className="w-4 h-4 mr-1.5" /> Export pending
+                </Button>
+              ) : null}
             </div>
           </div>
 
@@ -424,8 +874,7 @@ function CandidateQuickCheckInPageInner() {
             <CardContent>
               {eventsLoading ? (
                 <div className="flex items-center text-sm text-gray-600">
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Loading
-                  events...
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Loading events...
                 </div>
               ) : events.length === 0 ? (
                 <div className="flex items-center text-sm text-gray-600">
@@ -467,7 +916,7 @@ function CandidateQuickCheckInPageInner() {
                       <label className="block text-sm font-semibold text-gray-800">
                         Check-in session (this AM or PM)
                       </label>
-                      {sessionsLoading ? (
+                      {sessionsLoading && sessionOptions.length === 0 ? (
                         <div className="flex items-center text-sm text-gray-600 py-2">
                           <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                           Loading sessions...
@@ -505,61 +954,96 @@ function CandidateQuickCheckInPageInner() {
 
           {/* Last result banner */}
           {lastResult && (
-            <Card className="border-2 border-green-300 bg-green-50">
+            <Card
+              className={`border-2 ${
+                lastResult.queuedOffline
+                  ? 'border-amber-300 bg-amber-50'
+                  : 'border-green-300 bg-green-50'
+              }`}
+            >
               <CardContent className="p-5">
                 <div className="flex items-start gap-3">
-                  <CheckCircle2 className="w-7 h-7 text-green-600 flex-shrink-0 mt-0.5" />
+                  {lastResult.queuedOffline ? (
+                    <CloudUpload className="w-7 h-7 text-amber-700 flex-shrink-0 mt-0.5" />
+                  ) : (
+                    <CheckCircle2 className="w-7 h-7 text-green-600 flex-shrink-0 mt-0.5" />
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-                      <h3 className="text-lg font-bold text-green-900">
-                        {lastResult.alreadyAttended
-                          ? 'Already checked in'
-                          : 'Checked In!'}
+                      <h3
+                        className={`text-lg font-bold ${
+                          lastResult.queuedOffline ? 'text-amber-900' : 'text-green-900'
+                        }`}
+                      >
+                        {lastResult.queuedOffline
+                          ? 'Saved — will upload when online'
+                          : lastResult.alreadyAttended
+                            ? 'Already checked in'
+                            : 'Checked In!'}
                       </h3>
                       <button
                         onClick={() => setLastResult(null)}
-                        className="text-green-700 hover:text-green-900"
+                        className={
+                          lastResult.queuedOffline
+                            ? 'text-amber-700 hover:text-amber-900'
+                            : 'text-green-700 hover:text-green-900'
+                        }
                       >
                         <X className="w-5 h-5" />
                       </button>
                     </div>
-                    <p className="text-sm text-green-900 mb-3">
+                    <p
+                      className={`text-sm mb-3 ${
+                        lastResult.queuedOffline ? 'text-amber-900' : 'text-green-900'
+                      }`}
+                    >
                       <strong>
                         {lastResult.candidate.firstName} {lastResult.candidate.familyName}
                       </strong>
                       {' • '}
                       {lastResult.encounterType} {lastResult.classNumber}
-                      <span className="block text-xs font-normal text-green-800 mt-1">
+                      <span
+                        className={`block text-xs font-normal mt-1 ${
+                          lastResult.queuedOffline ? 'text-amber-800' : 'text-green-800'
+                        }`}
+                      >
                         Session: {lastResult.sessionLabel}
                       </span>
                     </p>
-                    <div className="bg-white border-2 border-green-200 rounded-lg p-3 mb-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-xs uppercase tracking-wide text-gray-500 font-semibold">
-                            Community ID
-                          </div>
-                          <div className="text-2xl font-mono font-bold text-gray-900">
-                            {lastResult.communityId}
-                          </div>
-                          {lastResult.generatedCommunityId && (
-                            <div className="text-xs text-green-700 mt-0.5">
-                              Newly assigned
+                    {lastResult.communityId ? (
+                      <div className="bg-white border-2 border-green-200 rounded-lg p-3 mb-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <div className="text-xs uppercase tracking-wide text-gray-500 font-semibold">
+                              Community ID
                             </div>
-                          )}
+                            <div className="text-2xl font-mono font-bold text-gray-900">
+                              {lastResult.communityId}
+                            </div>
+                            {lastResult.generatedCommunityId && (
+                              <div className="text-xs text-green-700 mt-0.5">
+                                Newly assigned
+                              </div>
+                            )}
+                          </div>
+                          <Button
+                            onClick={() =>
+                              copyToClipboard(lastResult.communityId || '', 'Community ID')
+                            }
+                            variant="outline"
+                            size="sm"
+                            className="bg-white"
+                          >
+                            <Copy className="w-4 h-4 mr-1.5" /> Copy
+                          </Button>
                         </div>
-                        <Button
-                          onClick={() =>
-                            copyToClipboard(lastResult.communityId, 'Community ID')
-                          }
-                          variant="outline"
-                          size="sm"
-                          className="bg-white"
-                        >
-                          <Copy className="w-4 h-4 mr-1.5" /> Copy
-                        </Button>
                       </div>
-                    </div>
+                    ) : lastResult.queuedOffline ? (
+                      <div className="bg-white border-2 border-amber-200 rounded-lg p-3 mb-3 text-sm text-amber-900">
+                        Community ID will be assigned by the server during the next sync. The
+                        attendance record is safely stored on this device.
+                      </div>
+                    ) : null}
                     {lastResult.userCreated && lastResult.tempPassword && (
                       <div className="bg-amber-50 border-2 border-amber-200 rounded-lg p-3">
                         <div className="flex items-start gap-2">
@@ -632,7 +1116,7 @@ function CandidateQuickCheckInPageInner() {
                 </div>
               </div>
               <p className="text-xs text-gray-500 mb-3">
-                Type at least 2 characters in either field. Search runs automatically.
+                Type at least 2 characters in either field. Search runs automatically — works offline against the cached list.
               </p>
 
               {/* Results */}
@@ -640,7 +1124,7 @@ function CandidateQuickCheckInPageInner() {
                 <div className="text-sm text-gray-600 text-center py-8">
                   Select an event to search candidates.
                 </div>
-              ) : searching ? (
+              ) : searching && results.length === 0 ? (
                 <div className="flex items-center justify-center py-6 text-sm text-gray-600">
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Searching...
                 </div>
@@ -663,6 +1147,7 @@ function CandidateQuickCheckInPageInner() {
                   {results.map((c) => {
                     const parsed = parseEncounterAndClass(c.candidateClass);
                     const isRegistered = c.status === 'REGISTERED';
+                    const sessionStatus = candidateStatusForSession(c.id);
                     return (
                       <div
                         key={c.id}
@@ -674,6 +1159,15 @@ function CandidateQuickCheckInPageInner() {
                               {c.familyName}, {c.firstName}
                             </span>
                             {statusBadge(c.status)}
+                            {sessionStatus === 'pending' ? (
+                              <Badge className="bg-amber-100 text-amber-800 border-amber-200 inline-flex items-center gap-1">
+                                <CloudUpload className="w-3 h-3" /> Pending upload
+                              </Badge>
+                            ) : sessionStatus === 'synced' ? (
+                              <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 inline-flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" /> Checked in (this session)
+                              </Badge>
+                            ) : null}
                           </div>
                           <div className="text-xs text-gray-600 mt-0.5">
                             {c.candidateClass}
@@ -690,8 +1184,7 @@ function CandidateQuickCheckInPageInner() {
                           size="sm"
                           disabled={
                             !selectedSessionSlot ||
-                            sessionOptions.length === 0 ||
-                            sessionsLoading
+                            sessionOptions.length === 0
                           }
                           title={
                             !selectedSessionSlot
@@ -711,6 +1204,43 @@ function CandidateQuickCheckInPageInner() {
               )}
             </CardContent>
           </Card>
+
+          {/* Pending list */}
+          {pendingCount > 0 && (
+            <Card className="border-2 border-amber-200 bg-amber-50/40">
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center text-lg">
+                  <CloudUpload className="w-5 h-5 mr-2 text-amber-700" />
+                  Pending uploads ({pendingCount})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-1.5 text-sm">
+                  {pending.map((p) => (
+                    <li key={p.localId} className="flex flex-wrap items-center justify-between gap-2 bg-white border border-amber-200 rounded-lg px-3 py-2">
+                      <div>
+                        <span className="font-semibold text-gray-900">
+                          {p.candidateSnapshot.firstName} {p.candidateSnapshot.familyName}
+                        </span>
+                        <span className="text-xs text-gray-600 ml-2">
+                          {p.payload.encounterType} {p.payload.classNumber} •{' '}
+                          {sessionOptions.find((s) => s.value === p.sessionSlot)?.label || p.sessionSlot}
+                        </span>
+                        {p.lastError ? (
+                          <div className="text-xs text-red-700 mt-0.5">
+                            Last error: {p.lastError} (attempts: {p.attemptCount})
+                          </div>
+                        ) : null}
+                      </div>
+                      <span className="text-xs text-amber-800">
+                        Saved {new Date(p.queuedAt).toLocaleTimeString()}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 
@@ -735,6 +1265,11 @@ function CandidateQuickCheckInPageInner() {
                   {' '}
                   Checking in for: <strong>{selectedSessionLabel}</strong>.
                 </>
+              ) : null}
+              {!isOnline ? (
+                <span className="block mt-2 text-amber-800">
+                  You are <strong>offline</strong>. The check-in will be saved on this device and uploaded automatically when signal returns.
+                </span>
               ) : null}
             </DialogDescription>
           </DialogHeader>
@@ -833,6 +1368,14 @@ function CandidateQuickCheckInPageInner() {
       </Dialog>
     </div>
   );
+}
+
+async function safeListCachedEventIds(): Promise<string[]> {
+  try {
+    return await listCachedEventIds();
+  } catch {
+    return [];
+  }
 }
 
 export default function CandidateQuickCheckInPage() {
