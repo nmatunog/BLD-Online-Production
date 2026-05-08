@@ -216,21 +216,34 @@ export default function MembersPage() {
 
         const list = Array.isArray(result.data) ? result.data : [];
         const pagination = result.pagination;
+        const total = pagination?.total ?? list.length;
 
-        setTotalMembers(pagination?.total ?? list.length);
-        setHasMore(pagination ? pagination.page < pagination.totalPages : list.length === pageSize);
+        setTotalMembers(total);
         setPage(targetPage);
 
+        // Derive hasMore from the accumulated loaded count vs server-reported total.
+        // This is more robust than `page < totalPages` against re-orderings / partial pages
+        // and lets the manual "Load more" button stay accurate even after a viewport resize.
         setMembers((prev) => {
-          if (mode === 'replace') return list;
-          const seen = new Set(prev.map((m) => m.id));
-          const merged = [...prev];
-          for (const m of list) {
-            if (!seen.has(m.id)) {
-              seen.add(m.id);
-              merged.push(m);
+          let merged: Member[];
+          if (mode === 'replace') {
+            merged = list;
+          } else {
+            const seen = new Set(prev.map((m) => m.id));
+            merged = [...prev];
+            for (const m of list) {
+              if (!seen.has(m.id)) {
+                seen.add(m.id);
+                merged.push(m);
+              }
             }
           }
+          // If the server returns a full page but pagination says it's the last,
+          // trust pagination; otherwise fall back to length-based comparison.
+          const fullPage = list.length >= (pagination?.limit ?? pageSize);
+          const moreByCount = merged.length < total;
+          const moreByPage = pagination ? pagination.page < pagination.totalPages : fullPage;
+          setHasMore(moreByCount || moreByPage);
           return merged;
         });
       } catch (error) {
@@ -329,13 +342,23 @@ export default function MembersPage() {
 
   // Filtered (by search, apostolate, ministry) and sorted: Ministry Coordinators first, then rest alphabetically
   const filteredMembers = useMemo(() => {
+    // Match the server-side behavior: substring match, case-insensitive.
+    // Strict equality on apostolate/ministry was hiding rows the server had already
+    // included in the page, which made "End of list" appear before all rows loaded.
+    const apostolateNeedle = filterApostolate === 'ALL' ? '' : filterApostolate.toLowerCase();
+    const ministryNeedle = filterMinistry === 'ALL' ? '' : filterMinistry.toLowerCase();
     let filtered = members.filter(member => {
       const fullName = `${member.firstName || ''} ${member.lastName || ''}`.toLowerCase();
+      const nickname = (member.nickname || '').toLowerCase();
       const communityId = (member.communityId || '').toLowerCase();
       const term = searchTerm.toLowerCase();
-      const matchesSearch = !term || fullName.includes(term) || communityId.includes(term);
-      const matchesApostolate = filterApostolate === 'ALL' || (member.apostolate || '') === filterApostolate;
-      const matchesMinistry = filterMinistry === 'ALL' || member.ministry === filterMinistry;
+      const matchesSearch =
+        !term || fullName.includes(term) || nickname.includes(term) || communityId.includes(term);
+      const memberApostolate = (member.apostolate || '').toLowerCase();
+      const memberMinistry = (member.ministry || '').toLowerCase();
+      const matchesApostolate =
+        !apostolateNeedle || memberApostolate.includes(apostolateNeedle);
+      const matchesMinistry = !ministryNeedle || memberMinistry.includes(ministryNeedle);
       return matchesSearch && matchesApostolate && matchesMinistry;
     });
 
@@ -1170,19 +1193,44 @@ export default function MembersPage() {
             </div>
           </div>
 
-          <div className="mt-4 text-sm text-gray-500">
-            Showing {filteredMembers.length} of {totalMembers || members.length} members
+          <div className="mt-4 text-sm text-gray-500 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span>
+              Showing <strong>{filteredMembers.length}</strong> matching
+            </span>
+            {filteredMembers.length !== members.length ? (
+              <span className="text-gray-400">· {members.length} loaded</span>
+            ) : null}
+            {totalMembers > 0 ? (
+              <span className="text-gray-400">· {totalMembers} total</span>
+            ) : null}
           </div>
 
-          {/* Infinite scroll sentinel */}
-          <div ref={loadMoreRef} className="h-10 flex items-center justify-center mt-2">
+          {/* Infinite scroll sentinel + manual fallback. */}
+          <div
+            ref={loadMoreRef}
+            className="min-h-10 flex flex-col items-center justify-center gap-2 mt-3"
+          >
             {loadingMore ? (
               <div className="flex items-center gap-2 text-sm text-gray-600">
                 <Loader2 className="w-4 h-4 animate-spin" />
                 Loading more…
               </div>
             ) : hasMore ? (
-              <div className="text-xs text-gray-400">Scroll to load more…</div>
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void loadMembersPage(page + 1, 'append')}
+                  className="bg-white"
+                >
+                  Load more
+                  {totalMembers > members.length
+                    ? ` (${totalMembers - members.length} remaining)`
+                    : ''}
+                </Button>
+                <div className="text-xs text-gray-400">or scroll to load automatically</div>
+              </>
             ) : (
               <div className="text-xs text-gray-400">End of list</div>
             )}
