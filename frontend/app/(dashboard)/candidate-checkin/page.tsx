@@ -560,21 +560,36 @@ function CandidateQuickCheckInPageInner() {
     let cancelled = false;
     (async () => {
       try {
-        const [listRes, regRes] = await Promise.all([
+        // Backend caps `limit` at 100 — paginate until we drain all pages.
+        const fetchAllRegistrations = async () => {
+          const collected = new Map<string, EventRegistration>();
+          const PAGE_SIZE = 100;
+          let page = 1;
+          // Hard safety cap to avoid runaway loops.
+          for (let i = 0; i < 50; i++) {
+            const r = await registrationsService.getRegistrations(selectedEventId, {
+              limit: PAGE_SIZE,
+              page,
+            });
+            if (cancelled) return collected;
+            if (!r.success || !r.data?.data) break;
+            for (const reg of r.data.data) collected.set(reg.id, reg);
+            const totalPages = r.data.pagination?.totalPages ?? 1;
+            if (page >= totalPages || r.data.data.length < PAGE_SIZE) break;
+            page += 1;
+          }
+          return collected;
+        };
+
+        const [listRes, regsMap] = await Promise.all([
           registrationsService.listCandidates(selectedEventId),
-          registrationsService.getRegistrations(selectedEventId, { limit: 500 }),
+          fetchAllRegistrations(),
         ]);
         if (cancelled) return;
         if (listRes.success && listRes.data) {
           setFullCandidateList(listRes.data);
         }
-        if (regRes.success && regRes.data?.data) {
-          const m = new Map<string, EventRegistration>();
-          for (const r of regRes.data.data) {
-            m.set(r.id, r);
-          }
-          setRegistrationsById(m);
-        }
+        setRegistrationsById(regsMap);
       } catch {
         // keep existing lists
       }
