@@ -1092,6 +1092,11 @@ function CandidateQuickCheckInPageInner() {
     }
   };
 
+  /** Force-select remount so the Payment dropdown reverts after cancel / failed validation */
+  const bumpPaymentSelect = useCallback((candidateId: string) => {
+    setPaymentEpoch((prev) => ({ ...prev, [candidateId]: (prev[candidateId] || 0) + 1 }));
+  }, []);
+
   const handleAdminPaymentChange = async (
     c: EventCandidate,
     paymentStatus: EventRegistration['paymentStatus'],
@@ -1108,16 +1113,55 @@ function CandidateQuickCheckInPageInner() {
       toast.error('Connect to the internet to update payment.');
       return;
     }
+
+    const reg = registrationsById.get(c.registrationId);
+    const prevStatus = reg?.paymentStatus ?? 'PENDING';
+    let paymentReference: string | undefined;
+
+    if (paymentStatus === 'PAID' && prevStatus !== 'PAID') {
+      const defaultRef = (reg?.paymentReference ?? '').trim();
+      const entered =
+        typeof window !== 'undefined'
+          ? window.prompt(
+              'Payment reference / OR no. (Paid):\nLeave blank only if no receipt yet.',
+              defaultRef,
+            )
+          : '';
+      if (entered === null) {
+        bumpPaymentSelect(c.id);
+        return;
+      }
+      const trimmed = entered.trim();
+      if (!trimmed) {
+        const ok =
+          typeof window !== 'undefined' &&
+          window.confirm(
+            'No payment reference / OR no. entered.\n\nContinue marking Paid without recording the OR no.?',
+          );
+        if (!ok) {
+          bumpPaymentSelect(c.id);
+          return;
+        }
+      } else {
+        paymentReference = trimmed;
+      }
+    }
+
     setAdminBusyId(c.id);
     try {
       const res = await registrationsService.updatePaymentStatus(c.registrationId, {
         paymentStatus,
+        ...(paymentReference !== undefined ? { paymentReference } : {}),
       });
       if (!res.success) {
         toast.error('Payment update failed', { description: res.error || 'Unknown error' });
         return;
       }
-      toast.success('Payment status updated.');
+      toast.success(
+        paymentStatus === 'PAID' && paymentReference
+          ? `Marked paid • OR ${paymentReference}`
+          : 'Payment status updated.',
+      );
       bumpAdminRoster();
     } catch (err) {
       toast.error('Payment update failed', {
@@ -1125,7 +1169,7 @@ function CandidateQuickCheckInPageInner() {
       });
     } finally {
       setAdminBusyId(null);
-      setPaymentEpoch((prev) => ({ ...prev, [c.id]: (prev[c.id] || 0) + 1 }));
+      bumpPaymentSelect(c.id);
     }
   };
 
