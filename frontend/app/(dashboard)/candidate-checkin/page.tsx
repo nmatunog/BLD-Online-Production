@@ -223,6 +223,7 @@ function CandidateQuickCheckInPageInner() {
   const [confirmEmail, setConfirmEmail] = useState<string>('');
   const [confirmPaymentStatus, setConfirmPaymentStatus] =
     useState<EventRegistration['paymentStatus']>('PENDING');
+  const [confirmPaymentReference, setConfirmPaymentReference] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const [lastResult, setLastResult] = useState<QuickResult | null>(null);
@@ -744,6 +745,7 @@ function CandidateQuickCheckInPageInner() {
       ? registrationsById.get(candidate.registrationId)
       : undefined;
     setConfirmPaymentStatus(existingReg?.paymentStatus ?? 'PENDING');
+    setConfirmPaymentReference(existingReg?.paymentReference ?? '');
   };
 
   const closeConfirmDialog = () => {
@@ -753,6 +755,7 @@ function CandidateQuickCheckInPageInner() {
     setConfirmMobile('');
     setConfirmEmail('');
     setConfirmPaymentStatus('PENDING');
+    setConfirmPaymentReference('');
   };
 
   const runDrain = useCallback(
@@ -807,6 +810,28 @@ function CandidateQuickCheckInPageInner() {
     if (!selectedSessionSlot) {
       toast.error('Select the check-in session (AM or PM for this day).');
       return;
+    }
+
+    // Prompt for payment reference / OR no. when marking Paid without one. Skip if existing reg is already PAID.
+    if (canUpdatePayment) {
+      const existingReg = confirmCandidate?.registrationId
+        ? registrationsById.get(confirmCandidate.registrationId)
+        : undefined;
+      const alreadyPaid = existingReg?.paymentStatus === 'PAID';
+      const trimmedRef = confirmPaymentReference.trim();
+      if (
+        !alreadyPaid &&
+        confirmPaymentStatus === 'PAID' &&
+        trimmedRef.length === 0
+      ) {
+        const proceed =
+          typeof window === 'undefined'
+            ? true
+            : window.confirm(
+                'No payment reference / OR no. entered for a Paid candidate.\n\nContinue without recording the OR no.? (You can add it later from the Admin Roster.)',
+              );
+        if (!proceed) return;
+      }
     }
 
     const payload = {
@@ -912,24 +937,35 @@ function CandidateQuickCheckInPageInner() {
       await recordSyncedCheckin(syncedRow);
       await refreshQueueState(selectedEventId);
 
-      // Optionally update payment status now if the staff changed it in the dialog.
-      if (
+      // Persist payment status / reference (OR no.) when the staff entered them in the dialog.
+      // We update if EITHER the status changed from default PENDING, OR a reference / OR no. was captured.
+      const trimmedReference = confirmPaymentReference.trim();
+      const shouldPersistPayment =
         canUpdatePayment &&
-        data.registrationId &&
-        confirmPaymentStatus &&
-        confirmPaymentStatus !== 'PENDING'
-      ) {
+        !!data.registrationId &&
+        ((confirmPaymentStatus && confirmPaymentStatus !== 'PENDING') ||
+          trimmedReference.length > 0);
+      if (shouldPersistPayment) {
         try {
           const payRes = await registrationsService.updatePaymentStatus(
-            data.registrationId,
-            { paymentStatus: confirmPaymentStatus },
+            data.registrationId!,
+            {
+              paymentStatus: confirmPaymentStatus,
+              paymentReference: trimmedReference || undefined,
+            },
           );
           if (!payRes.success) {
             toast.warning('Registered, but payment update failed', {
               description: payRes.error || 'Please update payment from the admin roster.',
             });
-          } else {
-            toast.success(`Payment marked ${confirmPaymentStatus.toLowerCase()}.`);
+          } else if (confirmPaymentStatus !== 'PENDING') {
+            toast.success(
+              `Payment marked ${confirmPaymentStatus.toLowerCase()}${
+                trimmedReference ? ` • OR ${trimmedReference}` : ''
+              }.`,
+            );
+          } else if (trimmedReference) {
+            toast.success(`Payment reference saved: ${trimmedReference}.`);
           }
         } catch (payErr) {
           toast.warning('Registered, but payment update failed', {
@@ -2115,6 +2151,44 @@ function CandidateQuickCheckInPageInner() {
                 {!isOnline ? ' Offline check-ins skip payment update.' : ''}
               </p>
             </div>
+
+            {/* Payment reference / OR no. — prompted on first-time registration; skipped if already PAID. */}
+            {(() => {
+              const existingReg = confirmCandidate?.registrationId
+                ? registrationsById.get(confirmCandidate.registrationId)
+                : undefined;
+              const existingPaid = existingReg?.paymentStatus === 'PAID';
+              if (!canUpdatePayment) return null;
+              if (existingPaid) return null; // skip — already paid
+              const isFirstTimeRegistration = !existingReg;
+              const isMarkingPaidNow = confirmPaymentStatus === 'PAID';
+              return (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                    Payment reference / OR no.{' '}
+                    {isMarkingPaidNow ? (
+                      <span className="text-red-600">*</span>
+                    ) : (
+                      <span className="text-gray-400">(optional)</span>
+                    )}
+                  </label>
+                  <Input
+                    value={confirmPaymentReference}
+                    onChange={(e) => setConfirmPaymentReference(e.target.value)}
+                    className="h-11 font-mono"
+                    placeholder="e.g. OR-001234 or bank ref no."
+                    autoComplete="off"
+                  />
+                  <p className="text-[11px] text-gray-500 mt-1">
+                    {isMarkingPaidNow
+                      ? 'Required when marking Paid — write the OR / receipt no. issued to the candidate.'
+                      : isFirstTimeRegistration
+                        ? 'First-time registration — capture the OR / payment reference now if collected.'
+                        : 'Update or add the OR / payment reference for this registration.'}
+                  </p>
+                </div>
+              );
+            })()}
           </div>
 
           <DialogFooter className="mt-4">
