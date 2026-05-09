@@ -25,6 +25,9 @@ import {
   ClipboardList,
   Wallet,
   ShieldCheck,
+  Mic,
+  MicOff,
+  Users as UsersIcon,
 } from 'lucide-react';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { Button } from '@/components/ui/button';
@@ -199,6 +202,87 @@ function searchCandidatesLocally(
     .map((row) => row.c);
 }
 
+/**
+ * Lightweight Web Speech API wrapper.
+ * Returns `supported = false` when the browser has no SpeechRecognition (e.g. Firefox, older iOS).
+ * The caller decides what to do with the recognized phrase (typically split into family/first name).
+ */
+function useVoiceSearch(onResult: (transcript: string) => void) {
+  const [listening, setListening] = useState(false);
+  const [supported, setSupported] = useState(false);
+  const recognitionRef = useRef<unknown>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const Ctor =
+      (window as unknown as { SpeechRecognition?: unknown }).SpeechRecognition ||
+      (window as unknown as { webkitSpeechRecognition?: unknown })
+        .webkitSpeechRecognition;
+    setSupported(!!Ctor);
+  }, []);
+
+  const start = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const Ctor =
+      (window as unknown as { SpeechRecognition?: new () => unknown })
+        .SpeechRecognition ||
+      (window as unknown as { webkitSpeechRecognition?: new () => unknown })
+        .webkitSpeechRecognition;
+    if (!Ctor) {
+      toast.error('Voice search is not supported in this browser.');
+      return;
+    }
+    try {
+      const rec = new Ctor() as {
+        lang: string;
+        interimResults: boolean;
+        maxAlternatives: number;
+        continuous: boolean;
+        start: () => void;
+        stop: () => void;
+        onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+        onerror: ((e: { error?: string }) => void) | null;
+        onend: (() => void) | null;
+      };
+      rec.lang = 'en-PH';
+      rec.interimResults = false;
+      rec.maxAlternatives = 1;
+      rec.continuous = false;
+      rec.onresult = (e) => {
+        const transcript = e.results?.[0]?.[0]?.transcript ?? '';
+        if (transcript) onResult(transcript);
+      };
+      rec.onerror = (e) => {
+        const code = e.error || 'unknown';
+        if (code !== 'aborted' && code !== 'no-speech') {
+          toast.error(`Voice search error (${code})`);
+        }
+      };
+      rec.onend = () => setListening(false);
+      recognitionRef.current = rec;
+      rec.start();
+      setListening(true);
+    } catch (err) {
+      setListening(false);
+      toast.error('Could not start voice search.', {
+        description: err instanceof Error ? err.message : undefined,
+      });
+    }
+  }, [onResult]);
+
+  const stop = useCallback(() => {
+    const rec = recognitionRef.current as { stop?: () => void } | null;
+    try {
+      rec?.stop?.();
+    } catch {
+      // ignore
+    }
+    setListening(false);
+  }, []);
+
+  return { listening, supported, start, stop } as const;
+}
+
 function CandidateQuickCheckInPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -213,6 +297,36 @@ function CandidateQuickCheckInPageInner() {
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<EventCandidate[]>([]);
   const [searchError, setSearchError] = useState<string | null>(null);
+
+  /**
+   * Apply a transcript from voice search.
+   *  - "Sanchez"               -> familyName=Sanchez
+   *  - "Sanchez, Henry"        -> family=Sanchez, first=Henry
+   *  - "Henry Sanchez"         -> first=Henry, family=Sanchez (last token wins as family)
+   *  - "Maria Theresa Sanchez" -> first="Maria Theresa", family=Sanchez
+   */
+  const applyVoiceTranscript = useCallback((rawTranscript: string) => {
+    const transcript = rawTranscript.trim().replace(/[.!?]+$/, '');
+    if (!transcript) return;
+    if (transcript.includes(',')) {
+      const [fam, ...rest] = transcript.split(',');
+      setFamilyName(fam.trim());
+      setFirstName(rest.join(',').trim());
+      return;
+    }
+    const tokens = transcript.split(/\s+/);
+    if (tokens.length === 1) {
+      setFamilyName(tokens[0]);
+      setFirstName('');
+      return;
+    }
+    const last = tokens[tokens.length - 1];
+    const firstParts = tokens.slice(0, -1).join(' ');
+    setFamilyName(last);
+    setFirstName(firstParts);
+  }, []);
+
+  const voice = useVoiceSearch(applyVoiceTranscript);
 
   const [confirmCandidate, setConfirmCandidate] = useState<EventCandidate | null>(
     null,
@@ -475,7 +589,9 @@ function CandidateQuickCheckInPageInner() {
     }
     const fam = familyName.trim();
     const first = firstName.trim();
-    if (fam.length < 2 && first.length < 2) {
+    // Trigger on the FIRST keystroke — with ~200 candidates per event a single letter
+    // is fast enough and gives instant feedback while staff is still typing.
+    if (fam.length < 1 && first.length < 1) {
       setResults([]);
       setSearchError(null);
       return;
@@ -730,6 +846,56 @@ function CandidateQuickCheckInPageInner() {
       return undefined;
     },
     [pending, synced, selectedSessionSlot],
+  );
+
+  /**
+   * Last 6 distinct families just checked in (synced + pending) for the active event.
+   * Tapping a chip re-fills the family-name search so the next person from the same
+   * family surfaces instantly — common when households arrive together.
+   */
+  const recentFamilyChips = useMemo(() => {
+    const all = [...synced, ...pending].sort((a, b) => {
+      const aTs = a.succeededAt ?? a.queuedAt ?? 0;
+      const bTs = b.succeededAt ?? b.queuedAt ?? 0;
+      return bTs - aTs;
+    });
+    const seen = new Set<string>();
+    const out: Array<{ key: string; familyName: string; firstName: string }> = [];
+    for (const item of all) {
+      const fam = (item.candidateSnapshot.familyName || '').trim();
+      if (!fam) continue;
+      const key = fam.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({
+        key,
+        familyName: fam,
+        firstName: (item.candidateSnapshot.firstName || '').trim(),
+      });
+      if (out.length >= 6) break;
+    }
+    return out;
+  }, [synced, pending]);
+
+  /**
+   * For a given candidate row in the search results, return up to 3 OTHER candidates
+   * with the exact same family name (from the cached event bundle) — quick "same family"
+   * one-tap shortcut so couples / siblings can be checked in without re-typing.
+   */
+  const findSameFamilyCandidates = useCallback(
+    (candidate: EventCandidate): EventCandidate[] => {
+      if (!cachedBundle?.candidates?.length) return [];
+      const famKey = (candidate.familyName || '').trim().toLowerCase();
+      if (!famKey) return [];
+      return cachedBundle.candidates
+        .filter(
+          (c) =>
+            c.id !== candidate.id &&
+            (c.familyName || '').trim().toLowerCase() === famKey,
+        )
+        .slice(0, 3);
+    },
+    [cachedBundle],
   );
 
   const openConfirmDialog = (candidate: EventCandidate) => {
@@ -1811,13 +1977,45 @@ function CandidateQuickCheckInPageInner() {
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
                     Family Name
                   </label>
-                  <Input
-                    value={familyName}
-                    onChange={(e) => setFamilyName(e.target.value)}
-                    placeholder="e.g. Sanchez"
-                    className="h-11 text-base"
-                    autoFocus
-                  />
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={familyName}
+                      onChange={(e) => setFamilyName(e.target.value)}
+                      placeholder="e.g. Sanchez"
+                      className="h-11 text-base flex-1"
+                      autoFocus
+                    />
+                    {voice.supported ? (
+                      <Button
+                        type="button"
+                        variant={voice.listening ? 'default' : 'outline'}
+                        size="icon"
+                        className={
+                          voice.listening
+                            ? 'h-11 w-11 bg-red-600 hover:bg-red-700 text-white animate-pulse'
+                            : 'h-11 w-11'
+                        }
+                        onClick={() => (voice.listening ? voice.stop() : voice.start())}
+                        title={
+                          voice.listening
+                            ? 'Stop dictation'
+                            : 'Dictate name (e.g. "Sanchez" or "Henry Sanchez")'
+                        }
+                        aria-label={voice.listening ? 'Stop dictation' : 'Voice search'}
+                      >
+                        {voice.listening ? (
+                          <MicOff className="w-5 h-5" />
+                        ) : (
+                          <Mic className="w-5 h-5" />
+                        )}
+                      </Button>
+                    ) : null}
+                  </div>
+                  {voice.listening ? (
+                    <p className="text-[11px] text-red-700 font-semibold mt-1 inline-flex items-center gap-1">
+                      <Mic className="w-3 h-3 animate-pulse" /> Listening — say a name
+                    </p>
+                  ) : null}
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
@@ -1832,8 +2030,39 @@ function CandidateQuickCheckInPageInner() {
                 </div>
               </div>
               <p className="text-xs text-gray-500 mb-3">
-                Type at least 2 characters in either field. Search runs automatically — works offline against the cached list.
+                Filters from the first letter. Tap the mic to dictate a name. Works offline against the cached list.
               </p>
+
+              {/* Recent check-ins quick chips: tap a family to surface their relatives. */}
+              {recentFamilyChips.length > 0 ? (
+                <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800 mb-1.5 inline-flex items-center gap-1">
+                    <UsersIcon className="w-3.5 h-3.5" /> Recent check-ins (this session)
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {recentFamilyChips.map((chip) => (
+                      <button
+                        key={chip.key}
+                        type="button"
+                        onClick={() => {
+                          setFamilyName(chip.familyName);
+                          setFirstName('');
+                        }}
+                        className="px-2.5 py-1 rounded-full text-xs font-medium bg-white border border-emerald-300 text-emerald-900 hover:bg-emerald-100 transition-colors"
+                        title={`Search family ${chip.familyName} (e.g. spouse / sibling)`}
+                      >
+                        {chip.familyName}
+                        {chip.firstName ? (
+                          <span className="text-emerald-700/70">
+                            {' '}
+                            • {chip.firstName}
+                          </span>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               {/* Results */}
               {!selectedEventId ? (
@@ -1864,55 +2093,98 @@ function CandidateQuickCheckInPageInner() {
                     const parsed = parseEncounterAndClass(c.candidateClass);
                     const isRegistered = c.status === 'REGISTERED';
                     const sessionStatus = candidateStatusForSession(c.id);
+                    const sameFamily = findSameFamilyCandidates(c);
                     return (
                       <div
                         key={c.id}
-                        className="flex flex-wrap items-center justify-between gap-3 border border-gray-200 hover:border-blue-300 hover:bg-blue-50/30 rounded-lg p-3 transition-colors"
+                        className="border border-gray-200 hover:border-blue-300 hover:bg-blue-50/30 rounded-lg p-3 transition-colors"
                       >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-bold text-gray-900">
-                              {c.familyName}, {c.firstName}
-                            </span>
-                            {statusBadge(c.status)}
-                            {sessionStatus === 'pending' ? (
-                              <Badge className="bg-amber-100 text-amber-800 border-amber-200 inline-flex items-center gap-1">
-                                <CloudUpload className="w-3 h-3" /> Pending upload
-                              </Badge>
-                            ) : sessionStatus === 'synced' ? (
-                              <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 inline-flex items-center gap-1">
-                                <CheckCircle2 className="w-3 h-3" /> Checked in (this session)
-                              </Badge>
-                            ) : null}
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-bold text-gray-900">
+                                {c.familyName}, {c.firstName}
+                              </span>
+                              {statusBadge(c.status)}
+                              {sessionStatus === 'pending' ? (
+                                <Badge className="bg-amber-100 text-amber-800 border-amber-200 inline-flex items-center gap-1">
+                                  <CloudUpload className="w-3 h-3" /> Pending upload
+                                </Badge>
+                              ) : sessionStatus === 'synced' ? (
+                                <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 inline-flex items-center gap-1">
+                                  <CheckCircle2 className="w-3 h-3" /> Checked in (this session)
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <div className="text-xs text-gray-600 mt-0.5">
+                              {c.candidateClass}
+                              {parsed.encounterType && parsed.classNumber
+                                ? ` (${parsed.encounterType} ${parsed.classNumber})`
+                                : ''}
+                              {c.cleanMobile ? ` • ${c.cleanMobile}` : ''}
+                              {c.classGroup ? ` • Group: ${c.classGroup}` : ''}
+                            </div>
                           </div>
-                          <div className="text-xs text-gray-600 mt-0.5">
-                            {c.candidateClass}
-                            {parsed.encounterType && parsed.classNumber
-                              ? ` (${parsed.encounterType} ${parsed.classNumber})`
-                              : ''}
-                            {c.cleanMobile ? ` • ${c.cleanMobile}` : ''}
-                            {c.classGroup ? ` • Group: ${c.classGroup}` : ''}
-                          </div>
+                          <Button
+                            onClick={() => openConfirmDialog(c)}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                            size="sm"
+                            disabled={
+                              !selectedSessionSlot ||
+                              sessionOptions.length === 0
+                            }
+                            title={
+                              !selectedSessionSlot
+                                ? 'Select the check-in session (AM/PM) above first.'
+                                : isRegistered
+                                  ? 'Adds attendance for the selected session (Community ID already assigned).'
+                                  : ''
+                            }
+                          >
+                            <UserCheck className="w-4 h-4 mr-1.5" />
+                            {isRegistered ? 'Check in (this session)' : 'Register & check in'}
+                          </Button>
                         </div>
-                        <Button
-                          onClick={() => openConfirmDialog(c)}
-                          className="bg-red-600 hover:bg-red-700 text-white"
-                          size="sm"
-                          disabled={
-                            !selectedSessionSlot ||
-                            sessionOptions.length === 0
-                          }
-                          title={
-                            !selectedSessionSlot
-                              ? 'Select the check-in session (AM/PM) above first.'
-                              : isRegistered
-                                ? 'Adds attendance for the selected session (Community ID already assigned).'
-                                : ''
-                          }
-                        >
-                          <UserCheck className="w-4 h-4 mr-1.5" />
-                          {isRegistered ? 'Check in (this session)' : 'Register & check in'}
-                        </Button>
+                        {sameFamily.length > 0 ? (
+                          <div className="mt-2 pt-2 border-t border-dashed border-gray-200 flex flex-wrap items-center gap-1.5">
+                            <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide inline-flex items-center gap-1">
+                              <UsersIcon className="w-3 h-3" /> Same family:
+                            </span>
+                            {sameFamily.map((rel) => {
+                              const relStatus = candidateStatusForSession(rel.id);
+                              const relRegistered = rel.status === 'REGISTERED';
+                              const done =
+                                relStatus === 'pending' || relStatus === 'synced';
+                              return (
+                                <button
+                                  key={rel.id}
+                                  type="button"
+                                  onClick={() =>
+                                    selectedSessionSlot ? openConfirmDialog(rel) : undefined
+                                  }
+                                  disabled={done || !selectedSessionSlot}
+                                  className={
+                                    done
+                                      ? 'px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 inline-flex items-center gap-1 cursor-default'
+                                      : 'px-2 py-0.5 rounded-full text-[11px] font-medium bg-white border border-blue-200 text-blue-800 hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed'
+                                  }
+                                  title={
+                                    done
+                                      ? 'Already in this session'
+                                      : relRegistered
+                                        ? 'Check in for this session'
+                                        : 'Register & check in'
+                                  }
+                                >
+                                  {rel.firstName}
+                                  {done ? (
+                                    <CheckCircle2 className="w-3 h-3" />
+                                  ) : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
