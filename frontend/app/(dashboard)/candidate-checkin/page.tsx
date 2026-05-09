@@ -240,6 +240,8 @@ function CandidateQuickCheckInPageInner() {
 
   // ---------- Admin roster (register / check-in / payment) ----------
   const [userRole, setUserRole] = useState('');
+  const [storedUserMinistry, setStoredUserMinistry] = useState<string | null>(null);
+  const [storedMemberMinistry, setStoredMemberMinistry] = useState<string | null>(null);
   const [fullCandidateList, setFullCandidateList] = useState<EventCandidate[]>([]);
   const [registrationsById, setRegistrationsById] = useState<
     Map<string, EventRegistration>
@@ -528,11 +530,47 @@ function CandidateQuickCheckInPageInner() {
     [sessionOptions, selectedSessionSlot],
   );
 
-  const canUpdatePayment = useMemo(
-    () =>
-      ['SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR'].includes(userRole),
-    [userRole],
-  );
+  const selectedEventMinistry = useMemo(() => {
+    const m = selectedEvent?.ministry;
+    return typeof m === 'string' && m.trim() ? m.trim() : '';
+  }, [selectedEvent]);
+
+  const isMinistryStaffForSelectedEvent = useMemo(() => {
+    if (!selectedEvent || !selectedEventMinistry) return false;
+    if (userRole === 'MEMBER' && storedMemberMinistry) {
+      return (
+        storedMemberMinistry.localeCompare(selectedEventMinistry, undefined, {
+          sensitivity: 'accent',
+        }) === 0
+      );
+    }
+    if (userRole === 'MINISTRY_COORDINATOR' && storedUserMinistry) {
+      return (
+        storedUserMinistry.localeCompare(selectedEventMinistry, undefined, {
+          sensitivity: 'accent',
+        }) === 0
+      );
+    }
+    return false;
+  }, [selectedEvent, selectedEventMinistry, userRole, storedMemberMinistry, storedUserMinistry]);
+
+  const canUpdatePayment = useMemo(() => {
+    if (
+      ['SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR'].includes(userRole)
+    ) {
+      return true;
+    }
+    // Teaching (or any) ministry members acting as staff for a ministry-specific event
+    if (userRole === 'MEMBER' && isMinistryStaffForSelectedEvent) return true;
+    return false;
+  }, [userRole, isMinistryStaffForSelectedEvent]);
+
+  const ministryStaffBadgeLabel = useMemo(() => {
+    if (!selectedEventMinistry) return '';
+    if (userRole === 'MEMBER' && storedMemberMinistry) return storedMemberMinistry;
+    if (userRole === 'MINISTRY_COORDINATOR' && storedUserMinistry) return storedUserMinistry;
+    return selectedEventMinistry;
+  }, [selectedEventMinistry, userRole, storedMemberMinistry, storedUserMinistry]);
 
   const canEditEventMinistry = useMemo(
     () => ['SUPER_USER', 'ADMINISTRATOR', 'DCS'].includes(userRole),
@@ -609,6 +647,14 @@ function CandidateQuickCheckInPageInner() {
       if (raw) {
         const j = JSON.parse(raw);
         setUserRole(String(j?.user?.role || ''));
+        const um = j?.user?.ministry;
+        const mm = j?.member?.ministry;
+        setStoredUserMinistry(
+          typeof um === 'string' && um.trim() ? um.trim() : null,
+        );
+        setStoredMemberMinistry(
+          typeof mm === 'string' && mm.trim() ? mm.trim() : null,
+        );
       }
     } catch {
       // ignore
@@ -1277,6 +1323,34 @@ function CandidateQuickCheckInPageInner() {
               </p>
             </div>
           </div>
+
+          {isMinistryStaffForSelectedEvent && selectedEventMinistry ? (
+            <div className="rounded-xl border-2 border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-900 flex flex-wrap items-start gap-2">
+              <UserCheck className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <div className="font-bold">Ministry staff mode</div>
+                <p className="text-teal-950/90 mt-0.5">
+                  You are checking in as{' '}
+                  <strong>{ministryStaffBadgeLabel || selectedEventMinistry}</strong> staff for
+                  this event (matches event ministry: <strong>{selectedEventMinistry}</strong>).
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {userRole === 'MEMBER' && selectedEventMinistry && !storedMemberMinistry ? (
+            <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 flex flex-wrap items-start gap-2">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <div className="font-bold">Member ministry not set on your profile</div>
+                <p className="mt-0.5">
+                  Ask an Administrator to set your <strong>Member → Ministry</strong> (e.g.{' '}
+                  <em>Teaching Ministry</em>) so the portal can grant ministry staff tools for
+                  ministry-specific trainings.
+                </p>
+              </div>
+            </div>
+          ) : null}
 
           {/* Status bar */}
           <div

@@ -157,6 +157,20 @@ class ApiClient {
         if (accessToken) {
           this.setToken(accessToken);
           if (nextRefresh) this.setRefreshToken(nextRefresh);
+
+          // Keep local auth profile (ministry fields, member ministry) in sync after silent refresh
+          if (typeof window !== 'undefined' && data?.user) {
+            try {
+              const authDataToStore = {
+                user: data.user,
+                member: data.member ?? null,
+              };
+              localStorage.setItem('authData', JSON.stringify(authDataToStore));
+            } catch {
+              // ignore storage failures
+            }
+          }
+
           return accessToken;
         }
         return null;

@@ -77,13 +77,21 @@ export class RegistrationsController {
 
   @Get('events/:eventId/candidates')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR, UserRole.CLASS_SHEPHERD)
+  @Roles(
+    UserRole.SUPER_USER,
+    UserRole.ADMINISTRATOR,
+    UserRole.DCS,
+    UserRole.MINISTRY_COORDINATOR,
+    UserRole.CLASS_SHEPHERD,
+    UserRole.MEMBER,
+  )
   @ApiOperation({ summary: 'List imported event candidates' })
   async listCandidates(
     @Param('eventId') eventId: string,
     @Query() query: EventCandidateQueryDto,
+    @CurrentUser() user: { id: string },
   ): Promise<ApiResponseDto<unknown>> {
-    const data = await this.registrationsService.listCandidates(eventId, query);
+    const data = await this.registrationsService.listCandidates(eventId, query, user.id);
     return { success: true, data, message: 'Candidates retrieved successfully' };
   }
 
@@ -151,6 +159,7 @@ export class RegistrationsController {
     UserRole.DCS,
     UserRole.MINISTRY_COORDINATOR,
     UserRole.CLASS_SHEPHERD,
+    UserRole.MEMBER,
   )
   @ApiOperation({
     summary: 'Aided search for event candidates by family name + first name (for simplified check-in)',
@@ -160,16 +169,21 @@ export class RegistrationsController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   async searchCandidatesByName(
     @Param('eventId') eventId: string,
+    @CurrentUser() user: { id: string },
     @Query('firstName') firstName?: string,
     @Query('familyName') familyName?: string,
     @Query('limit') limit?: string,
   ): Promise<ApiResponseDto<unknown>> {
     const parsedLimit = limit ? parseInt(limit, 10) : undefined;
-    const data = await this.registrationsService.searchCandidatesByName(eventId, {
-      firstName,
-      familyName,
-      limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
-    });
+    const data = await this.registrationsService.searchCandidatesByName(
+      eventId,
+      {
+        firstName,
+        familyName,
+        limit: Number.isFinite(parsedLimit) ? parsedLimit : undefined,
+      },
+      user.id,
+    );
     return { success: true, data, message: 'Candidate search results' };
   }
 
@@ -181,6 +195,7 @@ export class RegistrationsController {
     UserRole.DCS,
     UserRole.MINISTRY_COORDINATOR,
     UserRole.CLASS_SHEPHERD,
+    UserRole.MEMBER,
   )
   @ApiOperation({
     summary:
@@ -188,8 +203,9 @@ export class RegistrationsController {
   })
   async getCandidateCheckinSessions(
     @Param('eventId') eventId: string,
+    @CurrentUser() user: { id: string },
   ): Promise<ApiResponseDto<unknown>> {
-    const data = await this.registrationsService.getCandidateCheckinSessions(eventId);
+    const data = await this.registrationsService.getCandidateCheckinSessions(eventId, user.id);
     return { success: true, data, message: 'Check-in session options' };
   }
 
@@ -201,6 +217,7 @@ export class RegistrationsController {
     UserRole.DCS,
     UserRole.MINISTRY_COORDINATOR,
     UserRole.CLASS_SHEPHERD,
+    UserRole.MEMBER,
   )
   @ApiOperation({
     summary:
@@ -313,15 +330,23 @@ export class RegistrationsController {
 
   @Get('events/:eventId/registrations-and-summary')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR, UserRole.CLASS_SHEPHERD)
+  @Roles(
+    UserRole.SUPER_USER,
+    UserRole.ADMINISTRATOR,
+    UserRole.DCS,
+    UserRole.MINISTRY_COORDINATOR,
+    UserRole.CLASS_SHEPHERD,
+    UserRole.MEMBER,
+  )
   @ApiOperation({ summary: 'Get registrations and summary for an event (one call)' })
   @ApiResponse({ status: 200, description: 'Registrations and summary retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Event not found' })
   async findAllWithSummary(
     @Param('eventId') eventId: string,
     @Query() query: RegistrationQueryDto,
+    @CurrentUser() user: { id: string },
   ): Promise<ApiResponseDto<unknown>> {
-    const result = await this.registrationsService.findAllWithSummary(eventId, query);
+    const result = await this.registrationsService.findAllWithSummary(eventId, query, user.id);
     return {
       success: true,
       data: result,
@@ -331,15 +356,23 @@ export class RegistrationsController {
 
   @Get('events/:eventId/registrations')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR, UserRole.CLASS_SHEPHERD)
+  @Roles(
+    UserRole.SUPER_USER,
+    UserRole.ADMINISTRATOR,
+    UserRole.DCS,
+    UserRole.MINISTRY_COORDINATOR,
+    UserRole.CLASS_SHEPHERD,
+    UserRole.MEMBER,
+  )
   @ApiOperation({ summary: 'Get all registrations for an event' })
   @ApiResponse({ status: 200, description: 'Registrations retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Event not found' })
   async findAll(
     @Param('eventId') eventId: string,
     @Query() query: RegistrationQueryDto,
+    @CurrentUser() user: { id: string },
   ): Promise<ApiResponseDto<unknown>> {
-    const result = await this.registrationsService.findAll(eventId, query);
+    const result = await this.registrationsService.findAll(eventId, query, user.id);
     return {
       success: true,
       data: result,
@@ -349,14 +382,22 @@ export class RegistrationsController {
 
   @Get('events/:eventId/summary')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR, UserRole.CLASS_SHEPHERD)
+  @Roles(
+    UserRole.SUPER_USER,
+    UserRole.ADMINISTRATOR,
+    UserRole.DCS,
+    UserRole.MINISTRY_COORDINATOR,
+    UserRole.CLASS_SHEPHERD,
+    UserRole.MEMBER,
+  )
   @ApiOperation({ summary: 'Get registration summary for an event' })
   @ApiResponse({ status: 200, description: 'Summary retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Event not found' })
   async getSummary(
     @Param('eventId') eventId: string,
+    @CurrentUser() user: { id: string },
   ): Promise<ApiResponseDto<unknown>> {
-    const summary = await this.registrationsService.getSummary(eventId);
+    const summary = await this.registrationsService.getSummary(eventId, user.id);
     return {
       success: true,
       data: summary,
@@ -366,12 +407,22 @@ export class RegistrationsController {
 
   @Get(':id')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR, UserRole.CLASS_SHEPHERD)
+  @Roles(
+    UserRole.SUPER_USER,
+    UserRole.ADMINISTRATOR,
+    UserRole.DCS,
+    UserRole.MINISTRY_COORDINATOR,
+    UserRole.CLASS_SHEPHERD,
+    UserRole.MEMBER,
+  )
   @ApiOperation({ summary: 'Get a registration by ID' })
   @ApiResponse({ status: 200, description: 'Registration retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Registration not found' })
-  async findOne(@Param('id') id: string): Promise<ApiResponseDto<unknown>> {
-    const registration = await this.registrationsService.findOne(id);
+  async findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string },
+  ): Promise<ApiResponseDto<unknown>> {
+    const registration = await this.registrationsService.findOne(id, user.id);
     return {
       success: true,
       data: registration,
@@ -381,17 +432,26 @@ export class RegistrationsController {
 
   @Put(':id')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR, UserRole.CLASS_SHEPHERD)
+  @Roles(
+    UserRole.SUPER_USER,
+    UserRole.ADMINISTRATOR,
+    UserRole.DCS,
+    UserRole.MINISTRY_COORDINATOR,
+    UserRole.CLASS_SHEPHERD,
+    UserRole.MEMBER,
+  )
   @ApiOperation({ summary: 'Update a registration' })
   @ApiResponse({ status: 200, description: 'Registration updated successfully' })
   @ApiResponse({ status: 404, description: 'Registration not found' })
   async update(
     @Param('id') id: string,
     @Body() updateRegistrationDto: UpdateRegistrationDto,
+    @CurrentUser() user: { id: string },
   ): Promise<ApiResponseDto<unknown>> {
     const registration = await this.registrationsService.update(
       id,
       updateRegistrationDto,
+      user.id,
     );
     return {
       success: true,
@@ -402,17 +462,26 @@ export class RegistrationsController {
 
   @Put(':id/payment')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR)
+  @Roles(
+    UserRole.SUPER_USER,
+    UserRole.ADMINISTRATOR,
+    UserRole.DCS,
+    UserRole.MINISTRY_COORDINATOR,
+    UserRole.CLASS_SHEPHERD,
+    UserRole.MEMBER,
+  )
   @ApiOperation({ summary: 'Update payment status for a registration' })
   @ApiResponse({ status: 200, description: 'Payment status updated successfully' })
   @ApiResponse({ status: 404, description: 'Registration not found' })
   async updatePaymentStatus(
     @Param('id') id: string,
     @Body() updatePaymentStatusDto: UpdatePaymentStatusDto,
+    @CurrentUser() user: { id: string },
   ): Promise<ApiResponseDto<unknown>> {
     const registration = await this.registrationsService.updatePaymentStatus(
       id,
       updatePaymentStatusDto,
+      user.id,
     );
     return {
       success: true,

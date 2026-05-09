@@ -135,6 +135,7 @@ function CheckInContent() {
   const [searching, setSearching] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [userRole, setUserRole] = useState<string>('');
+  const [memberMinistry, setMemberMinistry] = useState<string | null>(null);
   const [stats, setStats] = useState<{ total: number; qrCodeCount: number; manualCount: number } | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -152,22 +153,29 @@ function CheckInContent() {
 
     const authData = localStorage.getItem('authData');
     let role = '';
+    let memberMinistry: string | null = null;
     if (authData) {
       try {
         const parsed = JSON.parse(authData);
         role = parsed.user?.role || '';
+        const mm = parsed.member?.ministry;
+        memberMinistry =
+          typeof mm === 'string' && mm.trim() ? mm.trim() : null;
+        setMemberMinistry(memberMinistry);
         setUserRole(role);
       } catch (error) {
         console.error('Error parsing auth data:', error);
       }
     }
 
-    const staffRoles = ['SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR'];
-    if (role === 'MEMBER') {
+    const staffRoles = ['SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR', 'CLASS_SHEPHERD'];
+    const isMemberMinistryStaff = role === 'MEMBER' && !!memberMinistry;
+
+    if (role === 'MEMBER' && !isMemberMinistryStaff) {
       router.replace('/checkin/self-checkin');
       return;
     }
-    if (role && !staffRoles.includes(role)) {
+    if (role && !staffRoles.includes(role) && !isMemberMinistryStaff) {
       router.replace('/dashboard');
       return;
     }
@@ -703,6 +711,10 @@ function CheckInContent() {
 
   const adminRoles = ['SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR'];
   const isAdmin = adminRoles.includes(userRole);
+  const isMemberMinistryStaff = userRole === 'MEMBER' && !!memberMinistry;
+  const showCandidateQuickCTA =
+    !!userRole &&
+    (userRole !== 'MEMBER' || isMemberMinistryStaff);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -717,7 +729,7 @@ function CheckInContent() {
             <p className="text-base text-gray-600">
               Scan QR code or manually check in members for events
             </p>
-            {userRole && userRole !== 'MEMBER' && (
+            {showCandidateQuickCTA && (
               <div className="mt-4 bg-emerald-50 border border-emerald-200 rounded-lg p-4 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <p className="text-sm text-emerald-900 font-semibold mb-0.5">
@@ -743,7 +755,7 @@ function CheckInContent() {
                 </Button>
               </div>
             )}
-            {userRole === 'MEMBER' && (
+            {userRole === 'MEMBER' && !isMemberMinistryStaff && (
               <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <p className="text-sm text-blue-800 mb-2">
                   <strong>Are you a member looking to check yourself in?</strong>

@@ -174,6 +174,8 @@ export class AuthService {
       lastName: result.member.lastName,
       firstName: result.member.firstName,
       communityId: result.member.communityId,
+      ministry: result.member.ministry,
+      apostolate: result.member.apostolate,
     });
   }
 
@@ -253,6 +255,8 @@ export class AuthService {
             lastName: user.member.lastName,
             firstName: user.member.firstName,
             communityId: user.member.communityId,
+            ministry: user.member.ministry,
+            apostolate: user.member.apostolate,
           }
         : null,
     );
@@ -294,6 +298,8 @@ export class AuthService {
       lastName: member.lastName,
       firstName: member.firstName,
       communityId: member.communityId,
+      ministry: member.ministry,
+      apostolate: member.apostolate,
     });
   }
 
@@ -334,6 +340,8 @@ export class AuthService {
               lastName: userWithMember.member.lastName,
               firstName: userWithMember.member.firstName,
               communityId: userWithMember.member.communityId,
+              ministry: userWithMember.member.ministry,
+              apostolate: userWithMember.member.apostolate,
             }
           : null,
       );
@@ -461,12 +469,15 @@ export class AuthService {
       email: string | null;
       phone: string | null;
       role: UserRole;
+      ministry?: string | null;
     },
     member: {
       nickname: string | null;
       lastName: string;
       firstName: string;
       communityId?: string;
+      ministry?: string | null;
+      apostolate?: string | null;
     } | null,
   ): Promise<AuthResult> {
     const payload = {
@@ -506,6 +517,7 @@ export class AuthService {
         email: user.email,
         phone: user.phone,
         role: user.role,
+        ministry: user.ministry ?? null,
       },
       member: member
         ? {
@@ -513,6 +525,8 @@ export class AuthService {
             lastName: member.lastName,
             firstName: member.firstName,
             communityId: member.communityId,
+            ministry: member.ministry ?? null,
+            apostolate: member.apostolate ?? null,
           }
         : undefined,
     };

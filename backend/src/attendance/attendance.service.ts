@@ -12,6 +12,7 @@ import { MemberLookupService } from '../common/services/member-lookup.service';
 import { CheckInMethod, EventStatus, UserRole } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 import { getCheckInSessionSlotsForEvent } from '../common/utils/event-checkin-session-slots.util';
+import { getEventStaffAccess } from '../common/utils/event-staff-access.util';
 
 @Injectable()
 export class AttendanceService {
@@ -28,6 +29,19 @@ export class AttendanceService {
     // Verify event exists and is active
     const event = await this.prisma.event.findUnique({
       where: { id: createAttendanceDto.eventId },
+      select: {
+        id: true,
+        ministry: true,
+        startDate: true,
+        endDate: true,
+        startTime: true,
+        endTime: true,
+        status: true,
+        location: true,
+        venue: true,
+        category: true,
+        isRecurring: true,
+      },
     });
 
     if (!event) {
@@ -132,15 +146,21 @@ export class AttendanceService {
       throw new BadRequestException('Member account is inactive');
     }
 
-    // Check permissions: Members can only check themselves in
-    // For public check-in, the userId is the member's own userId, so this check will pass
+    // Check permissions: Members can only check themselves in unless they are ministry staff for this event
     if (userRole === UserRole.MEMBER) {
       const currentUserMember = await this.prisma.member.findUnique({
         where: { userId },
       });
-      // Allow if it's the member checking themselves in (userId matches member's userId)
-      if (currentUserMember && currentUserMember.id !== createAttendanceDto.memberId) {
-        throw new ForbiddenException('You can only check yourself in');
+      const isSelfCheckIn = !!currentUserMember && currentUserMember.id === createAttendanceDto.memberId;
+
+      if (!isSelfCheckIn) {
+        const staffAccess = await getEventStaffAccess(this.prisma, userId, {
+          id: event.id,
+          ministry: event.ministry,
+        });
+        if (!staffAccess.allowed) {
+          throw new ForbiddenException(staffAccess.reason || 'You can only check yourself in');
+        }
       }
     }
 

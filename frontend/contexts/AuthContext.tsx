@@ -9,11 +9,14 @@ export interface AuthUser {
   email: string | null;
   phone: string | null;
   role: string;
+  ministry?: string | null;
   member?: {
     nickname: string | null;
     lastName: string;
     firstName: string;
     communityId?: string;
+    ministry?: string | null;
+    apostolate?: string | null;
   };
 }
 
@@ -36,6 +39,10 @@ function loadUserFromStorage(): AuthUser | null {
       email: parsed.user?.email ?? null,
       phone: parsed.user?.phone ?? null,
       role: parsed.user?.role ?? '',
+      ministry:
+        typeof parsed.user?.ministry === 'string' && parsed.user.ministry.trim()
+          ? parsed.user.ministry.trim()
+          : null,
       member: parsed.member ?? undefined,
     };
   } catch {
@@ -69,6 +76,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             email: payload.email ?? null,
             phone: payload.phone ?? null,
             role: payload.role ?? '',
+            ministry:
+              typeof payload.ministry === 'string' && payload.ministry.trim()
+                ? payload.ministry.trim()
+                : null,
           });
         } catch {
           authService.logout();

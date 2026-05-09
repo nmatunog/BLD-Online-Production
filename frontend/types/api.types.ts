@@ -13,12 +13,17 @@ export interface AuthResult {
     email: string | null;
     phone: string | null;
     role: string;
+    /** Present when role is MINISTRY_COORDINATOR — ministry they coordinate */
+    ministry?: string | null;
   };
   member?: {
     nickname: string | null;
     lastName: string;
     firstName: string;
     communityId?: string;
+    /** Member profile ministry — used for ministry-aligned staff access */
+    ministry?: string | null;
+    apostolate?: string | null;
   };
 }
 

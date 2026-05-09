@@ -28,6 +28,7 @@ import {
   getCheckInSessionSlotsForEvent,
   isValidSessionSlotFormat,
 } from '../common/utils/event-checkin-session-slots.util';
+import { assertEventStaffAccessByEventId } from '../common/utils/event-staff-access.util';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -551,7 +552,15 @@ export class RegistrationsService {
     };
   }
 
-  async findAll(eventId: string, query: RegistrationQueryDto) {
+  async findAll(
+    eventId: string,
+    query: RegistrationQueryDto,
+    actingUserId?: string,
+  ) {
+    if (actingUserId) {
+      await assertEventStaffAccessByEventId(this.prisma, actingUserId, eventId);
+    }
+
     const {
       search,
       registrationType,
@@ -633,7 +642,7 @@ export class RegistrationsService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, actingUserId?: string) {
     const registration = await this.prisma.eventRegistration.findUnique({
       where: { id },
       include: {
@@ -665,11 +674,23 @@ export class RegistrationsService {
       throw new NotFoundException(`Registration with ID "${id}" not found`);
     }
 
+    if (actingUserId) {
+      await assertEventStaffAccessByEventId(
+        this.prisma,
+        actingUserId,
+        registration.eventId,
+      );
+    }
+
     return registration;
   }
 
-  async update(id: string, updateRegistrationDto: UpdateRegistrationDto) {
-    await this.findOne(id); // Verify registration exists
+  async update(
+    id: string,
+    updateRegistrationDto: UpdateRegistrationDto,
+    actingUserId?: string,
+  ) {
+    await this.findOne(id, actingUserId); // Verify registration exists + staff access
 
     const updated = await this.prisma.eventRegistration.update({
       where: { id },
@@ -706,8 +727,9 @@ export class RegistrationsService {
   async updatePaymentStatus(
     id: string,
     updatePaymentStatusDto: UpdatePaymentStatusDto,
+    actingUserId?: string,
   ) {
-    const registration = await this.findOne(id);
+    const registration = await this.findOne(id, actingUserId);
 
     const updated = await this.prisma.eventRegistration.update({
       where: { id },
@@ -821,13 +843,17 @@ export class RegistrationsService {
     return { message: 'Registration deleted successfully' };
   }
 
-  async getSummary(eventId: string) {
+  async getSummary(eventId: string, actingUserId?: string) {
     const event = await this.prisma.event.findUnique({
       where: { id: eventId },
     });
 
     if (!event) {
       throw new NotFoundException(`Event with ID "${eventId}" not found`);
+    }
+
+    if (actingUserId) {
+      await assertEventStaffAccessByEventId(this.prisma, actingUserId, eventId);
     }
 
     const [
@@ -905,10 +931,14 @@ export class RegistrationsService {
     };
   }
 
-  async findAllWithSummary(eventId: string, query: RegistrationQueryDto) {
+  async findAllWithSummary(
+    eventId: string,
+    query: RegistrationQueryDto,
+    actingUserId?: string,
+  ) {
     const [listResult, summaryResult] = await Promise.all([
-      this.findAll(eventId, query),
-      this.getSummary(eventId),
+      this.findAll(eventId, query, actingUserId),
+      this.getSummary(eventId, actingUserId),
     ]);
     return {
       ...listResult,
@@ -1090,7 +1120,15 @@ export class RegistrationsService {
     };
   }
 
-  async listCandidates(eventId: string, query: EventCandidateQueryDto) {
+  async listCandidates(
+    eventId: string,
+    query: EventCandidateQueryDto,
+    actingUserId?: string,
+  ) {
+    if (actingUserId) {
+      await assertEventStaffAccessByEventId(this.prisma, actingUserId, eventId);
+    }
+
     const where: Prisma.EventCandidateWhereInput = { eventId };
     if (query.status) where.status = query.status as EventCandidateStatus;
     if (query.search?.trim()) {
@@ -1672,9 +1710,14 @@ export class RegistrationsService {
   async searchCandidatesByName(
     eventId: string,
     params: { firstName?: string; familyName?: string; limit?: number },
+    actingUserId?: string,
   ) {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException(`Event with ID "${eventId}" not found`);
+
+    if (actingUserId) {
+      await assertEventStaffAccessByEventId(this.prisma, actingUserId, eventId);
+    }
 
     const firstNorm = this.normalizeText(params.firstName || '');
     const familyNorm = this.normalizeText(params.familyName || '');
@@ -1736,9 +1779,14 @@ export class RegistrationsService {
   }
 
   /** AM/PM session options for each Manila day between event start and end (for multi-day check-in). */
-  async getCandidateCheckinSessions(eventId: string) {
+  async getCandidateCheckinSessions(eventId: string, actingUserId?: string) {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException(`Event with ID "${eventId}" not found`);
+
+    if (actingUserId) {
+      await assertEventStaffAccessByEventId(this.prisma, actingUserId, eventId);
+    }
+
     return getCheckInSessionSlotsForEvent(event);
   }
 
@@ -1761,6 +1809,9 @@ export class RegistrationsService {
   ) {
     const event = await this.prisma.event.findUnique({ where: { id: eventId } });
     if (!event) throw new NotFoundException(`Event with ID "${eventId}" not found`);
+
+    await assertEventStaffAccessByEventId(this.prisma, createdByUserId, eventId);
+
     if (!event.hasRegistration) {
       throw new BadRequestException('This event does not have registration enabled');
     }

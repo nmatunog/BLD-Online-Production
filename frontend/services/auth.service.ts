@@ -73,6 +73,15 @@ export class AuthService {
       if (response.data.success && response.data.data) {
         apiClient.setToken(response.data.data.accessToken);
         apiClient.setRefreshToken(response.data.data.refreshToken);
+
+        if (typeof window !== 'undefined') {
+          const authDataToStore = {
+            user: response.data.data.user,
+            member: response.data.data.member || null,
+          };
+          localStorage.setItem('authData', JSON.stringify(authDataToStore));
+        }
+
         return response.data.data;
       }
       throw new Error(response.data.error || 'Registration failed');
@@ -90,6 +99,15 @@ export class AuthService {
     if (response.data.success && response.data.data) {
       apiClient.setToken(response.data.data.accessToken);
       apiClient.setRefreshToken(response.data.data.refreshToken);
+
+      if (typeof window !== 'undefined') {
+        const authDataToStore = {
+          user: response.data.data.user,
+          member: response.data.data.member || null,
+        };
+        localStorage.setItem('authData', JSON.stringify(authDataToStore));
+      }
+
       return response.data.data;
     }
     throw new Error(response.data.error || 'Token refresh failed');
