@@ -227,15 +227,21 @@ export default function EventsPage() {
       if (authData) {
         try {
           const parsed = JSON.parse(authData);
-          setUserRole(parsed.user?.role || '');
+          const role = parsed.user?.role || '';
+          setUserRole(role);
           setUserMinistry(parsed.member?.ministry ?? null);
+          setAuthLoading(false);
+          loadEvents(role);
         } catch (error) {
           console.error('Error parsing auth data:', error);
+          setAuthLoading(false);
+          loadEvents();
         }
+      } else {
+        setAuthLoading(false);
+        loadEvents();
       }
       
-      setAuthLoading(false);
-      loadEvents();
       // Load current user's check-ins for "You are already Checked In" on cards
       attendanceService.getMe().then((res) => {
         if (res?.success && res.data && Array.isArray(res.data)) {
@@ -264,9 +270,10 @@ export default function EventsPage() {
   const canEdit = !authLoading && allowedRoles.includes(userRole); // Only admins can edit
   const canDelete = userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR' || userRole === 'DCS';
 
-  const loadEvents = async () => {
+  const loadEvents = async (roleOverride?: string) => {
     setLoading(true);
     setEventsLoadError(null);
+    const effectiveRole = roleOverride ?? userRole;
     try {
       const params: EventQueryParams = {
         search: searchTerm || undefined,
@@ -276,7 +283,7 @@ export default function EventsPage() {
         sortOrder,
         page: 1,
         limit: 100,
-        includeAllMinistryEvents: (userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR' || userRole === 'DCS') ? includeAllMinistryEvents : undefined,
+        includeAllMinistryEvents: (effectiveRole === 'SUPER_USER' || effectiveRole === 'ADMINISTRATOR' || effectiveRole === 'DCS') ? includeAllMinistryEvents : undefined,
         collapseDuplicateDisplay: true,
       };
 

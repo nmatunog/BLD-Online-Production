@@ -103,6 +103,7 @@ class EventsService {
   async getAll(params?: EventQueryParams): Promise<ApiResponse<{ data: Event[]; pagination: unknown }>> {
     const response = await apiClient.get<ApiResponse<{ data: Event[]; pagination: unknown }>>('/events', {
       params,
+      timeout: 30000,
     });
     return ensureBody(response);
   }

@@ -85,6 +85,8 @@ function eventToSnapshot(event: {
 
 @Injectable()
 export class EventsService implements OnModuleInit {
+  private lastStatusUpdateAt = 0;
+  private static readonly STATUS_UPDATE_DEBOUNCE_MS = 60_000;
   /** Coalesces concurrent generation for the same template (create + startup ensure can overlap). */
   private readonly recurringGenerationInFlight = new Map<string, Promise<number>>();
 
@@ -1565,6 +1567,12 @@ export class EventsService implements OnModuleInit {
   }
 
   async updateEventStatuses() {
+    const nowMs = Date.now();
+    if (nowMs - this.lastStatusUpdateAt < EventsService.STATUS_UPDATE_DEBOUNCE_MS) {
+      return { message: 'Event statuses recently updated', updated: 0 };
+    }
+    this.lastStatusUpdateAt = nowMs;
+
     const now = new Date();
 
     // Get all events that need status updates
@@ -1625,11 +1633,17 @@ export class EventsService implements OnModuleInit {
       // If event hasn't started yet, keep it as UPCOMING (no update needed)
     }
 
-    // Batch update events
+    // Batch update events by target status
+    const idsByStatus = new Map<EventStatus, string[]>();
     for (const update of updates) {
-      await this.prisma.event.update({
-        where: { id: update.id },
-        data: { status: update.newStatus },
+      const ids = idsByStatus.get(update.newStatus) ?? [];
+      ids.push(update.id);
+      idsByStatus.set(update.newStatus, ids);
+    }
+    for (const [status, ids] of idsByStatus) {
+      await this.prisma.event.updateMany({
+        where: { id: { in: ids } },
+        data: { status },
       });
     }
 
