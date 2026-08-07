@@ -43,6 +43,8 @@ export interface Member {
 
 export interface MemberQueryParams {
   search?: string;
+  firstName?: string;
+  lastName?: string;
   city?: string;
   encounterType?: string;
   ministry?: string;

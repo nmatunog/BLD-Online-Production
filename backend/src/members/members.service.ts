@@ -145,6 +145,8 @@ export class MembersService {
   ) {
     const {
       search,
+      firstName,
+      lastName,
       city,
       encounterType,
       ministry,
@@ -160,7 +162,15 @@ export class MembersService {
     // Build where clause
     const where: Prisma.MemberWhereInput = {};
 
-    if (search) {
+    if (firstName?.trim()) {
+      where.firstName = { contains: firstName.trim(), mode: 'insensitive' };
+    }
+
+    if (lastName?.trim()) {
+      where.lastName = { contains: lastName.trim(), mode: 'insensitive' };
+    }
+
+    if (search && !firstName?.trim() && !lastName?.trim()) {
       where.OR = [
         { firstName: { contains: search, mode: 'insensitive' } },
         { lastName: { contains: search, mode: 'insensitive' } },

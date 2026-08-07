@@ -128,7 +128,6 @@ function CheckInContent() {
   const [selectedEvent, setSelectedEvent] = useState<string>('');
   const [recentCheckIns, setRecentCheckIns] = useState<Attendance[]>([]);
   const [cameraAvailable, setCameraAvailable] = useState(false);
-  const [searchMode, setSearchMode] = useState<'id' | 'name'>('id');
   const [searchLastName, setSearchLastName] = useState('');
   const [searchFirstName, setSearchFirstName] = useState('');
   const [searchResults, setSearchResults] = useState<Array<{ id: string; name: string; communityId: string }>>([]);
@@ -589,22 +588,9 @@ function CheckInContent() {
   };
 
   const handleSearchMembers = async () => {
-    if (searchMode === 'id') {
-      const input = searchLastName.trim().toUpperCase();
-      if (!input) {
-        toast.error('Please Enter Community ID', {
-          description: 'Enter a Community ID to search',
-        });
-        return;
-      }
-      await performCheckIn(input);
-      return;
-    }
-
-    // Name search
     if (!searchLastName.trim() && !searchFirstName.trim()) {
       toast.error('Please Enter Name', {
-        description: 'Enter at least last name to search',
+        description: 'Enter at least a first or last name to search',
       });
       return;
     }
@@ -612,7 +598,8 @@ function CheckInContent() {
     setSearching(true);
     try {
       const result = await membersService.getAll({
-        search: `${searchFirstName} ${searchLastName}`.trim(),
+        firstName: searchFirstName.trim() || undefined,
+        lastName: searchLastName.trim() || undefined,
         limit: 10,
       });
 
@@ -1062,10 +1049,39 @@ function CheckInContent() {
                         {searchResults.map((member) => (
                           <button
                             key={member.id}
-                            onClick={() => {
+                            onClick={async () => {
                               setManualCheckIn(member.communityId);
                               setShowSearchResults(false);
-                              performCheckIn(member.communityId);
+                              setLoading(true);
+                              try {
+                                const result = await attendanceService.checkIn({
+                                  memberId: member.id,
+                                  eventId: selectedEvent,
+                                  method: 'MANUAL',
+                                });
+                                if (result.success && result.data) {
+                                  const m = result.data.member;
+                                  const displayName = m.nickname
+                                    ? `${m.nickname} ${m.lastName}`
+                                    : `${m.firstName} ${m.lastName}`;
+                                  toast.success('✅ Check-in Successful!', {
+                                    description: `${displayName} (${m.communityId}) has been checked in`,
+                                    duration: 5000,
+                                  });
+                                  setManualCheckIn('');
+                                  setSearchResults([]);
+                                  loadRecentCheckIns();
+                                  loadStats();
+                                }
+                              } catch (error: unknown) {
+                                const err = error as { response?: { data?: { message?: string | string[] } } };
+                                const msg = Array.isArray(err.response?.data?.message)
+                                  ? err.response.data.message.join(', ')
+                                  : err.response?.data?.message || 'Failed to check in';
+                                toast.error('Check-in Failed', { description: msg, duration: 5000 });
+                              } finally {
+                                setLoading(false);
+                              }
                             }}
                             className="w-full text-left p-3 rounded-lg border-2 border-gray-200 bg-white hover:bg-blue-50 hover:border-blue-300 transition-all shadow-sm hover:shadow"
                           >
