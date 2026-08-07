@@ -1844,7 +1844,7 @@ export default function EventsPage() {
           <div className="text-center py-12 bg-amber-50 rounded-xl border border-amber-200">
             <div className="text-xl font-semibold text-amber-900 mb-2">Could not load events</div>
             <div className="text-sm text-amber-800 mb-4">{eventsLoadError}</div>
-            <Button variant="outline" onClick={loadEvents}>Retry</Button>
+            <Button variant="outline" onClick={() => loadEvents()}>Retry</Button>
           </div>
         )}
 
