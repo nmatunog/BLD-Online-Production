@@ -34,9 +34,6 @@ jobs:
       VERCEL_ORG_ID: team_mi5Vnct6QcCM1QmFP3nPmMM2
       VERCEL_PROJECT_ID: prj_8RsjETRlzoIrM1DEwn1G8RkTXDOE
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-    defaults:
-      run:
-        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
