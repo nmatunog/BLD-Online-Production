@@ -34,3 +34,4 @@ backend/node_modules/.prisma/
 
 # Misc
 *.tsbuildinfo
+.vercel

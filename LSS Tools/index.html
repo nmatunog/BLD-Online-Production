@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LSS Feedback Sheet - Session 1</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+        
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #f8fafc;
+            color: #1e293b;
+        }
+
+        @media print {
+            .no-print { display: none !important; }
+            body { background-color: white !important; padding: 0 !important; }
+            .main-container { 
+                box-shadow: none !important; 
+                border: none !important; 
+                max-width: 100% !important;
+                width: 100% !important;
+                padding: 0 !important;
+            }
+            textarea { border: 1px solid #e2e8f0 !important; }
+        }
+
+        .section-card {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-left: 4px solid #dc2626; /* Red accent */
+            transition: transform 0.2s ease;
+        }
+
+        .section-icon {
+            color: #dc2626;
+            flex-shrink: 0;
+        }
+
+        textarea {
+            resize: none;
+            min-height: 100px;
+            line-height: 1.6;
+        }
+
+        input[type="radio"] {
+            accent-color: #dc2626;
+        }
+
+        .form-label {
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+
+        /* Prevent clipping in canvas rendering for inputs */
+        .sig-input {
+            height: 48px; /* Fixed height to prevent clipping */
+            line-height: 1.2;
+            padding-top: 12px;
+            padding-bottom: 8px;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div id="capture-area" class="main-container max-w-4xl mx-auto bg-white shadow-xl rounded-2xl p-6 md:p-10 border border-slate-100">
+        
+        <!-- Header -->
+        <header class="text-center border-b-2 border-red-600 pb-6 mb-8">
+            <h1 class="text-[10px] md:text-xs font-extrabold text-red-600 uppercase tracking-[0.3em] mb-2">Bukas-Loob Sa Diyos Covenant Community</h1>
+            <h2 class="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">Life in the Spirit Seminar</h2>
+            <div class="flex flex-col md:flex-row items-center justify-center gap-2 md:gap-4 mt-3">
+                <span class="bg-red-50 text-red-700 text-[10px] px-3 py-1 rounded-full font-bold uppercase border border-red-100">Pre-LSS Shepherding: Session 1</span>
+                <span class="text-slate-400 text-sm font-medium italic">Feedback Sheet I: Acquaintance & Preparation</span>
+            </div>
+        </header>
+
+        <!-- Meeting Metadata -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
+            <div class="relative">
+                <label class="form-label mb-1 block">Date of Meeting</label>
+                <input type="text" class="w-full border-b-2 border-slate-100 py-2 focus:border-red-500 outline-none transition-colors font-semibold" placeholder="e.g., October 24, 2023">
+            </div>
+            <div class="relative">
+                <label class="form-label mb-1 block">Place of Meeting</label>
+                <input type="text" class="w-full border-b-2 border-slate-100 py-2 focus:border-red-500 outline-none transition-colors font-semibold" placeholder="e.g., Parish Hall / Zoom">
+            </div>
+        </div>
+
+        <form id="feedbackForm" class="space-y-8">
+            
+            <!-- 1. Acquaintance -->
+            <section class="section-card p-5 rounded-xl">
+                <div class="flex items-center gap-3 mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="section-icon h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    <h3 class="text-lg font-extrabold text-slate-800 uppercase tracking-tight">1. Acquaintance</h3>
+                </div>
+                <p class="text-sm text-slate-600 mb-4 leading-relaxed">
+                    Did your lambs share his/her life, values, concerns, attachments, and attitudes? If so, please state specifics:
+                </p>
+                <textarea class="w-full border border-slate-200 rounded-lg p-4 focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none transition-all text-slate-700" placeholder="Type observations here..."></textarea>
+                <div class="mt-3 flex items-center gap-2 text-red-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                    </svg>
+                    <span class="text-[11px] font-bold italic uppercase tracking-wide">For sensitive matters, advise Flock Head verbally.</span>
+                </div>
+            </section>
+
+            <!-- 2. Sacramental Commitment -->
+            <section class="section-card p-5 rounded-xl">
+                <div class="flex items-center gap-3 mb-6">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="section-icon h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                    <h3 class="text-lg font-extrabold text-slate-800 uppercase tracking-tight">2. Sacramental Commitment</h3>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="flex flex-col p-4 border border-slate-100 rounded-lg hover:border-red-100 transition-colors">
+                        <span class="text-sm font-bold text-slate-700 mb-3">Baptized Catholic?</span>
+                        <div class="flex gap-6 mt-auto">
+                            <label class="flex items-center gap-2 cursor-pointer font-bold text-red-600"><input type="radio" name="baptized" class="w-4 h-4"> YES</label>
+                            <label class="flex items-center gap-2 cursor-pointer font-bold text-slate-400"><input type="radio" name="baptized" class="w-4 h-4"> NO</label>
+                        </div>
+                    </div>
+                    <div class="flex flex-col p-4 border border-slate-100 rounded-lg hover:border-red-100 transition-colors">
+                        <span class="text-sm font-bold text-slate-700 mb-3">Confirmed Catholic?</span>
+                        <div class="flex gap-6 mt-auto">
+                            <label class="flex items-center gap-2 cursor-pointer font-bold text-red-600"><input type="radio" name="confirmed" class="w-4 h-4"> YES</label>
+                            <label class="flex items-center gap-2 cursor-pointer font-bold text-slate-400"><input type="radio" name="confirmed" class="w-4 h-4"> NO</label>
+                        </div>
+                    </div>
+                    <div class="flex flex-col p-4 border border-slate-100 rounded-lg hover:border-red-100 transition-colors">
+                        <span class="text-sm font-bold text-slate-700 mb-3">Catholic Marriage?</span>
+                        <div class="flex gap-6 mt-auto">
+                            <label class="flex items-center gap-2 cursor-pointer font-bold text-red-600"><input type="radio" name="marriage" class="w-4 h-4"> YES</label>
+                            <label class="flex items-center gap-2 cursor-pointer font-bold text-slate-400"><input type="radio" name="marriage" class="w-4 h-4"> NO</label>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 3. Preparation -->
+            <section class="section-card p-5 rounded-xl border-l-red-600">
+                <div class="flex items-center gap-3 mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="section-icon h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    </svg>
+                    <h3 class="text-lg font-extrabold text-slate-800 uppercase tracking-tight">3. Preparation Check</h3>
+                </div>
+                <div class="text-sm text-slate-600 mb-6 leading-relaxed">
+                    Did you go over <strong class="text-slate-900 underline decoration-red-200">God's Covenant (page 9)</strong> and the seminar requirements with your lamb?
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2 mt-4 p-4 border border-red-50 rounded-lg bg-red-50/30">
+                        <div class="flex items-center gap-2 text-[12px] font-semibold"><span class="text-red-600">✓</span> Daily Prayer Time</div>
+                        <div class="flex items-center gap-2 text-[12px] font-semibold"><span class="text-red-600">✓</span> Reflections on Words of Life</div>
+                        <div class="flex items-center gap-2 text-[12px] font-semibold"><span class="text-red-600">✓</span> Writing of Reflections</div>
+                        <div class="flex items-center gap-2 text-[12px] font-semibold"><span class="text-red-600">✓</span> Conjugal Dialogue (if couple)</div>
+                        <div class="flex items-center gap-2 text-[12px] font-semibold"><span class="text-red-600">✓</span> Scriptural Readings</div>
+                        <div class="flex items-center gap-2 text-[12px] font-semibold"><span class="text-red-600">✓</span> Prayer Meeting Participation</div>
+                    </div>
+                </div>
+                <div class="flex gap-4">
+                    <label class="flex-1 flex items-center justify-center gap-3 py-3 rounded-lg border-2 border-slate-100 bg-white hover:border-red-600 cursor-pointer transition-all font-black text-sm">
+                        <input type="radio" name="prep" class="w-5 h-5"> YES, REVIEWED
+                    </label>
+                    <label class="flex-1 flex items-center justify-center gap-3 py-3 rounded-lg border-2 border-slate-100 bg-white hover:border-slate-300 cursor-pointer transition-all font-black text-sm text-slate-400">
+                        <input type="radio" name="prep" class="w-5 h-5"> NOT YET
+                    </label>
+                </div>
+            </section>
+
+            <!-- 4. Assessment -->
+            <section class="section-card p-5 rounded-xl">
+                <div class="flex items-center gap-3 mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="section-icon h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                    <h3 class="text-lg font-extrabold text-slate-800 uppercase tracking-tight">4. General Assessment</h3>
+                </div>
+                <p class="text-sm text-slate-600 mb-4 leading-relaxed">
+                    Summarize the lamb's attitude and motivation towards the LSS:
+                </p>
+                <textarea class="w-full border border-slate-200 rounded-lg p-4 focus:ring-2 focus:ring-red-500/20 focus:border-red-500 outline-none transition-all text-slate-700" placeholder="Enter assessment..."></textarea>
+            </section>
+
+            <!-- Signatures -->
+            <div class="pt-10 border-t border-slate-100 grid grid-cols-1 md:grid-cols-3 gap-10">
+                <div class="text-center group">
+                    <input type="text" class="sig-input w-full border-b-2 border-slate-200 text-sm outline-none text-center bg-transparent font-bold text-slate-800 group-focus-within:border-red-500 transition-colors" placeholder="Type Name">
+                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2 block">Lamb</span>
+                </div>
+                <div class="text-center group">
+                    <input type="text" class="sig-input w-full border-b-2 border-slate-200 text-sm outline-none text-center bg-transparent font-bold text-slate-800 group-focus-within:border-red-500 transition-colors" placeholder="Type Name">
+                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2 block">Shepherd</span>
+                </div>
+                <div class="text-center group">
+                    <input type="text" class="sig-input w-full border-b-2 border-slate-200 text-sm outline-none text-center bg-transparent font-bold text-slate-800 group-focus-within:border-red-500 transition-colors" placeholder="Type Designation">
+                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-2 block">Flock</span>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Action Bar -->
+    <div class="no-print mt-12 flex flex-col md:flex-row gap-4 justify-center items-center pb-20">
+        <button id="downloadBtn" class="bg-red-600 text-white px-10 py-4 rounded-2xl font-black text-sm flex items-center gap-3 hover:bg-red-700 hover:scale-105 active:scale-95 transition-all shadow-xl shadow-red-200">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Download as Infographic
+        </button>
+        
+        <div class="flex gap-4">
+            <button onclick="window.print()" class="bg-white border-2 border-slate-200 text-slate-600 px-8 py-4 rounded-2xl font-bold text-sm flex items-center gap-2 hover:bg-slate-50 transition-all">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                </svg>
+                Print PDF
+            </button>
+            <button onclick="if(confirm('Clear all form data?')) document.getElementById('feedbackForm').reset()" class="bg-slate-100 text-slate-400 px-6 py-4 rounded-2xl font-bold text-sm hover:text-red-600 hover:bg-red-50 transition-all">
+                Reset
+            </button>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('downloadBtn').addEventListener('click', function() {
+            const btn = this;
+            const originalContent = btn.innerHTML;
+            btn.innerHTML = 'Processing...';
+            btn.disabled = true;
+
+            const element = document.getElementById('capture-area');
+            
+            // Remove shadow for clean capture
+            const originalShadow = element.style.boxShadow;
+            element.style.boxShadow = 'none';
+
+            html2canvas(element, {
+                scale: 3, // Increased scale for better resolution
+                useCORS: true,
+                backgroundColor: "#ffffff",
+                logging: false,
+                onclone: (clonedDoc) => {
+                    // Ensure full visibility in clone
+                    const clonedEl = clonedDoc.getElementById('capture-area');
+                    clonedEl.style.width = '1000px'; 
+                    // Set all inputs to overflow visible in clone to prevent clipping
+                    const inputs = clonedEl.querySelectorAll('input[type="text"]');
+                    inputs.forEach(input => {
+                        input.style.overflow = 'visible';
+                        input.style.lineHeight = 'normal';
+                    });
+                }
+            }).then(canvas => {
+                element.style.boxShadow = originalShadow;
+                const link = document.createElement('a');
+                link.download = 'LSS-Feedback-Session1.png';
+                link.href = canvas.toDataURL('image/png', 1.0);
+                link.click();
+                btn.innerHTML = originalContent;
+                btn.disabled = false;
+            }).catch(err => {
+                console.error(err);
+                btn.innerHTML = 'Error. Try again.';
+                btn.disabled = false;
+            });
+        });
+    </script>
+</body>
+</html>
