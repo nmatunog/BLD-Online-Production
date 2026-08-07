@@ -375,7 +375,7 @@ export class EventsService implements OnModuleInit {
     return this.prisma.$transaction(async (tx) => {
       // Cross-instance guard: only one generator run per template at a time.
       // This protects against duplicate occurrence creation when multiple app instances run.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${templateId}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${templateId}))`;
 
       const template = await tx.event.findUnique({
         where: { id: templateId, isRecurring: true, recurrenceTemplateId: null },
