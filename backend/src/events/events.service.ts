@@ -482,6 +482,9 @@ export class EventsService implements OnModuleInit {
       }
 
       return count;
+    }, {
+      maxWait: 10_000,
+      timeout: 120_000,
     });
   }
 
