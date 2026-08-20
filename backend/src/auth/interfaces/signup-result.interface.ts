@@ -3,9 +3,7 @@ export interface SignupResult {
   communityId: string;
   firstName: string;
   lastName: string;
-  middleName: string | null;
-  ministry: string;
-  apostolate: string;
+  nickname: string | null;
   encounterType: string;
   classNumber: number;
   isExistingMember: boolean;

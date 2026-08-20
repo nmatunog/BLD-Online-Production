@@ -1,14 +1,12 @@
 'use client';
 
-import { Suspense, useMemo, useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
   ClipboardCopy,
-  Phone,
   UserPlus,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -16,56 +14,31 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { authService } from '@/services/auth.service';
-import {
-  APOSTOLATES,
-  MINISTRIES_BY_APOSTOLATE,
-  SIGNUP_ENCOUNTER_TYPES,
-} from '@/lib/member-constants';
+import { SIGNUP_ENCOUNTER_TYPES } from '@/lib/member-constants';
 import { parseAuthError } from '@/utils/error-handler';
 import type { SignupResult } from '@/types/api.types';
 
-const STEPS = ['Ministry', 'About you', 'Contact'] as const;
+const STEPS = ['Your name', 'Encounter'] as const;
+
+const fieldClass =
+  'mt-2 h-14 w-full text-xl md:text-2xl px-4 rounded-xl border-2 border-gray-300 focus-visible:ring-emerald-600';
+const labelClass = 'text-lg md:text-xl font-semibold text-gray-800';
 
 function SignupForm() {
-  const searchParams = useSearchParams();
   const [step, setStep] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<SignupResult | null>(null);
 
-  const [apostolate, setApostolate] = useState(
-    () => searchParams.get('apostolate') || '',
-  );
-  const [ministry, setMinistry] = useState(
-    () => searchParams.get('ministry') || '',
-  );
   const [lastName, setLastName] = useState('');
   const [firstName, setFirstName] = useState('');
-  const [middleName, setMiddleName] = useState('');
+  const [nickname, setNickname] = useState('');
   const [encounterType, setEncounterType] = useState('');
   const [classNumber, setClassNumber] = useState('');
-  const [dateOfBirth, setDateOfBirth] = useState('');
-  const [phone, setPhone] = useState('');
 
-  const ministries = useMemo(
-    () => (apostolate ? MINISTRIES_BY_APOSTOLATE[apostolate] || [] : []),
-    [apostolate],
-  );
-
-  const canContinueStep0 = apostolate && ministry;
-  const canContinueStep1 =
-    lastName.trim() &&
-    firstName.trim() &&
-    encounterType &&
-    classNumber.trim() &&
-    dateOfBirth;
+  const canContinueStep0 = lastName.trim().length > 0 && firstName.trim().length > 0;
+  const canSubmit =
+    canContinueStep0 && encounterType.length > 0 && classNumber.trim().length > 0;
 
   const handleCopyCommunityId = async () => {
     if (!result?.communityId) return;
@@ -78,23 +51,19 @@ function SignupForm() {
   };
 
   const handleSubmit = async () => {
-    if (!phone.trim()) {
-      toast.error('Mobile number is required');
+    if (!canSubmit) {
+      toast.error('Please complete the required fields');
       return;
     }
 
     setIsLoading(true);
     try {
       const data = await authService.signup({
-        phone: phone.trim(),
         firstName: firstName.trim(),
         lastName: lastName.trim(),
-        middleName: middleName.trim() || undefined,
+        nickname: nickname.trim() || undefined,
         encounterType,
         classNumber: classNumber.trim(),
-        dateOfBirth,
-        apostolate,
-        ministry,
         city: 'Cebu',
       });
       setResult(data);
@@ -108,297 +77,237 @@ function SignupForm() {
 
   if (result) {
     return (
-      <Card className="p-8 rounded-2xl shadow-xl max-w-lg w-full relative z-10 bg-white border-2 border-green-200">
+      <Card className="w-full max-w-md mx-auto p-5 sm:p-8 rounded-2xl shadow-xl relative z-10 bg-white border-2 border-green-200 overflow-hidden">
         <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 bg-green-100 text-green-600">
             <CheckCircle2 className="w-8 h-8" />
           </div>
-          <h1 className="text-2xl font-bold text-green-800 mb-2">
-            {result.isExistingMember ? 'Registration confirmed' : 'You are registered!'}
+          <h1 className="text-2xl sm:text-3xl font-bold text-green-800 mb-2">
+            {result.isExistingMember ? 'Signup confirmed' : 'You are signed up!'}
           </h1>
-          <p className="text-sm text-gray-600">{result.message}</p>
+          <p className="text-base sm:text-lg text-gray-600">{result.message}</p>
         </div>
 
-        <div className="rounded-xl bg-green-50 border border-green-200 p-4 mb-6 text-center">
-          <p className="text-xs uppercase tracking-wide text-green-700 font-semibold mb-1">
+        <div className="rounded-xl bg-green-50 border-2 border-green-200 p-4 mb-6 text-center">
+          <p className="text-base uppercase tracking-wide text-green-700 font-semibold mb-2">
             Your Community ID
           </p>
-          <p className="text-2xl font-mono font-bold text-green-900 break-all">
+          <p className="text-2xl sm:text-3xl font-mono font-bold text-green-900 break-all">
             {result.communityId}
           </p>
           <Button
             type="button"
             variant="outline"
-            size="sm"
-            className="mt-3"
+            className="mt-4 h-12 text-lg w-full sm:w-auto"
             onClick={handleCopyCommunityId}
           >
-            <ClipboardCopy className="w-4 h-4 mr-2" />
+            <ClipboardCopy className="w-5 h-5 mr-2" />
             Copy ID
           </Button>
         </div>
 
-        <div className="text-sm text-gray-600 space-y-2 mb-6">
+        <div className="text-base sm:text-lg text-gray-700 space-y-2 mb-6">
           <p>
-            <span className="font-medium">Name:</span>{' '}
-            {result.firstName} {result.middleName ? `${result.middleName} ` : ''}
-            {result.lastName}
+            <span className="font-semibold">Name:</span>{' '}
+            {result.firstName}
+            {result.nickname ? ` (“${result.nickname}”)` : ''} {result.lastName}
           </p>
           <p>
-            <span className="font-medium">Ministry:</span> {result.ministry}
-          </p>
-          <p>
-            <span className="font-medium">Encounter:</span>{' '}
+            <span className="font-semibold">Encounter:</span>{' '}
             {result.encounterType} {result.classNumber}
           </p>
         </div>
 
-        <p className="text-sm text-gray-500 mb-6">
-          You are active for attendance right away. App login (PIN or password) can be set up later
-          with your ministry coordinator.
+        <p className="text-base text-gray-500 mb-6">
+          Write down your Community ID. Mobile number, ministry, and login can be completed later.
         </p>
 
-        <div className="flex flex-col gap-2">
-          <Link href="/login">
-            <Button className="w-full bg-green-700 hover:bg-green-800">
+        <div className="flex flex-col gap-3">
+          <Link href="/login" className="w-full">
+            <Button className="w-full h-14 text-lg bg-green-700 hover:bg-green-800">
               Go to sign in
             </Button>
           </Link>
-          <Link href="/signup">
-            <Button variant="outline" className="w-full">
-              Register another member
-            </Button>
-          </Link>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full h-14 text-lg"
+            onClick={() => {
+              setResult(null);
+              setStep(0);
+              setLastName('');
+              setFirstName('');
+              setNickname('');
+              setEncounterType('');
+              setClassNumber('');
+            }}
+          >
+            Sign up another member
+          </Button>
         </div>
       </Card>
     );
   }
 
   return (
-    <Card className="p-6 sm:p-8 rounded-2xl shadow-xl max-w-lg w-full relative z-10 bg-white border-2 border-emerald-200">
-      <div className="text-center mb-6">
+    <Card className="w-full max-w-md mx-auto p-5 sm:p-8 rounded-2xl shadow-xl relative z-10 bg-white border-2 border-emerald-200 overflow-hidden">
+      <div className="text-center mb-5">
         <div className="inline-flex items-center justify-center w-14 h-14 rounded-full mb-3 bg-emerald-100 text-emerald-700">
           <UserPlus className="w-7 h-7" />
         </div>
-        <h1 className="text-2xl font-bold text-emerald-800">Member Registration</h1>
-        <p className="text-sm text-gray-600 mt-1">
-          Register for attendance — no password needed
+        <h1 className="text-2xl sm:text-3xl font-bold text-emerald-800 leading-tight">
+          Initial Signup Form
+        </h1>
+        <p className="text-base sm:text-lg text-gray-600 mt-2">
+          Get your Community ID — no password needed
         </p>
       </div>
 
-      <div className="flex justify-center gap-2 mb-6">
+      <div className="flex justify-center gap-3 mb-6">
         {STEPS.map((label, i) => (
           <div
             key={label}
-            className={`flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full ${
+            className={`flex items-center gap-2 text-base font-semibold px-3 py-2 rounded-full ${
               i === step
-                ? 'bg-emerald-100 text-emerald-800'
+                ? 'bg-emerald-100 text-emerald-900'
                 : i < step
-                  ? 'bg-emerald-50 text-emerald-600'
+                  ? 'bg-emerald-50 text-emerald-700'
                   : 'bg-gray-100 text-gray-400'
             }`}
           >
-            <span>{i + 1}</span>
-            <span className="hidden sm:inline">{label}</span>
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/80 text-sm">
+              {i + 1}
+            </span>
+            <span>{label}</span>
           </div>
         ))}
       </div>
 
       {step === 0 && (
-        <div className="space-y-4">
+        <div className="space-y-5">
           <div>
-            <Label htmlFor="apostolate">Apostolate</Label>
-            <Select
-              value={apostolate}
-              onValueChange={(v) => {
-                setApostolate(v);
-                setMinistry('');
-              }}
-            >
-              <SelectTrigger id="apostolate" className="mt-1">
-                <SelectValue placeholder="Select apostolate" />
-              </SelectTrigger>
-              <SelectContent>
-                {APOSTOLATES.map((a) => (
-                  <SelectItem key={a} value={a}>
-                    {a}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label htmlFor="lastName" className={labelClass}>
+              Last name <span className="text-red-600">*</span>
+            </Label>
+            <Input
+              id="lastName"
+              className={fieldClass}
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              autoComplete="family-name"
+              autoCapitalize="words"
+            />
           </div>
           <div>
-            <Label htmlFor="ministry">Ministry</Label>
-            <Select
-              value={ministry}
-              onValueChange={setMinistry}
-              disabled={!apostolate}
-            >
-              <SelectTrigger id="ministry" className="mt-1">
-                <SelectValue placeholder={apostolate ? 'Select ministry' : 'Choose apostolate first'} />
-              </SelectTrigger>
-              <SelectContent>
-                {ministries.map((m) => (
-                  <SelectItem key={m} value={m}>
-                    {m}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label htmlFor="firstName" className={labelClass}>
+              First name <span className="text-red-600">*</span>
+            </Label>
+            <Input
+              id="firstName"
+              className={fieldClass}
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              autoComplete="given-name"
+              autoCapitalize="words"
+            />
+          </div>
+          <div>
+            <Label htmlFor="nickname" className={labelClass}>
+              Nickname <span className="text-gray-500 font-normal text-base">(optional)</span>
+            </Label>
+            <Input
+              id="nickname"
+              className={fieldClass}
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              autoCapitalize="words"
+              placeholder="What friends call you"
+            />
           </div>
         </div>
       )}
 
       {step === 1 && (
-        <div className="space-y-4">
+        <div className="space-y-5">
           <div>
-            <Label htmlFor="lastName">Last name</Label>
-            <Input
-              id="lastName"
-              className="mt-1"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              autoComplete="family-name"
-            />
+            <Label className={labelClass}>
+              Encounter type <span className="text-red-600">*</span>
+            </Label>
+            <div className="mt-3 grid grid-cols-1 gap-3">
+              {SIGNUP_ENCOUNTER_TYPES.map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setEncounterType(value)}
+                  className={`w-full min-h-14 rounded-xl border-2 px-4 py-3 text-left text-lg sm:text-xl font-semibold transition ${
+                    encounterType === value
+                      ? 'border-emerald-600 bg-emerald-50 text-emerald-900'
+                      : 'border-gray-300 bg-white text-gray-800'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
           <div>
-            <Label htmlFor="firstName">First name</Label>
-            <Input
-              id="firstName"
-              className="mt-1"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              autoComplete="given-name"
-            />
-          </div>
-          <div>
-            <Label htmlFor="middleName">Middle name (optional)</Label>
-            <Input
-              id="middleName"
-              className="mt-1"
-              value={middleName}
-              onChange={(e) => setMiddleName(e.target.value)}
-            />
-          </div>
-          <div>
-            <Label>Encounter</Label>
-            <Select value={encounterType} onValueChange={setEncounterType}>
-              <SelectTrigger className="mt-1">
-                <SelectValue placeholder="Select encounter type" />
-              </SelectTrigger>
-              <SelectContent>
-                {SIGNUP_ENCOUNTER_TYPES.map(({ value, label }) => (
-                  <SelectItem key={value} value={value}>
-                    {label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label htmlFor="classNumber">Class number</Label>
+            <Label htmlFor="classNumber" className={labelClass}>
+              Class number <span className="text-red-600">*</span>
+            </Label>
             <Input
               id="classNumber"
-              className="mt-1"
+              className={fieldClass}
               inputMode="numeric"
               placeholder="e.g. 18"
               value={classNumber}
               onChange={(e) => setClassNumber(e.target.value.replace(/\D/g, ''))}
             />
           </div>
-          <div>
-            <Label htmlFor="dateOfBirth">Date of birth</Label>
-            <Input
-              id="dateOfBirth"
-              type="date"
-              className="mt-1"
-              value={dateOfBirth}
-              onChange={(e) => setDateOfBirth(e.target.value)}
-            />
-          </div>
+          <p className="text-base text-gray-500">
+            Location defaults to Cebu. Mobile, ministry, and login come later.
+          </p>
         </div>
       )}
 
-      {step === 2 && (
-        <div className="space-y-4">
-          <div className="rounded-lg bg-gray-50 border p-3 text-sm space-y-1">
-            <p>
-              <span className="text-gray-500">Ministry:</span> {ministry}
-            </p>
-            <p>
-              <span className="text-gray-500">Name:</span> {firstName} {lastName}
-            </p>
-            <p>
-              <span className="text-gray-500">Encounter:</span> {encounterType} {classNumber}
-            </p>
-          </div>
-          <div>
-            <Label htmlFor="phone">Mobile number</Label>
-            <div className="relative mt-1">
-              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <Input
-                id="phone"
-                type="tel"
-                className="pl-10"
-                placeholder="09XX XXX XXXX"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                autoComplete="tel"
-              />
-            </div>
-            <p className="text-xs text-gray-500 mt-1">
-              Used later to set up app login with your coordinator
-            </p>
-          </div>
-        </div>
-      )}
-
-      <div className="flex gap-2 mt-6">
+      <div className="flex gap-3 mt-8">
         {step > 0 ? (
           <Button
             type="button"
             variant="outline"
+            className="h-14 text-lg px-5"
             onClick={() => setStep((s) => s - 1)}
             disabled={isLoading}
           >
-            <ArrowLeft className="w-4 h-4 mr-1" />
+            <ArrowLeft className="w-5 h-5 mr-1" />
             Back
           </Button>
-        ) : (
-          <div />
-        )}
-        {step < 2 ? (
+        ) : null}
+
+        {step === 0 ? (
           <Button
             type="button"
-            className="ml-auto bg-emerald-700 hover:bg-emerald-800"
-            disabled={
-              (step === 0 && !canContinueStep0) ||
-              (step === 1 && !canContinueStep1)
-            }
-            onClick={() => setStep((s) => s + 1)}
+            className="ml-auto h-14 text-lg px-6 bg-emerald-700 hover:bg-emerald-800"
+            disabled={!canContinueStep0}
+            onClick={() => setStep(1)}
           >
             Next
-            <ArrowRight className="w-4 h-4 ml-1" />
+            <ArrowRight className="w-5 h-5 ml-1" />
           </Button>
         ) : (
           <Button
             type="button"
-            className="ml-auto bg-emerald-700 hover:bg-emerald-800"
-            disabled={isLoading || !phone.trim()}
+            className="ml-auto h-14 text-lg px-6 bg-emerald-700 hover:bg-emerald-800"
+            disabled={isLoading || !canSubmit}
             onClick={handleSubmit}
           >
-            {isLoading ? 'Registering…' : 'Complete registration'}
+            {isLoading ? 'Saving…' : 'Get Community ID'}
           </Button>
         )}
       </div>
 
-      <p className="text-center text-sm text-gray-500 mt-6">
-        Need full account with password?{' '}
-        <Link href="/register" className="text-emerald-700 font-medium hover:underline">
-          Staff registration
-        </Link>
-        {' · '}
-        <Link href="/login" className="text-emerald-700 font-medium hover:underline">
+      <p className="text-center text-base text-gray-500 mt-6 leading-relaxed">
+        Already have an account?{' '}
+        <Link href="/login" className="text-emerald-700 font-semibold hover:underline">
           Sign in
         </Link>
       </p>
@@ -408,19 +317,19 @@ function SignupForm() {
 
 export default function SignupPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50">
+    <div className="min-h-dvh w-full overflow-x-hidden flex items-start sm:items-center justify-center p-3 sm:p-6 bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50">
       <div
-        className="absolute inset-0 opacity-10"
+        className="pointer-events-none absolute inset-0 opacity-10"
         style={{
           backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='0.1'%3E%3Ccircle cx='30' cy='30' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
         }}
       />
       <Suspense
         fallback={
-          <Card className="p-8 max-w-lg w-full">
+          <Card className="w-full max-w-md p-8">
             <CardHeader>
-              <CardTitle>Loading…</CardTitle>
-              <CardDescription>Preparing registration form</CardDescription>
+              <CardTitle className="text-2xl">Loading…</CardTitle>
+              <CardDescription className="text-lg">Preparing signup form</CardDescription>
             </CardHeader>
             <CardContent />
           </Card>

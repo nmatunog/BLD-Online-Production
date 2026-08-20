@@ -464,7 +464,7 @@ export default function LoginPage() {
             <p className="text-slate-500 text-sm font-medium">
               New member?{' '}
               <Link href="/signup" className="text-red-700 font-bold hover:underline">
-                Register for attendance
+                Initial Signup Form
               </Link>
               {' · '}
               <Link href="/register" className="text-red-700 font-bold hover:underline">

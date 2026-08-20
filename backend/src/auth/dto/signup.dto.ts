@@ -3,19 +3,15 @@ import {
   IsNotEmpty,
   IsOptional,
   IsIn,
-  Matches,
 } from 'class-validator';
-import {
-  IsValidApostolate,
-  IsValidMinistryForApostolate,
-} from '../../common/validators/ministry-validator';
 import { SIGNUP_ENCOUNTER_TYPES } from '../auth.constants';
 
+/**
+ * Minimum for unique Community ID (CITY-ENCOUNTER+CLASS+SEQ) + member QR:
+ * firstName, lastName, encounterType, classNumber.
+ * City defaults to CEB. Nickname optional. Phone/ministry/DOB deferred to account activation.
+ */
 export class SignupDto {
-  @IsString()
-  @IsNotEmpty()
-  phone!: string;
-
   @IsString()
   @IsNotEmpty()
   firstName!: string;
@@ -26,7 +22,7 @@ export class SignupDto {
 
   @IsString()
   @IsOptional()
-  middleName?: string;
+  nickname?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -36,23 +32,6 @@ export class SignupDto {
   @IsString()
   @IsNotEmpty()
   classNumber!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
-    message: 'Date of birth must be YYYY-MM-DD',
-  })
-  dateOfBirth!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  @IsValidApostolate()
-  apostolate!: string;
-
-  @IsString()
-  @IsNotEmpty()
-  @IsValidMinistryForApostolate('apostolate')
-  ministry!: string;
 
   @IsString()
   @IsOptional()

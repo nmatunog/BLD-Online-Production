@@ -18,10 +18,6 @@ import { AuthResult } from './interfaces/auth-result.interface';
 import { SignupResult } from './interfaces/signup-result.interface';
 import { UserRole } from '@prisma/client';
 import { roleRequiresCredentials } from './auth.constants';
-import {
-  normalizeApostolate,
-  normalizeMinistry,
-} from '../common/constants/organization.constants';
 import { normalizePhoneNumber } from '../common/utils/phone.util';
 
 /** Inputs that map to Cebu (Community ID starts with CEB) */
@@ -187,42 +183,21 @@ export class AuthService {
   }
 
   /**
-   * Simple member registration — no password. Active immediately for attendance.
-   * Portal login (PIN/password) is optional for members; required when promoted to staff roles.
+   * Initial signup — no password. Active immediately for attendance / Community ID + QR.
+   * Minimum fields: firstName, lastName, encounterType, classNumber (city defaults to CEB).
+   * Nickname optional. Phone, ministry, DOB deferred to full account activation.
    */
   async signup(signupDto: SignupDto): Promise<SignupResult> {
-    const normalizedPhone = normalizePhoneNumber(signupDto.phone);
-    if (!normalizedPhone) {
-      throw new BadRequestException('Valid mobile number is required');
-    }
-
     const firstName = signupDto.firstName.trim();
     const lastName = signupDto.lastName.trim();
-    const middleName = signupDto.middleName?.trim() || null;
+    const nickname = signupDto.nickname?.trim() || null;
     const encounterType = signupDto.encounterType.trim().toUpperCase();
     const classNum = parseInt(signupDto.classNumber, 10);
     if (isNaN(classNum) || classNum < 1 || classNum > 999) {
       throw new BadRequestException('Class number must be between 01 and 999');
     }
 
-    const apostolate = normalizeApostolate(signupDto.apostolate);
-    const ministry = apostolate
-      ? normalizeMinistry(signupDto.ministry, apostolate)
-      : null;
-    if (!apostolate || !ministry) {
-      throw new BadRequestException('Invalid apostolate or ministry selection');
-    }
-
     const cityCode = normalizeCityToCode(signupDto.city?.trim() || 'Cebu') || 'CEB';
-    const dateOfBirth = signupDto.dateOfBirth.trim();
-
-    // Phone must not belong to a different account
-    const phoneOwner = await this.prisma.user.findFirst({
-      where: {
-        OR: [{ phone: normalizedPhone }, { phone: signupDto.phone.trim() }],
-      },
-      include: { member: true },
-    });
 
     const duplicateCandidates = await this.prisma.member.findMany({
       where: {
@@ -234,61 +209,32 @@ export class AuthService {
       include: { user: true },
     });
 
-    let narrowed = duplicateCandidates;
-    if (middleName) {
-      const withMiddle = narrowed.filter(
-        (m) =>
-          m.middleName &&
-          m.middleName.trim().toLowerCase() === middleName.toLowerCase(),
-      );
-      if (withMiddle.length > 0) {
-        narrowed = withMiddle;
-      }
-    }
-    const withDob = narrowed.filter((m) => m.dateOfBirth === dateOfBirth);
-    if (withDob.length > 0) {
-      narrowed = withDob;
-    } else if (narrowed.length > 1) {
+    if (duplicateCandidates.length > 1) {
       throw new BadRequestException(
-        'Multiple members match these details. Please provide your middle name, or contact your ministry coordinator.',
+        'Multiple members match these details. Please contact your ministry coordinator.',
       );
     }
 
-    if (narrowed.length === 1) {
-      const existing = narrowed[0];
+    if (duplicateCandidates.length === 1) {
+      const existing = duplicateCandidates[0];
       const existingUser = existing.user;
 
       if (existingUser.passwordHash) {
         throw new ConflictException(
-          'You are already registered. Sign in or use Forgot Password to set up login.',
+          'You are already registered. Sign in or ask your coordinator to help set up login.',
         );
       }
 
-      if (
-        phoneOwner &&
-        phoneOwner.id !== existingUser.id &&
-        phoneOwner.member
-      ) {
-        throw new ConflictException('Mobile number is already registered to another account');
-      }
+      const updated = await this.prisma.member.update({
+        where: { id: existing.id },
+        data: {
+          nickname: nickname ?? existing.nickname,
+        },
+      });
 
-      const updated = await this.prisma.$transaction(async (tx) => {
-        await tx.user.update({
-          where: { id: existingUser.id },
-          data: {
-            phone: normalizedPhone,
-            isActive: true,
-          },
-        });
-        return tx.member.update({
-          where: { id: existing.id },
-          data: {
-            middleName: middleName ?? existing.middleName,
-            dateOfBirth,
-            apostolate,
-            ministry,
-          },
-        });
+      await this.prisma.user.update({
+        where: { id: existingUser.id },
+        data: { isActive: true },
       });
 
       return {
@@ -296,23 +242,13 @@ export class AuthService {
         communityId: updated.communityId,
         firstName: updated.firstName,
         lastName: updated.lastName,
-        middleName: updated.middleName,
-        ministry: updated.ministry ?? ministry,
-        apostolate: updated.apostolate ?? apostolate,
+        nickname: updated.nickname,
         encounterType: updated.encounterType,
         classNumber: updated.classNumber,
         isExistingMember: true,
         message:
-          'Your registration is confirmed. You are active for attendance. App login can be set up later.',
+          'Your signup is confirmed. You are active for attendance. Complete your profile later with your coordinator.',
       };
-    }
-
-    if (phoneOwner?.member) {
-      throw new ConflictException('Mobile number is already registered');
-    }
-
-    if (phoneOwner && !phoneOwner.member) {
-      await this.prisma.user.delete({ where: { id: phoneOwner.id } });
     }
 
     const communityId = await this.generateCommunityId(
@@ -324,7 +260,7 @@ export class AuthService {
     const member = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
-          phone: normalizedPhone,
+          phone: null,
           passwordHash: null,
           role: UserRole.MEMBER,
           isActive: true,
@@ -336,14 +272,11 @@ export class AuthService {
           userId: user.id,
           firstName,
           lastName,
-          middleName,
+          nickname,
           communityId,
           city: cityCode,
           encounterType,
           classNumber: classNum,
-          dateOfBirth,
-          apostolate,
-          ministry,
         },
       });
     });
@@ -353,14 +286,12 @@ export class AuthService {
       communityId: member.communityId,
       firstName: member.firstName,
       lastName: member.lastName,
-      middleName: member.middleName,
-      ministry: member.ministry ?? ministry,
-      apostolate: member.apostolate ?? apostolate,
+      nickname: member.nickname,
       encounterType: member.encounterType,
       classNumber: member.classNumber,
       isExistingMember: false,
       message:
-        'Registration successful. You are active for attendance. Your coordinator can help you set up app login later.',
+        'Signup successful. Your Community ID is ready for attendance. Complete mobile and ministry details later when activating your account.',
     };
   }
 

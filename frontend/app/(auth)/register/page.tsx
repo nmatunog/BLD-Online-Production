@@ -495,9 +495,9 @@ export default function RegisterPage() {
 
           <div className="text-center text-sm space-y-2">
             <p>
-              Just registering for attendance?{' '}
+              Just registering for a Community ID?{' '}
               <Link href="/signup" className="text-emerald-700 hover:underline font-medium">
-                Simple member signup
+                Initial Signup Form
               </Link>
             </p>
             <p>
