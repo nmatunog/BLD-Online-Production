@@ -14,6 +14,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { LoginByQrDto } from './dto/login-by-qr.dto';
 import { RegisterDto } from './dto/register.dto';
+import { SignupDto } from './dto/signup.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import {
   RequestPasswordResetDto,
@@ -21,6 +22,7 @@ import {
 } from './dto/reset-password.dto';
 import { SetPasswordFromTempDto } from './dto/set-password-from-temp.dto';
 import { AuthResult } from './interfaces/auth-result.interface';
+import { SignupResult } from './interfaces/signup-result.interface';
 import { ApiResponse as ApiResponseDto } from '../common/interfaces/api-response.interface';
 import { Public } from './decorators/public.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -53,6 +55,30 @@ export class AuthController {
       success: true,
       data: result,
       message: 'Registration successful',
+    };
+  }
+
+  @Public()
+  @Post('signup')
+  @ApiOperation({
+    summary: 'Simple member signup (no password — attendance-ready immediately)',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Member registered for attendance',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Already registered or phone in use',
+  })
+  async signup(
+    @Body() signupDto: SignupDto,
+  ): Promise<ApiResponseDto<SignupResult>> {
+    const result = await this.authService.signup(signupDto);
+    return {
+      success: true,
+      data: result,
+      message: result.message,
     };
   }
 

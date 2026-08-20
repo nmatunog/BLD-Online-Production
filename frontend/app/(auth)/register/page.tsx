@@ -493,11 +493,19 @@ export default function RegisterPage() {
             )}
           </Button>
 
-          <div className="text-center text-sm">
-            Already have an account?{' '}
-            <Link href="/login" className="text-purple-600 hover:text-purple-800 hover:underline font-medium">
-              Sign In
-            </Link>
+          <div className="text-center text-sm space-y-2">
+            <p>
+              Just registering for attendance?{' '}
+              <Link href="/signup" className="text-emerald-700 hover:underline font-medium">
+                Simple member signup
+              </Link>
+            </p>
+            <p>
+              Already have an account?{' '}
+              <Link href="/login" className="text-purple-600 hover:text-purple-800 hover:underline font-medium">
+                Sign In
+              </Link>
+            </p>
           </div>
         </form>
       </Card>

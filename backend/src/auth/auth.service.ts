@@ -10,11 +10,18 @@ import * as bcrypt from 'bcryptjs';
 import { LoginDto } from './dto/login.dto';
 import { LoginByQrDto } from './dto/login-by-qr.dto';
 import { RegisterDto } from './dto/register.dto';
+import { SignupDto } from './dto/signup.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RequestPasswordResetDto, ResetPasswordDto } from './dto/reset-password.dto';
 import { SetPasswordFromTempDto } from './dto/set-password-from-temp.dto';
 import { AuthResult } from './interfaces/auth-result.interface';
+import { SignupResult } from './interfaces/signup-result.interface';
 import { UserRole } from '@prisma/client';
+import { roleRequiresCredentials } from './auth.constants';
+import {
+  normalizeApostolate,
+  normalizeMinistry,
+} from '../common/constants/organization.constants';
 import { normalizePhoneNumber } from '../common/utils/phone.util';
 
 /** Inputs that map to Cebu (Community ID starts with CEB) */
@@ -179,6 +186,204 @@ export class AuthService {
     });
   }
 
+  /**
+   * Simple member registration — no password. Active immediately for attendance.
+   * Portal login (PIN/password) is optional for members; required when promoted to staff roles.
+   */
+  async signup(signupDto: SignupDto): Promise<SignupResult> {
+    const normalizedPhone = normalizePhoneNumber(signupDto.phone);
+    if (!normalizedPhone) {
+      throw new BadRequestException('Valid mobile number is required');
+    }
+
+    const firstName = signupDto.firstName.trim();
+    const lastName = signupDto.lastName.trim();
+    const middleName = signupDto.middleName?.trim() || null;
+    const encounterType = signupDto.encounterType.trim().toUpperCase();
+    const classNum = parseInt(signupDto.classNumber, 10);
+    if (isNaN(classNum) || classNum < 1 || classNum > 999) {
+      throw new BadRequestException('Class number must be between 01 and 999');
+    }
+
+    const apostolate = normalizeApostolate(signupDto.apostolate);
+    const ministry = apostolate
+      ? normalizeMinistry(signupDto.ministry, apostolate)
+      : null;
+    if (!apostolate || !ministry) {
+      throw new BadRequestException('Invalid apostolate or ministry selection');
+    }
+
+    const cityCode = normalizeCityToCode(signupDto.city?.trim() || 'Cebu') || 'CEB';
+    const dateOfBirth = signupDto.dateOfBirth.trim();
+
+    // Phone must not belong to a different account
+    const phoneOwner = await this.prisma.user.findFirst({
+      where: {
+        OR: [{ phone: normalizedPhone }, { phone: signupDto.phone.trim() }],
+      },
+      include: { member: true },
+    });
+
+    const duplicateCandidates = await this.prisma.member.findMany({
+      where: {
+        lastName: { equals: lastName, mode: 'insensitive' },
+        firstName: { equals: firstName, mode: 'insensitive' },
+        encounterType,
+        classNumber: classNum,
+      },
+      include: { user: true },
+    });
+
+    let narrowed = duplicateCandidates;
+    if (middleName) {
+      const withMiddle = narrowed.filter(
+        (m) =>
+          m.middleName &&
+          m.middleName.trim().toLowerCase() === middleName.toLowerCase(),
+      );
+      if (withMiddle.length > 0) {
+        narrowed = withMiddle;
+      }
+    }
+    const withDob = narrowed.filter((m) => m.dateOfBirth === dateOfBirth);
+    if (withDob.length > 0) {
+      narrowed = withDob;
+    } else if (narrowed.length > 1) {
+      throw new BadRequestException(
+        'Multiple members match these details. Please provide your middle name, or contact your ministry coordinator.',
+      );
+    }
+
+    if (narrowed.length === 1) {
+      const existing = narrowed[0];
+      const existingUser = existing.user;
+
+      if (existingUser.passwordHash) {
+        throw new ConflictException(
+          'You are already registered. Sign in or use Forgot Password to set up login.',
+        );
+      }
+
+      if (
+        phoneOwner &&
+        phoneOwner.id !== existingUser.id &&
+        phoneOwner.member
+      ) {
+        throw new ConflictException('Mobile number is already registered to another account');
+      }
+
+      const updated = await this.prisma.$transaction(async (tx) => {
+        await tx.user.update({
+          where: { id: existingUser.id },
+          data: {
+            phone: normalizedPhone,
+            isActive: true,
+          },
+        });
+        return tx.member.update({
+          where: { id: existing.id },
+          data: {
+            middleName: middleName ?? existing.middleName,
+            dateOfBirth,
+            apostolate,
+            ministry,
+          },
+        });
+      });
+
+      return {
+        memberId: updated.id,
+        communityId: updated.communityId,
+        firstName: updated.firstName,
+        lastName: updated.lastName,
+        middleName: updated.middleName,
+        ministry: updated.ministry ?? ministry,
+        apostolate: updated.apostolate ?? apostolate,
+        encounterType: updated.encounterType,
+        classNumber: updated.classNumber,
+        isExistingMember: true,
+        message:
+          'Your registration is confirmed. You are active for attendance. App login can be set up later.',
+      };
+    }
+
+    if (phoneOwner?.member) {
+      throw new ConflictException('Mobile number is already registered');
+    }
+
+    if (phoneOwner && !phoneOwner.member) {
+      await this.prisma.user.delete({ where: { id: phoneOwner.id } });
+    }
+
+    const communityId = await this.generateCommunityId(
+      cityCode,
+      encounterType,
+      signupDto.classNumber,
+    );
+
+    const member = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          phone: normalizedPhone,
+          passwordHash: null,
+          role: UserRole.MEMBER,
+          isActive: true,
+        },
+      });
+
+      return tx.member.create({
+        data: {
+          userId: user.id,
+          firstName,
+          lastName,
+          middleName,
+          communityId,
+          city: cityCode,
+          encounterType,
+          classNumber: classNum,
+          dateOfBirth,
+          apostolate,
+          ministry,
+        },
+      });
+    });
+
+    return {
+      memberId: member.id,
+      communityId: member.communityId,
+      firstName: member.firstName,
+      lastName: member.lastName,
+      middleName: member.middleName,
+      ministry: member.ministry ?? ministry,
+      apostolate: member.apostolate ?? apostolate,
+      encounterType: member.encounterType,
+      classNumber: member.classNumber,
+      isExistingMember: false,
+      message:
+        'Registration successful. You are active for attendance. Your coordinator can help you set up app login later.',
+    };
+  }
+
+  private assertUserCanLogin(user: {
+    passwordHash: string | null;
+    role: UserRole;
+    isActive: boolean;
+  }): void {
+    if (!user.isActive) {
+      throw new UnauthorizedException('Account is deactivated');
+    }
+    if (!user.passwordHash) {
+      if (roleRequiresCredentials(user.role)) {
+        throw new UnauthorizedException(
+          'Portal login is not set up yet. Contact an administrator to assign credentials.',
+        );
+      }
+      throw new UnauthorizedException(
+        'No login set up yet. You are registered for attendance. Contact your ministry coordinator to set up app access.',
+      );
+    }
+  }
+
   async login(loginDto: LoginDto): Promise<AuthResult> {
     if (!loginDto.email && !loginDto.phone) {
       throw new BadRequestException('Either email or phone is required');
@@ -231,19 +436,16 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    this.assertUserCanLogin(user);
+
     // Verify password
     const isPasswordValid = await bcrypt.compare(
       loginDto.password,
-      user.passwordHash,
+      user.passwordHash!,
     );
 
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid credentials');
-    }
-
-    // Check if user is active
-    if (!user.isActive) {
-      throw new UnauthorizedException('Account is deactivated');
     }
 
     // Generate tokens with member info (including communityId)
@@ -282,15 +484,14 @@ export class AuthService {
     }
 
     const user = member.user;
+    this.assertUserCanLogin(user);
+
     const isPasswordValid = await bcrypt.compare(
       loginByQrDto.password,
-      user.passwordHash,
+      user.passwordHash!,
     );
     if (!isPasswordValid) {
       throw new UnauthorizedException('Invalid credentials');
-    }
-    if (!user.isActive) {
-      throw new UnauthorizedException('Account is deactivated');
     }
 
     return this.generateTokens(user, {
@@ -447,6 +648,10 @@ export class AuthService {
 
     if (!member?.user) {
       throw new UnauthorizedException('Invalid temporary credentials');
+    }
+
+    if (!member.user.passwordHash) {
+      throw new UnauthorizedException('No temporary credentials on file for this member');
     }
 
     const validTempPassword = await bcrypt.compare(dto.tempPassword, member.user.passwordHash);

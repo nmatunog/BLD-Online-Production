@@ -67,3 +67,30 @@ export interface ResetPasswordRequest {
   password: string;
 }
 
+export interface SignupRequest {
+  phone: string;
+  firstName: string;
+  lastName: string;
+  middleName?: string;
+  encounterType: string;
+  classNumber: string;
+  dateOfBirth: string;
+  apostolate: string;
+  ministry: string;
+  city?: string;
+}
+
+export interface SignupResult {
+  memberId: string;
+  communityId: string;
+  firstName: string;
+  lastName: string;
+  middleName: string | null;
+  ministry: string;
+  apostolate: string;
+  encounterType: string;
+  classNumber: number;
+  isExistingMember: boolean;
+  message: string;
+}
+

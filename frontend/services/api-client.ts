@@ -50,6 +50,7 @@ class ApiClient {
           error.response?.status === 401 &&
           (reqUrl.includes('/auth/login') ||
             reqUrl.includes('/auth/register') ||
+            reqUrl.includes('/auth/signup') ||
             reqUrl.includes('/auth/login-by-qr'));
 
         // Enhanced error logging
@@ -95,6 +96,7 @@ class ApiClient {
           const isAuthEndpoint =
             url.includes('/auth/login') ||
             url.includes('/auth/register') ||
+            url.includes('/auth/signup') ||
             url.includes('/auth/refresh') ||
             url.includes('/auth/login-by-qr');
 
@@ -105,7 +107,7 @@ class ApiClient {
             url.includes('/auth/login-by-qr');
 
           const currentPath = window.location.pathname;
-          const isOnAuthPage = currentPath.includes('/login') || currentPath.includes('/register') || currentPath.includes('/reset-password');
+          const isOnAuthPage = currentPath.includes('/login') || currentPath.includes('/register') || currentPath.includes('/signup') || currentPath.includes('/reset-password');
 
           // Attempt one silent refresh + retry to avoid "random logouts" when access token expires.
           if (!isAuthEndpoint && originalConfig && !originalConfig._retry) {

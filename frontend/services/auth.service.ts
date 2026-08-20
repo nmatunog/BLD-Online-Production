@@ -5,6 +5,8 @@ import type {
   LoginRequest,
   LoginByQrRequest,
   RegisterRequest,
+  SignupRequest,
+  SignupResult,
   RefreshTokenRequest,
   RequestPasswordResetRequest,
   ResetPasswordRequest,
@@ -62,6 +64,17 @@ export class AuthService {
     } catch (error) {
       throw error;
     }
+  }
+
+  async signup(data: SignupRequest): Promise<SignupResult> {
+    const response = await apiClient.post<ApiResponse<SignupResult>>(
+      '/auth/signup',
+      data,
+    );
+    if (response.data.success && response.data.data) {
+      return response.data.data;
+    }
+    throw new Error(response.data.error || 'Signup failed');
   }
 
   async register(data: RegisterRequest): Promise<AuthResult> {

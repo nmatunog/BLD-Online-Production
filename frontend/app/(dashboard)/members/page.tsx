@@ -830,7 +830,7 @@ export default function MembersPage() {
               {canAddMembers() && (
                 <Button 
                   onClick={() => {
-                    const signupUrl = `${window.location.origin}/register`;
+                    const signupUrl = `${window.location.origin}/signup`;
                     window.open(signupUrl, '_blank');
                   }}
                   className="bg-green-600 text-white hover:bg-green-700"

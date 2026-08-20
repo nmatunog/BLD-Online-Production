@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../common/prisma/prisma.service';
 import { UserRole } from '@prisma/client';
 import { AssignRoleDto } from './dto/assign-role.dto';
+import { roleRequiresCredentials } from '../auth/auth.constants';
 
 @Injectable()
 export class UsersService {
@@ -67,6 +68,15 @@ export class UsersService {
           `User is already assigned as Ministry Coordinator for ${user.ministry}. Ministry coordinators can only be such for one ministry at a time.`,
         );
       }
+    }
+
+    if (
+      roleRequiresCredentials(assignRoleDto.role) &&
+      !user.passwordHash
+    ) {
+      throw new BadRequestException(
+        'This role requires portal login. Set a temporary password for this member before assigning a staff role.',
+      );
     }
 
     // Prepare update data

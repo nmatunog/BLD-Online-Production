@@ -73,7 +73,11 @@ export const ENCOUNTER_TYPES = [
   { value: 'SE', label: 'Singles Encounter (SE)' },
   { value: 'SPE', label: 'Single Parents Encounter (SPE)' },
   { value: 'YE', label: 'Youth Encounter (YE)' },
+  { value: 'FE', label: 'Family Encounter (FE)' },
 ] as const;
+
+/** Entry/program encounters shown on the simple /signup form */
+export const SIGNUP_ENCOUNTER_TYPES = ENCOUNTER_TYPES;
 
 export const USER_ROLES = [
   { value: 'MEMBER', label: 'Member' },

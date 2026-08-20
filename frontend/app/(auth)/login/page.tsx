@@ -462,9 +462,13 @@ export default function LoginPage() {
           {/* Footer */}
           <div className="mt-8 flex flex-col items-center gap-4">
             <p className="text-slate-500 text-sm font-medium">
-              New to the portal?{' '}
+              New member?{' '}
+              <Link href="/signup" className="text-red-700 font-bold hover:underline">
+                Register for attendance
+              </Link>
+              {' · '}
               <Link href="/register" className="text-red-700 font-bold hover:underline">
-                Create Account
+                Staff account
               </Link>
             </p>
             <Link
