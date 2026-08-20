@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -9,7 +10,6 @@ import {
   CheckCircle2,
   ClipboardCopy,
   LogOut,
-  UserPlus,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AxiosError } from 'axios';
@@ -22,11 +22,37 @@ import { SIGNUP_ENCOUNTER_TYPES } from '@/lib/member-constants';
 import { parseAuthError } from '@/utils/error-handler';
 import type { SignupResult, SignupSuggestion } from '@/types/api.types';
 
+/** BLD logo color peg extracted from brand mark */
+const BLD = {
+  red: '#D00008',
+  redDark: '#A80006',
+  redSoft: '#FCE8E9',
+  redMuted: '#F5D0D2',
+  ink: '#1A1A1A',
+} as const;
+
 const STEPS = ['Your name', 'Encounter'] as const;
 
 const fieldClass =
-  'mt-2 h-14 w-full text-xl md:text-2xl px-4 rounded-xl border-2 border-gray-300 focus-visible:ring-emerald-600';
-const labelClass = 'text-lg md:text-xl font-semibold text-gray-800';
+  'mt-2 h-14 w-full text-xl md:text-2xl px-4 rounded-xl border-2 border-gray-300 focus-visible:border-[#D00008] focus-visible:ring-[#D00008]';
+const labelClass = 'text-lg md:text-xl font-semibold text-gray-900';
+const primaryBtn =
+  'h-14 text-lg px-6 text-white bg-[#D00008] hover:bg-[#A80006] disabled:opacity-50';
+const outlineBtn =
+  'h-14 text-lg border-2 border-[#D00008]/40 text-[#D00008] hover:bg-[#FCE8E9]';
+
+function BrandLogo({ size = 88 }: { size?: number }) {
+  return (
+    <Image
+      src="/bld-logo.png"
+      alt="BLD Cebu"
+      width={size}
+      height={size}
+      priority
+      className="mx-auto object-contain"
+    />
+  );
+}
 
 function extractExistingFromError(error: unknown): SignupResult | null {
   const ax = error as AxiosError<{
@@ -233,50 +259,33 @@ function SignupForm() {
     }
   };
 
-  // ——— Existing account / success screen ———
   if (result) {
-    const borderClass = isExisting ? 'border-amber-300' : 'border-green-200';
-    const titleColor = isExisting ? 'text-amber-900' : 'text-green-800';
-    const badgeBg = isExisting ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-600';
-    const idBox = isExisting
-      ? 'bg-amber-50 border-amber-200'
-      : 'bg-green-50 border-green-200';
-    const idLabel = isExisting ? 'text-amber-800' : 'text-green-700';
-    const idValue = isExisting ? 'text-amber-950' : 'text-green-900';
-
     return (
-      <Card
-        className={`w-full max-w-md mx-auto p-5 sm:p-8 rounded-2xl shadow-xl relative z-10 bg-white border-2 ${borderClass} overflow-hidden`}
-      >
-        <div className="text-center mb-6">
-          <div
-            className={`inline-flex items-center justify-center w-16 h-16 rounded-full mb-4 ${badgeBg}`}
-          >
-            <CheckCircle2 className="w-8 h-8" />
-          </div>
-          <h1 className={`text-2xl sm:text-3xl font-bold ${titleColor} mb-2`}>
-            {isExisting
-              ? 'Your account already exists'
-              : 'You are signed up!'}
+      <Card className="w-full max-w-md mx-auto p-5 sm:p-8 rounded-2xl shadow-xl relative z-10 bg-white border-2 border-[#D00008]/25 overflow-hidden">
+        <div className="h-1.5 w-full absolute top-0 left-0 right-0 bg-[#D00008]" />
+        <div className="text-center mb-6 pt-2">
+          <BrandLogo size={72} />
+          <h1 className="text-2xl sm:text-3xl font-bold text-[#D00008] mt-4 mb-2">
+            {isExisting ? 'Your account already exists' : 'You are signed up!'}
           </h1>
-          <p className="text-base sm:text-lg text-gray-600">
+          <p className="text-base sm:text-lg text-gray-700">
             {isExisting
               ? 'We found your Community ID. You can edit details, save, exit, or sign up another member.'
               : result.message}
           </p>
         </div>
 
-        <div className={`rounded-xl border-2 p-4 mb-6 text-center ${idBox}`}>
-          <p className={`text-base uppercase tracking-wide font-semibold mb-2 ${idLabel}`}>
+        <div className="rounded-xl border-2 border-[#D00008]/30 bg-[#FCE8E9] p-4 mb-6 text-center">
+          <p className="text-base uppercase tracking-wide font-semibold mb-2 text-[#A80006]">
             Your Community ID
           </p>
-          <p className={`text-2xl sm:text-3xl font-mono font-bold break-all ${idValue}`}>
+          <p className="text-2xl sm:text-3xl font-mono font-bold break-all text-[#1A1A1A]">
             {result.communityId}
           </p>
           <Button
             type="button"
             variant="outline"
-            className="mt-4 h-12 text-lg w-full sm:w-auto"
+            className="mt-4 h-12 text-lg w-full sm:w-auto border-[#D00008] text-[#D00008]"
             onClick={handleCopyCommunityId}
           >
             <ClipboardCopy className="w-5 h-5 mr-2" />
@@ -288,7 +297,7 @@ function SignupForm() {
           <div className="space-y-4 mb-6 text-left">
             <div>
               <Label htmlFor="editLastName" className={labelClass}>
-                Last name <span className="text-red-600">*</span>
+                Last name <span className="text-[#D00008]">*</span>
               </Label>
               <Input
                 id="editLastName"
@@ -299,7 +308,7 @@ function SignupForm() {
             </div>
             <div>
               <Label htmlFor="editFirstName" className={labelClass}>
-                First name <span className="text-red-600">*</span>
+                First name <span className="text-[#D00008]">*</span>
               </Label>
               <Input
                 id="editFirstName"
@@ -321,7 +330,7 @@ function SignupForm() {
             </div>
             <div>
               <Label className={labelClass}>
-                Encounter type <span className="text-red-600">*</span>
+                Encounter type <span className="text-[#D00008]">*</span>
               </Label>
               <div className="mt-2 grid grid-cols-1 gap-2">
                 {SIGNUP_ENCOUNTER_TYPES.map(({ value, label }) => (
@@ -331,7 +340,7 @@ function SignupForm() {
                     onClick={() => setEncounterType(value)}
                     className={`w-full min-h-12 rounded-xl border-2 px-3 py-2 text-left text-lg font-semibold ${
                       encounterType === value
-                        ? 'border-emerald-600 bg-emerald-50'
+                        ? 'border-[#D00008] bg-[#FCE8E9] text-[#A80006]'
                         : 'border-gray-300'
                     }`}
                   >
@@ -342,7 +351,7 @@ function SignupForm() {
             </div>
             <div>
               <Label htmlFor="editClass" className={labelClass}>
-                Class number <span className="text-red-600">*</span>
+                Class number <span className="text-[#D00008]">*</span>
               </Label>
               <Input
                 id="editClass"
@@ -357,7 +366,7 @@ function SignupForm() {
             </p>
           </div>
         ) : (
-          <div className="text-base sm:text-lg text-gray-700 space-y-2 mb-6 text-left">
+          <div className="text-base sm:text-lg text-gray-800 space-y-2 mb-6 text-left">
             <p>
               <span className="font-semibold">Last name:</span> {result.lastName}
             </p>
@@ -379,7 +388,7 @@ function SignupForm() {
           {isEditing ? (
             <Button
               type="button"
-              className="w-full h-14 text-lg bg-emerald-700 hover:bg-emerald-800"
+              className={`w-full ${primaryBtn}`}
               disabled={isLoading || !canSubmit}
               onClick={handleSaveEdit}
             >
@@ -388,26 +397,21 @@ function SignupForm() {
           ) : (
             <Button
               type="button"
-              className="w-full h-14 text-lg bg-emerald-700 hover:bg-emerald-800"
+              className={`w-full ${primaryBtn}`}
               onClick={() => setIsEditing(true)}
             >
               Edit details
             </Button>
           )}
 
-          <Button
-            type="button"
-            variant="outline"
-            className="w-full h-14 text-lg"
-            onClick={resetForm}
-          >
+          <Button type="button" variant="outline" className={`w-full ${outlineBtn}`} onClick={resetForm}>
             Sign up another member
           </Button>
 
           <Button
             type="button"
             variant="outline"
-            className="w-full h-14 text-lg"
+            className="w-full h-14 text-lg border-gray-300 text-gray-700"
             onClick={() => router.push('/login')}
           >
             <LogOut className="w-5 h-5 mr-2" />
@@ -418,17 +422,19 @@ function SignupForm() {
     );
   }
 
-  // ——— Signup wizard ———
   return (
-    <Card className="w-full max-w-md mx-auto p-5 sm:p-8 rounded-2xl shadow-xl relative z-10 bg-white border-2 border-emerald-200 overflow-hidden">
-      <div className="text-center mb-5">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-full mb-3 bg-emerald-100 text-emerald-700">
-          <UserPlus className="w-7 h-7" />
-        </div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-emerald-800 leading-tight">
+    <Card className="w-full max-w-md mx-auto p-5 sm:p-8 rounded-2xl shadow-xl relative z-10 bg-white border-2 border-[#D00008]/20 overflow-hidden">
+      <div className="h-1.5 w-full absolute top-0 left-0 right-0 bg-[#D00008]" />
+
+      <div className="text-center mb-5 pt-2">
+        <BrandLogo size={96} />
+        <h1 className="text-2xl sm:text-3xl font-bold text-[#D00008] leading-tight mt-3">
           Initial Signup Form
         </h1>
-        <p className="text-base sm:text-lg text-gray-600 mt-2">
+        <p className="text-base sm:text-lg text-gray-700 mt-2">
+          BLD Cebu Community Online Portal
+        </p>
+        <p className="text-base text-gray-600 mt-1">
           Get your Community ID — no password needed
         </p>
       </div>
@@ -439,13 +445,17 @@ function SignupForm() {
             key={label}
             className={`flex items-center gap-2 text-base font-semibold px-3 py-2 rounded-full ${
               i === step
-                ? 'bg-emerald-100 text-emerald-900'
+                ? 'bg-[#FCE8E9] text-[#A80006]'
                 : i < step
-                  ? 'bg-emerald-50 text-emerald-700'
+                  ? 'bg-[#FCE8E9]/70 text-[#D00008]'
                   : 'bg-gray-100 text-gray-400'
             }`}
           >
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-white/80 text-sm">
+            <span
+              className={`inline-flex h-7 w-7 items-center justify-center rounded-full text-sm ${
+                i === step ? 'bg-[#D00008] text-white' : 'bg-white/80'
+              }`}
+            >
               {i + 1}
             </span>
             <span>{label}</span>
@@ -457,7 +467,7 @@ function SignupForm() {
         <div className="space-y-5">
           <div ref={suggestBoxRef} className="relative">
             <Label htmlFor="lastName" className={labelClass}>
-              Last name <span className="text-red-600">*</span>
+              Last name <span className="text-[#D00008]">*</span>
             </Label>
             <Input
               id="lastName"
@@ -469,18 +479,18 @@ function SignupForm() {
               autoCapitalize="words"
             />
             {showSuggestions && suggestions.length > 0 && (
-              <div className="absolute z-20 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-xl border-2 border-emerald-200 bg-white shadow-lg">
-                <p className="px-3 py-2 text-sm font-semibold text-emerald-800 bg-emerald-50">
+              <div className="absolute z-20 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-xl border-2 border-[#D00008]/30 bg-white shadow-lg">
+                <p className="px-3 py-2 text-sm font-semibold text-[#A80006] bg-[#FCE8E9]">
                   Possible matches — tap if this is you
                 </p>
                 {suggestions.map((s) => (
                   <button
                     key={s.memberId}
                     type="button"
-                    className="w-full text-left px-4 py-3 border-t border-gray-100 hover:bg-emerald-50 text-base sm:text-lg"
+                    className="w-full text-left px-4 py-3 border-t border-gray-100 hover:bg-[#FCE8E9] text-base sm:text-lg"
                     onClick={() => applySuggestion(s)}
                   >
-                    <span className="font-semibold">
+                    <span className="font-semibold text-gray-900">
                       {s.lastName}, {s.firstName}
                       {s.nickname ? ` (“${s.nickname}”)` : ''}
                     </span>
@@ -499,7 +509,7 @@ function SignupForm() {
           </div>
           <div>
             <Label htmlFor="firstName" className={labelClass}>
-              First name <span className="text-red-600">*</span>
+              First name <span className="text-[#D00008]">*</span>
             </Label>
             <Input
               id="firstName"
@@ -531,7 +541,7 @@ function SignupForm() {
         <div className="space-y-5">
           <div>
             <Label className={labelClass}>
-              Encounter type <span className="text-red-600">*</span>
+              Encounter type <span className="text-[#D00008]">*</span>
             </Label>
             <div className="mt-3 grid grid-cols-1 gap-3">
               {SIGNUP_ENCOUNTER_TYPES.map(({ value, label }) => (
@@ -541,7 +551,7 @@ function SignupForm() {
                   onClick={() => setEncounterType(value)}
                   className={`w-full min-h-14 rounded-xl border-2 px-4 py-3 text-left text-lg sm:text-xl font-semibold transition ${
                     encounterType === value
-                      ? 'border-emerald-600 bg-emerald-50 text-emerald-900'
+                      ? 'border-[#D00008] bg-[#FCE8E9] text-[#A80006]'
                       : 'border-gray-300 bg-white text-gray-800'
                   }`}
                 >
@@ -552,7 +562,7 @@ function SignupForm() {
           </div>
           <div>
             <Label htmlFor="classNumber" className={labelClass}>
-              Class number <span className="text-red-600">*</span>
+              Class number <span className="text-[#D00008]">*</span>
             </Label>
             <Input
               id="classNumber"
@@ -574,7 +584,7 @@ function SignupForm() {
           <Button
             type="button"
             variant="outline"
-            className="h-14 text-lg px-5"
+            className={`px-5 ${outlineBtn}`}
             onClick={() => setStep((s) => s - 1)}
             disabled={isLoading}
           >
@@ -586,7 +596,7 @@ function SignupForm() {
         {step === 0 ? (
           <Button
             type="button"
-            className="ml-auto h-14 text-lg px-6 bg-emerald-700 hover:bg-emerald-800"
+            className={`ml-auto ${primaryBtn}`}
             disabled={!canContinueStep0}
             onClick={() => setStep(1)}
           >
@@ -596,7 +606,7 @@ function SignupForm() {
         ) : (
           <Button
             type="button"
-            className="ml-auto h-14 text-lg px-6 bg-emerald-700 hover:bg-emerald-800"
+            className={`ml-auto ${primaryBtn}`}
             disabled={isLoading || !canSubmit}
             onClick={handleSubmit}
           >
@@ -605,9 +615,9 @@ function SignupForm() {
         )}
       </div>
 
-      <p className="text-center text-base text-gray-500 mt-6 leading-relaxed">
+      <p className="text-center text-base text-gray-600 mt-6 leading-relaxed">
         Already have an account?{' '}
-        <Link href="/login" className="text-emerald-700 font-semibold hover:underline">
+        <Link href="/login" className="font-semibold text-[#D00008] hover:underline">
           Sign in
         </Link>
       </p>
@@ -617,18 +627,17 @@ function SignupForm() {
 
 export default function SignupPage() {
   return (
-    <div className="min-h-dvh w-full overflow-x-hidden flex items-start sm:items-center justify-center p-3 sm:p-6 bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50">
-      <div
-        className="pointer-events-none absolute inset-0 opacity-10"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='0.1'%3E%3Ccircle cx='30' cy='30' r='2'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-        }}
-      />
+    <div
+      className="min-h-dvh w-full overflow-x-hidden flex items-start sm:items-center justify-center p-3 sm:p-6"
+      style={{
+        background: `linear-gradient(165deg, #ffffff 0%, ${BLD.redSoft} 45%, #ffffff 100%)`,
+      }}
+    >
       <Suspense
         fallback={
-          <Card className="w-full max-w-md p-8">
+          <Card className="w-full max-w-md p-8 border-[#D00008]/20">
             <CardHeader>
-              <CardTitle className="text-2xl">Loading…</CardTitle>
+              <CardTitle className="text-2xl text-[#D00008]">Loading…</CardTitle>
               <CardDescription className="text-lg">Preparing signup form</CardDescription>
             </CardHeader>
             <CardContent />
