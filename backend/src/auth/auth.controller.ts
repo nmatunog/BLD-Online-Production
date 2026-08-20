@@ -2,8 +2,10 @@ import {
   Controller,
   Post,
   Get,
+  Put,
   Delete,
   Param,
+  Query,
   Body,
   HttpCode,
   HttpStatus,
@@ -15,6 +17,7 @@ import { LoginDto } from './dto/login.dto';
 import { LoginByQrDto } from './dto/login-by-qr.dto';
 import { RegisterDto } from './dto/register.dto';
 import { SignupDto } from './dto/signup.dto';
+import { SignupSuggestQueryDto, SignupUpdateDto } from './dto/signup-lookup.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import {
   RequestPasswordResetDto,
@@ -22,7 +25,10 @@ import {
 } from './dto/reset-password.dto';
 import { SetPasswordFromTempDto } from './dto/set-password-from-temp.dto';
 import { AuthResult } from './interfaces/auth-result.interface';
-import { SignupResult } from './interfaces/signup-result.interface';
+import {
+  SignupResult,
+  SignupSuggestion,
+} from './interfaces/signup-result.interface';
 import { ApiResponse as ApiResponseDto } from '../common/interfaces/api-response.interface';
 import { Public } from './decorators/public.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -69,12 +75,48 @@ export class AuthController {
   })
   @ApiResponse({
     status: 409,
-    description: 'Already registered or phone in use',
+    description: 'Account already exists',
   })
   async signup(
     @Body() signupDto: SignupDto,
   ): Promise<ApiResponseDto<SignupResult>> {
     const result = await this.authService.signup(signupDto);
+    return {
+      success: true,
+      data: result,
+      message: result.message,
+    };
+  }
+
+  @Public()
+  @Get('signup/suggest')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Suggest existing members by last-name prefix (min 3 letters)',
+  })
+  async suggestSignup(
+    @Query() query: SignupSuggestQueryDto,
+  ): Promise<ApiResponseDto<SignupSuggestion[]>> {
+    const data = await this.authService.suggestSignupMatches(query.lastName);
+    return {
+      success: true,
+      data,
+      message: data.length
+        ? 'Matching members found'
+        : 'No matching members',
+    };
+  }
+
+  @Public()
+  @Put('signup')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update existing initial-signup member details (no new Community ID)',
+  })
+  async updateSignup(
+    @Body() dto: SignupUpdateDto,
+  ): Promise<ApiResponseDto<SignupResult>> {
+    const result = await this.authService.updateSignup(dto);
     return {
       success: true,
       data: result,

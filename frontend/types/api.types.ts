@@ -76,6 +76,16 @@ export interface SignupRequest {
   city?: string;
 }
 
+export interface SignupUpdateRequest {
+  memberId: string;
+  communityId: string;
+  firstName: string;
+  lastName: string;
+  nickname?: string;
+  encounterType: string;
+  classNumber: string;
+}
+
 export interface SignupResult {
   memberId: string;
   communityId: string;
@@ -86,5 +96,15 @@ export interface SignupResult {
   classNumber: number;
   isExistingMember: boolean;
   message: string;
+}
+
+export interface SignupSuggestion {
+  memberId: string;
+  communityId: string;
+  firstName: string;
+  lastName: string;
+  nickname: string | null;
+  encounterType: string;
+  classNumber: number;
 }
 

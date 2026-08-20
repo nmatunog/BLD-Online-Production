@@ -15,10 +15,11 @@ import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { RequestPasswordResetDto, ResetPasswordDto } from './dto/reset-password.dto';
 import { SetPasswordFromTempDto } from './dto/set-password-from-temp.dto';
 import { AuthResult } from './interfaces/auth-result.interface';
-import { SignupResult } from './interfaces/signup-result.interface';
+import { SignupResult, SignupSuggestion } from './interfaces/signup-result.interface';
 import { UserRole } from '@prisma/client';
 import { roleRequiresCredentials } from './auth.constants';
 import { normalizePhoneNumber } from '../common/utils/phone.util';
+import { SignupUpdateDto } from './dto/signup-lookup.dto';
 
 /** Inputs that map to Cebu (Community ID starts with CEB) */
 const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
@@ -184,8 +185,11 @@ export class AuthService {
 
   /**
    * Initial signup — no password. Active immediately for attendance / Community ID + QR.
-   * Minimum fields: firstName, lastName, encounterType, classNumber (city defaults to CEB).
-   * Nickname optional. Phone, ministry, DOB deferred to full account activation.
+   *
+   * Duplicate hierarchy (most effective first):
+   * 1. Exact lastName + firstName → block (409, existing details)
+   * 2. Exact lastName + nickname (if nickname given) → block (409)
+   * 3. Client-side: lastName prefix suggestions (3+ chars) via suggestSignupMatches
    */
   async signup(signupDto: SignupDto): Promise<SignupResult> {
     const firstName = signupDto.firstName.trim();
@@ -199,56 +203,12 @@ export class AuthService {
 
     const cityCode = normalizeCityToCode(signupDto.city?.trim() || 'Cebu') || 'CEB';
 
-    const duplicateCandidates = await this.prisma.member.findMany({
-      where: {
-        lastName: { equals: lastName, mode: 'insensitive' },
-        firstName: { equals: firstName, mode: 'insensitive' },
-        encounterType,
-        classNumber: classNum,
-      },
-      include: { user: true },
-    });
-
-    if (duplicateCandidates.length > 1) {
-      throw new BadRequestException(
-        'Multiple members match these details. Please contact your ministry coordinator.',
-      );
-    }
-
-    if (duplicateCandidates.length === 1) {
-      const existing = duplicateCandidates[0];
-      const existingUser = existing.user;
-
-      if (existingUser.passwordHash) {
-        throw new ConflictException(
-          'You are already registered. Sign in or ask your coordinator to help set up login.',
-        );
-      }
-
-      const updated = await this.prisma.member.update({
-        where: { id: existing.id },
-        data: {
-          nickname: nickname ?? existing.nickname,
-        },
+    const existing = await this.findSignupDuplicate(lastName, firstName, nickname);
+    if (existing) {
+      throw new ConflictException({
+        message: 'Your account already exists',
+        existing: this.toSignupResult(existing, true),
       });
-
-      await this.prisma.user.update({
-        where: { id: existingUser.id },
-        data: { isActive: true },
-      });
-
-      return {
-        memberId: updated.id,
-        communityId: updated.communityId,
-        firstName: updated.firstName,
-        lastName: updated.lastName,
-        nickname: updated.nickname,
-        encounterType: updated.encounterType,
-        classNumber: updated.classNumber,
-        isExistingMember: true,
-        message:
-          'Your signup is confirmed. You are active for attendance. Complete your profile later with your coordinator.',
-      };
     }
 
     const communityId = await this.generateCommunityId(
@@ -281,6 +241,146 @@ export class AuthService {
       });
     });
 
+    return this.toSignupResult(member, false);
+  }
+
+  /**
+   * Suggestive fill: members whose last name starts with the query (min 3 chars).
+   */
+  async suggestSignupMatches(lastNameQuery: string): Promise<SignupSuggestion[]> {
+    const q = lastNameQuery.trim();
+    if (q.length < 3) {
+      return [];
+    }
+
+    const members = await this.prisma.member.findMany({
+      where: {
+        lastName: { startsWith: q, mode: 'insensitive' },
+        user: { isActive: true },
+      },
+      select: {
+        id: true,
+        communityId: true,
+        firstName: true,
+        lastName: true,
+        nickname: true,
+        encounterType: true,
+        classNumber: true,
+      },
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      take: 8,
+    });
+
+    return members.map((m) => ({
+      memberId: m.id,
+      communityId: m.communityId,
+      firstName: m.firstName,
+      lastName: m.lastName,
+      nickname: m.nickname,
+      encounterType: m.encounterType,
+      classNumber: m.classNumber,
+    }));
+  }
+
+  /**
+   * Update details of an existing initial-signup member (identified by memberId + communityId).
+   * Encounter/class changes do not rewrite Community ID (stable QR identifier).
+   */
+  async updateSignup(dto: SignupUpdateDto): Promise<SignupResult> {
+    const memberId = dto.memberId.trim();
+    const communityId = dto.communityId.trim().toUpperCase();
+    const firstName = dto.firstName.trim();
+    const lastName = dto.lastName.trim();
+    const nickname = dto.nickname?.trim() || null;
+    const encounterType = dto.encounterType.trim().toUpperCase();
+    const classNum = parseInt(dto.classNumber, 10);
+    if (isNaN(classNum) || classNum < 1 || classNum > 999) {
+      throw new BadRequestException('Class number must be between 01 and 999');
+    }
+
+    const member = await this.prisma.member.findFirst({
+      where: { id: memberId, communityId },
+      include: { user: true },
+    });
+
+    if (!member) {
+      throw new BadRequestException('Member not found for this Community ID');
+    }
+
+    // Prevent renaming into someone else's identity
+    const clash = await this.findSignupDuplicate(lastName, firstName, nickname, member.id);
+    if (clash) {
+      throw new ConflictException({
+        message: 'Your account already exists',
+        existing: this.toSignupResult(clash, true),
+      });
+    }
+
+    const updated = await this.prisma.member.update({
+      where: { id: member.id },
+      data: {
+        firstName,
+        lastName,
+        nickname,
+        encounterType,
+        classNumber: classNum,
+      },
+    });
+
+    await this.prisma.user.update({
+      where: { id: member.userId },
+      data: { isActive: true },
+    });
+
+    return {
+      ...this.toSignupResult(updated, true),
+      message: 'Your details were saved. Community ID is unchanged.',
+    };
+  }
+
+  private async findSignupDuplicate(
+    lastName: string,
+    firstName: string,
+    nickname: string | null,
+    excludeMemberId?: string,
+  ) {
+    // 1) Strongest: family name + first name
+    const byName = await this.prisma.member.findFirst({
+      where: {
+        lastName: { equals: lastName, mode: 'insensitive' },
+        firstName: { equals: firstName, mode: 'insensitive' },
+        ...(excludeMemberId ? { id: { not: excludeMemberId } } : {}),
+      },
+    });
+    if (byName) return byName;
+
+    // 2) Family name + nickname (when nickname provided)
+    if (nickname && nickname.length >= 2) {
+      const byNick = await this.prisma.member.findFirst({
+        where: {
+          lastName: { equals: lastName, mode: 'insensitive' },
+          nickname: { equals: nickname, mode: 'insensitive' },
+          ...(excludeMemberId ? { id: { not: excludeMemberId } } : {}),
+        },
+      });
+      if (byNick) return byNick;
+    }
+
+    return null;
+  }
+
+  private toSignupResult(
+    member: {
+      id: string;
+      communityId: string;
+      firstName: string;
+      lastName: string;
+      nickname: string | null;
+      encounterType: string;
+      classNumber: number;
+    },
+    isExistingMember: boolean,
+  ): SignupResult {
     return {
       memberId: member.id,
       communityId: member.communityId,
@@ -289,9 +389,10 @@ export class AuthService {
       nickname: member.nickname,
       encounterType: member.encounterType,
       classNumber: member.classNumber,
-      isExistingMember: false,
-      message:
-        'Signup successful. Your Community ID is ready for attendance. Complete mobile and ministry details later when activating your account.',
+      isExistingMember,
+      message: isExistingMember
+        ? 'Your account already exists'
+        : 'Signup successful. Your Community ID is ready for attendance. Complete mobile and ministry details later when activating your account.',
     };
   }
 

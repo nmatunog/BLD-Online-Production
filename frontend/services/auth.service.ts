@@ -7,6 +7,8 @@ import type {
   RegisterRequest,
   SignupRequest,
   SignupResult,
+  SignupSuggestion,
+  SignupUpdateRequest,
   RefreshTokenRequest,
   RequestPasswordResetRequest,
   ResetPasswordRequest,
@@ -75,6 +77,28 @@ export class AuthService {
       return response.data.data;
     }
     throw new Error(response.data.error || 'Signup failed');
+  }
+
+  async suggestSignup(lastName: string): Promise<SignupSuggestion[]> {
+    const response = await apiClient.get<ApiResponse<SignupSuggestion[]>>(
+      '/auth/signup/suggest',
+      { params: { lastName } },
+    );
+    if (response.data.success && response.data.data) {
+      return response.data.data;
+    }
+    return [];
+  }
+
+  async updateSignup(data: SignupUpdateRequest): Promise<SignupResult> {
+    const response = await apiClient.put<ApiResponse<SignupResult>>(
+      '/auth/signup',
+      data,
+    );
+    if (response.data.success && response.data.data) {
+      return response.data.data;
+    }
+    throw new Error(response.data.error || 'Failed to save details');
   }
 
   async register(data: RegisterRequest): Promise<AuthResult> {
