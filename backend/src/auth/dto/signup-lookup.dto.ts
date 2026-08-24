@@ -48,4 +48,8 @@ export class SignupUpdateDto {
   @IsString()
   @IsNotEmpty()
   classNumber!: string;
+
+  @IsString()
+  @IsOptional()
+  idPhoto?: string;
 }

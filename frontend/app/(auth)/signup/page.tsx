@@ -21,6 +21,7 @@ import { authService } from '@/services/auth.service';
 import { SIGNUP_ENCOUNTER_TYPES } from '@/lib/member-constants';
 import { parseAuthError } from '@/utils/error-handler';
 import type { SignupResult, SignupSuggestion } from '@/types/api.types';
+import { IdPhotoUpload } from '@/components/IdPhotoUpload';
 
 /** BLD logo color peg extracted from brand mark */
 const BLD = {
@@ -31,7 +32,7 @@ const BLD = {
   ink: '#1A1A1A',
 } as const;
 
-const STEPS = ['Your name', 'Encounter'] as const;
+const STEPS = ['Your name', 'Encounter', 'ID Photo'] as const;
 
 const fieldClass =
   'mt-2 h-14 w-full text-xl md:text-2xl px-4 rounded-xl border-2 border-gray-300 focus-visible:border-[#D00008] focus-visible:ring-[#D00008]';
@@ -84,6 +85,7 @@ function SignupForm() {
   const [nickname, setNickname] = useState('');
   const [encounterType, setEncounterType] = useState('');
   const [classNumber, setClassNumber] = useState('');
+  const [idPhoto, setIdPhoto] = useState<string | null>(null);
 
   const [suggestions, setSuggestions] = useState<SignupSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -114,6 +116,7 @@ function SignupForm() {
     setNickname('');
     setEncounterType('');
     setClassNumber('');
+    setIdPhoto(null);
     setSuggestions([]);
     setShowSuggestions(false);
   };
@@ -208,6 +211,7 @@ function SignupForm() {
         encounterType,
         classNumber: classNumber.trim(),
         city: 'Cebu',
+        idPhoto: idPhoto || undefined,
       });
       setResult(data);
       setIsExisting(false);
@@ -241,6 +245,7 @@ function SignupForm() {
         nickname: nickname.trim() || undefined,
         encounterType,
         classNumber: classNumber.trim(),
+        idPhoto: idPhoto || undefined,
       });
       setResult(data);
       setIsExisting(true);
@@ -579,6 +584,19 @@ function SignupForm() {
         </div>
       )}
 
+      {step === 2 && (
+        <div className="space-y-5">
+          <IdPhotoUpload
+            onPhotoProcessed={setIdPhoto}
+            currentPhoto={idPhoto}
+            accentColor={BLD.red}
+          />
+          <p className="text-sm text-gray-500">
+            You can skip this step and add your photo later if you prefer.
+          </p>
+        </div>
+      )}
+
       <div className="flex gap-3 mt-8">
         {step > 0 ? (
           <Button
@@ -603,11 +621,21 @@ function SignupForm() {
             Next
             <ArrowRight className="w-5 h-5 ml-1" />
           </Button>
+        ) : step === 1 ? (
+          <Button
+            type="button"
+            className={`ml-auto ${primaryBtn}`}
+            disabled={!canSubmit}
+            onClick={() => setStep(2)}
+          >
+            Next
+            <ArrowRight className="w-5 h-5 ml-1" />
+          </Button>
         ) : (
           <Button
             type="button"
             className={`ml-auto ${primaryBtn}`}
-            disabled={isLoading || !canSubmit}
+            disabled={isLoading}
             onClick={handleSubmit}
           >
             {isLoading ? 'Saving…' : 'Get Community ID'}

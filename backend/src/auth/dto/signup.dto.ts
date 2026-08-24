@@ -36,4 +36,8 @@ export class SignupDto {
   @IsString()
   @IsOptional()
   city?: string;
+
+  @IsString()
+  @IsOptional()
+  idPhoto?: string;
 }
