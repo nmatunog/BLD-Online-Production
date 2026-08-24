@@ -1,11 +1,10 @@
 'use client';
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Camera, Upload, X, RotateCcw, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import Cropper, { Area } from 'react-easy-crop';
-import { removeBackground } from '@imgly/background-removal';
 
 interface IdPhotoUploadProps {
   onPhotoProcessed: (photoDataUrl: string) => void;
@@ -55,6 +54,16 @@ export function IdPhotoUpload({
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
+  }, []);
+
+  // Cleanup camera stream on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+    };
   }, []);
 
   const capturePhoto = useCallback(() => {
@@ -148,6 +157,9 @@ export function IdPhotoUpload({
     setIsProcessing(true);
     try {
       const croppedImage = await getCroppedImg(imageSource, croppedAreaPixels);
+      
+      // Dynamically import background removal to reduce initial bundle size
+      const { removeBackground } = await import('@imgly/background-removal');
       
       const img = await createImage(croppedImage);
       const blob = await removeBackground(croppedImage);
@@ -317,7 +329,10 @@ export function IdPhotoUpload({
           />
           <button
             type="button"
-            onClick={() => setProcessedImage(null)}
+            onClick={() => {
+              setProcessedImage(null);
+              onPhotoProcessed('');
+            }}
             className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
           >
             <X className="w-4 h-4" />
