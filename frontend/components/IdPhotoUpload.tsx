@@ -104,8 +104,12 @@ export function IdPhotoUpload({
           videoRef.current.srcObject = stream;
         }
       });
-    } catch {
-      alert('Unable to access camera. Please allow camera permission or upload a file instead.');
+    } catch (error) {
+      // Show visible error when camera is missing, blocked, or permission denied
+      const errorMessage = error instanceof Error && error.name === 'NotAllowedError'
+        ? 'Camera permission denied. Please allow camera access or use Upload photo instead.'
+        : 'Camera unavailable. Please use Upload photo instead.';
+      alert(errorMessage);
     }
   };
 

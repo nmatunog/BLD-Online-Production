@@ -55,7 +55,9 @@ async function bootstrap(): Promise<void> {
         }
       }
       
-      callback(new Error('Not allowed by CORS'));
+      // Reject by returning false, not by throwing
+      // Throwing causes 500; false causes proper CORS rejection (no ACAO header)
+      callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
