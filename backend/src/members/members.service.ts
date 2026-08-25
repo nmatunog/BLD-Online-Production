@@ -674,32 +674,80 @@ export class MembersService {
       );
     }
 
-    // Find existing members for this city, encounter type, and class number
-    const existingMembers = await this.prisma.member.findMany({
+    // Try to get existing counter
+    let counter = await this.prisma.communityIdCounter.findUnique({
       where: {
-        city: cityCode,
-        encounterType: encounterCode,
-        classNumber: parsedClassNumber,
-      },
-      select: {
-        communityId: true,
-      },
-      orderBy: {
-        createdAt: 'asc',
+        cityCode_encounterCode_classNumber: {
+          cityCode,
+          encounterCode,
+          classNumber: parsedClassNumber,
+        },
       },
     });
-
-    let nextSequence = 1;
-    if (existingMembers.length > 0) {
-      const maxSequence = existingMembers.reduce((max, member) => {
-        const match = member.communityId.match(/(\d{2})$/);
-        if (match) {
-          return Math.max(max, parseInt(match[1], 10));
+    
+    if (!counter) {
+      // First time for this class: seed from existing members' max sequence
+      const existingMembers = await this.prisma.member.findMany({
+        where: {
+          city: cityCode,
+          encounterType: encounterCode,
+          classNumber: parsedClassNumber,
+        },
+        select: { communityId: true },
+      });
+      
+      let maxSequence = 0;
+      if (existingMembers.length > 0) {
+        const sequences = existingMembers
+          .map((m) => {
+            const match = m.communityId.match(/\d{2}$/);
+            return match ? parseInt(match[0], 10) : 0;
+          })
+          .filter((seq) => seq > 0);
+        if (sequences.length > 0) {
+          maxSequence = Math.max(...sequences);
         }
-        return max;
-      }, 0);
-      nextSequence = maxSequence + 1;
+      }
+      
+      // Create counter seeded with max+1, or 1 if no members exist
+      try {
+        counter = await this.prisma.communityIdCounter.create({
+          data: {
+            cityCode,
+            encounterCode,
+            classNumber: parsedClassNumber,
+            nextSequence: maxSequence + 1,
+          },
+        });
+      } catch (error) {
+        // Race: another request created it first, fetch and use it
+        counter = await this.prisma.communityIdCounter.findUniqueOrThrow({
+          where: {
+            cityCode_encounterCode_classNumber: {
+              cityCode,
+              encounterCode,
+              classNumber: parsedClassNumber,
+            },
+          },
+        });
+      }
     }
+    
+    // Atomically increment and get next sequence
+    const updated = await this.prisma.communityIdCounter.update({
+      where: {
+        cityCode_encounterCode_classNumber: {
+          cityCode,
+          encounterCode,
+          classNumber: parsedClassNumber,
+        },
+      },
+      data: {
+        nextSequence: { increment: 1 },
+      },
+    });
+    
+    const nextSequence = updated.nextSequence - 1;
 
     if (nextSequence > 99) {
       throw new ConflictException(
