@@ -239,6 +239,7 @@ export class AuthService {
           city: cityCode,
           encounterType,
           classNumber: classNum,
+          photoUrl: signupDto.idPhoto || null,
         },
       });
     });
@@ -334,6 +335,7 @@ export class AuthService {
         nickname,
         encounterType,
         classNumber: classNum,
+        photoUrl: dto.idPhoto || member.photoUrl,
       },
     });
 
