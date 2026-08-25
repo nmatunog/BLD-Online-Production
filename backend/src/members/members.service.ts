@@ -674,32 +674,28 @@ export class MembersService {
       );
     }
 
-    // Find existing members for this city, encounter type, and class number
-    const existingMembers = await this.prisma.member.findMany({
+    // Use CommunityIdCounter table for atomic sequence generation
+    // This prevents race conditions when multiple signups happen simultaneously
+    const counter = await this.prisma.communityIdCounter.upsert({
       where: {
-        city: cityCode,
-        encounterType: encounterCode,
+        cityCode_encounterCode_classNumber: {
+          cityCode,
+          encounterCode,
+          classNumber: parsedClassNumber,
+        },
+      },
+      create: {
+        cityCode,
+        encounterCode,
         classNumber: parsedClassNumber,
+        nextSequence: 2, // Reserve 1, next will be 2
       },
-      select: {
-        communityId: true,
-      },
-      orderBy: {
-        createdAt: 'asc',
+      update: {
+        nextSequence: { increment: 1 },
       },
     });
 
-    let nextSequence = 1;
-    if (existingMembers.length > 0) {
-      const maxSequence = existingMembers.reduce((max, member) => {
-        const match = member.communityId.match(/(\d{2})$/);
-        if (match) {
-          return Math.max(max, parseInt(match[1], 10));
-        }
-        return max;
-      }, 0);
-      nextSequence = maxSequence + 1;
-    }
+    const nextSequence = counter.nextSequence - 1; // Use the sequence before increment
 
     if (nextSequence > 99) {
       throw new ConflictException(

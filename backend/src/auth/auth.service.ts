@@ -819,40 +819,28 @@ export class AuthService {
     // Format class number as 2 digits (01-999)
     const formattedClassNumber = classNum.toString().padStart(2, '0');
     
-    // Find the next sequence number for this specific class
-    // Query existing members with same city, encounterType, and classNumber
-    const existingMembers = await this.prisma.member.findMany({
+    // Use CommunityIdCounter table for atomic sequence generation
+    // This prevents race conditions when multiple signups happen simultaneously
+    const counter = await this.prisma.communityIdCounter.upsert({
       where: {
-        city: cityCode,
-        encounterType: encounterCode,
-        classNumber: classNum,
+        cityCode_encounterCode_classNumber: {
+          cityCode,
+          encounterCode,
+          classNumber: classNum,
+        },
       },
-      orderBy: {
-        createdAt: 'asc',
+      create: {
+        cityCode,
+        encounterCode,
+        classNumber: classNum,
+        nextSequence: 2, // Reserve 1, next will be 2
+      },
+      update: {
+        nextSequence: { increment: 1 },
       },
     });
     
-    // Calculate next sequence number
-    // If no members exist for this class, start at 01
-    // Otherwise, find the highest sequence and increment
-    let nextSequence = 1;
-    
-    if (existingMembers.length > 0) {
-      // Extract sequence numbers from existing communityIds
-      const sequences = existingMembers
-        .map((member) => {
-          // Extract last 2 digits (sequence) from communityId
-          // Format: CEB-ME1801 -> extract "01"
-          const match = member.communityId.match(/\d{2}$/);
-          return match ? parseInt(match[0], 10) : 0;
-        })
-        .filter((seq) => seq > 0);
-      
-      if (sequences.length > 0) {
-        const maxSequence = Math.max(...sequences);
-        nextSequence = maxSequence + 1;
-      }
-    }
+    const nextSequence = counter.nextSequence - 1; // Use the sequence before increment
     
     // Validate sequence doesn't exceed 99
     if (nextSequence > 99) {
