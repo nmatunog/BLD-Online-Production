@@ -21,6 +21,7 @@ import { authService } from '@/services/auth.service';
 import { SIGNUP_ENCOUNTER_TYPES } from '@/lib/member-constants';
 import { parseAuthError } from '@/utils/error-handler';
 import type { SignupResult, SignupSuggestion } from '@/types/api.types';
+import { IdPhotoUpload } from '@/components/IdPhotoUpload';
 
 /** BLD logo color peg extracted from brand mark */
 const BLD = {
@@ -31,7 +32,7 @@ const BLD = {
   ink: '#1A1A1A',
 } as const;
 
-const STEPS = ['Your name', 'Encounter'] as const;
+const STEPS = ['Your name', 'Encounter', 'ID Photo'] as const;
 
 const fieldClass =
   'mt-2 h-14 w-full text-xl md:text-2xl px-4 rounded-xl border-2 border-gray-300 focus-visible:border-[#D00008] focus-visible:ring-[#D00008]';
@@ -84,6 +85,7 @@ function SignupForm() {
   const [nickname, setNickname] = useState('');
   const [encounterType, setEncounterType] = useState('');
   const [classNumber, setClassNumber] = useState('');
+  const [idPhoto, setIdPhoto] = useState<string | null>(null);
 
   const [suggestions, setSuggestions] = useState<SignupSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -93,6 +95,7 @@ function SignupForm() {
   const canContinueStep0 = lastName.trim().length > 0 && firstName.trim().length > 0;
   const canSubmit =
     canContinueStep0 && encounterType.length > 0 && classNumber.trim().length > 0;
+  const hasIdPhoto = !!idPhoto;
 
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
@@ -114,6 +117,7 @@ function SignupForm() {
     setNickname('');
     setEncounterType('');
     setClassNumber('');
+    setIdPhoto(null);
     setSuggestions([]);
     setShowSuggestions(false);
   };
@@ -187,6 +191,7 @@ function SignupForm() {
     setNickname(existing.nickname || '');
     setEncounterType(existing.encounterType);
     setClassNumber(String(existing.classNumber));
+    setIdPhoto(existing.photoUrl || null);
     toast.error('Your account already exists', {
       description: `Community ID: ${existing.communityId}`,
       duration: 5000,
@@ -194,8 +199,15 @@ function SignupForm() {
   };
 
   const handleSubmit = async () => {
-    if (!canSubmit) {
-      toast.error('Please complete the required fields');
+    if (!canSubmit || !idPhoto) {
+      toast.error(
+        !idPhoto ? 'ID photo is required' : 'Please complete the required fields',
+        {
+          description: !idPhoto
+            ? 'Take or upload a face photo for your Community ID card.'
+            : undefined,
+        },
+      );
       return;
     }
 
@@ -208,6 +220,7 @@ function SignupForm() {
         encounterType,
         classNumber: classNumber.trim(),
         city: 'Cebu',
+        idPhoto,
       });
       setResult(data);
       setIsExisting(false);
@@ -226,8 +239,15 @@ function SignupForm() {
   };
 
   const handleSaveEdit = async () => {
-    if (!result || !canSubmit) {
-      toast.error('Please complete the required fields');
+    if (!result || !canSubmit || !idPhoto) {
+      toast.error(
+        !idPhoto ? 'ID photo is required' : 'Please complete the required fields',
+        {
+          description: !idPhoto
+            ? 'Take or upload a face photo for your Community ID card.'
+            : undefined,
+        },
+      );
       return;
     }
 
@@ -241,6 +261,7 @@ function SignupForm() {
         nickname: nickname.trim() || undefined,
         encounterType,
         classNumber: classNumber.trim(),
+        idPhoto: idPhoto.startsWith('data:image/') ? idPhoto : undefined,
       });
       setResult(data);
       setIsExisting(true);
@@ -364,6 +385,12 @@ function SignupForm() {
             <p className="text-sm text-gray-500">
               Saving updates your name details. Community ID stays the same.
             </p>
+            <IdPhotoUpload
+              onPhotoProcessed={setIdPhoto}
+              currentPhoto={idPhoto}
+              accentColor={BLD.red}
+              required
+            />
           </div>
         ) : (
           <div className="text-base sm:text-lg text-gray-800 space-y-2 mb-6 text-left">
@@ -381,6 +408,17 @@ function SignupForm() {
               <span className="font-semibold">Encounter:</span>{' '}
               {result.encounterType} {result.classNumber}
             </p>
+            {idPhoto && (
+              <div className="pt-2">
+                <p className="font-semibold mb-2">ID photo:</p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={idPhoto}
+                  alt="ID photo"
+                  className="w-24 h-24 rounded-xl object-cover border-2 border-[#D00008]"
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -389,7 +427,7 @@ function SignupForm() {
             <Button
               type="button"
               className={`w-full ${primaryBtn}`}
-              disabled={isLoading || !canSubmit}
+              disabled={isLoading || !canSubmit || !hasIdPhoto}
               onClick={handleSaveEdit}
             >
               {isLoading ? 'Saving…' : 'Save'}
@@ -439,7 +477,7 @@ function SignupForm() {
         </p>
       </div>
 
-      <div className="flex justify-center gap-3 mb-6">
+      <div className="flex flex-wrap justify-center gap-2 sm:gap-3 mb-6">
         {STEPS.map((label, i) => (
           <div
             key={label}
@@ -579,6 +617,22 @@ function SignupForm() {
         </div>
       )}
 
+      {step === 2 && (
+        <div className="space-y-4">
+          <IdPhotoUpload
+            onPhotoProcessed={setIdPhoto}
+            currentPhoto={idPhoto}
+            accentColor={BLD.red}
+            required
+          />
+          {!idPhoto && (
+            <p className="text-sm text-[#D00008]">
+              Take or upload a photo to continue. This is used for your Community ID card.
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="flex gap-3 mt-8">
         {step > 0 ? (
           <Button
@@ -603,11 +657,21 @@ function SignupForm() {
             Next
             <ArrowRight className="w-5 h-5 ml-1" />
           </Button>
+        ) : step === 1 ? (
+          <Button
+            type="button"
+            className={`ml-auto ${primaryBtn}`}
+            disabled={!canSubmit}
+            onClick={() => setStep(2)}
+          >
+            Next
+            <ArrowRight className="w-5 h-5 ml-1" />
+          </Button>
         ) : (
           <Button
             type="button"
             className={`ml-auto ${primaryBtn}`}
-            disabled={isLoading || !canSubmit}
+            disabled={isLoading || !canSubmit || !hasIdPhoto}
             onClick={handleSubmit}
           >
             {isLoading ? 'Saving…' : 'Get Community ID'}

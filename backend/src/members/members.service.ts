@@ -753,4 +753,62 @@ export class MembersService {
       throw new BadRequestException('Failed to generate QR code');
     }
   }
+
+  /**
+   * Store a processed ID photo. Prefers BunnyCDN; falls back to a compressed JPEG data URL
+   * so signup still works when CDN env vars are missing.
+   */
+  async savePhoto(
+    memberId: string,
+    file: { buffer: Buffer; mimetype?: string } | string,
+  ): Promise<{ photoUrl: string }> {
+    await this.findOne(memberId);
+
+    let buffer: Buffer;
+    let contentType = 'image/jpeg';
+
+    if (typeof file === 'string') {
+      if (!file.startsWith('data:image/')) {
+        throw new BadRequestException('Photo must be an image data URL');
+      }
+      const match = file.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+      if (!match) {
+        throw new BadRequestException('Invalid photo data URL');
+      }
+      contentType = match[1];
+      buffer = Buffer.from(match[2], 'base64');
+    } else {
+      buffer = file.buffer;
+      contentType = file.mimetype || 'image/jpeg';
+    }
+
+    if (!buffer?.length) {
+      throw new BadRequestException('Photo file is empty');
+    }
+    if (buffer.length > 2.5 * 1024 * 1024) {
+      throw new BadRequestException('Photo is too large (max 2.5 MB after processing)');
+    }
+    if (!['image/jpeg', 'image/jpg', 'image/png', 'image/webp'].includes(contentType)) {
+      throw new BadRequestException('Photo must be JPEG, PNG, or WebP');
+    }
+
+    let photoUrl: string;
+    if (this.bunnyCDN.isConfigured()) {
+      try {
+        photoUrl = await this.bunnyCDN.uploadMemberPhoto(buffer, memberId, contentType);
+      } catch (error) {
+        console.warn('BunnyCDN photo upload failed, storing data URL:', error);
+        photoUrl = `data:${contentType};base64,${buffer.toString('base64')}`;
+      }
+    } else {
+      photoUrl = `data:${contentType};base64,${buffer.toString('base64')}`;
+    }
+
+    await this.prisma.member.update({
+      where: { id: memberId },
+      data: { photoUrl },
+    });
+
+    return { photoUrl };
+  }
 }

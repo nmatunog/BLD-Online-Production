@@ -8,6 +8,8 @@ import {
   Param,
   Query,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   HttpCode,
   HttpStatus,
   ForbiddenException,
@@ -28,6 +30,8 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { ApiResponse as ApiResponseDto } from '../common/interfaces/api-response.interface';
 import { UserRole } from '@prisma/client';
 import { AllowExtraFieldsPipe } from './pipes/allow-extra-fields.pipe';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { UploadPhotoDto } from './dto/upload-photo.dto';
 
 @ApiTags('Members')
 @Controller('members')
@@ -144,6 +148,82 @@ export class MembersController {
   }
 
   private readonly logger = new Logger(MembersController.name);
+
+  @Post('me/photo')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 6 * 1024 * 1024 },
+    }),
+  )
+  @ApiOperation({ summary: 'Upload current member ID photo' })
+  @ApiResponse({ status: 200, description: 'Photo uploaded' })
+  async uploadMePhoto(
+    @CurrentUser() user: { id: string },
+    @UploadedFile() file: { buffer: Buffer; mimetype?: string } | undefined,
+    @Body() body: UploadPhotoDto,
+  ): Promise<ApiResponseDto<{ photoUrl: string }>> {
+    const member = await this.membersService.findMe(user.id);
+    const source = file ?? body.photoDataUrl;
+    if (!source) {
+      throw new BadRequestException('Photo file or photoDataUrl is required');
+    }
+    const data = await this.membersService.savePhoto(member.id, source);
+    return { success: true, data, message: 'Photo uploaded' };
+  }
+
+  @Post(':id/photo')
+  @UseGuards(RolesGuard)
+  @Roles(
+    UserRole.SUPER_USER,
+    UserRole.ADMINISTRATOR,
+    UserRole.DCS,
+    UserRole.MINISTRY_COORDINATOR,
+    UserRole.CLASS_SHEPHERD,
+  )
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 6 * 1024 * 1024 },
+    }),
+  )
+  @ApiOperation({ summary: 'Upload ID photo for a member (staff)' })
+  async uploadMemberPhoto(
+    @Param('id') id: string,
+    @CurrentUser() user: {
+      role: UserRole;
+      ministry?: string;
+      shepherdEncounterType?: string;
+      shepherdClassNumber?: number;
+    },
+    @UploadedFile() file: { buffer: Buffer; mimetype?: string } | undefined,
+    @Body() body: UploadPhotoDto,
+  ): Promise<ApiResponseDto<{ photoUrl: string }>> {
+    const member = await this.membersService.findOne(id);
+
+    if (user.role === UserRole.MINISTRY_COORDINATOR) {
+      if (member.ministry !== user.ministry) {
+        throw new ForbiddenException('You can only edit members from your own ministry');
+      }
+    }
+    if (user.role === UserRole.CLASS_SHEPHERD) {
+      if (user.shepherdEncounterType && user.shepherdClassNumber) {
+        if (
+          member.encounterType.toUpperCase() !== user.shepherdEncounterType.toUpperCase() ||
+          member.classNumber !== user.shepherdClassNumber
+        ) {
+          throw new ForbiddenException('You can only edit members from your assigned encounter class');
+        }
+      } else {
+        throw new BadRequestException('Class Shepherd assignment not configured');
+      }
+    }
+
+    const source = file ?? body.photoDataUrl;
+    if (!source) {
+      throw new BadRequestException('Photo file or photoDataUrl is required');
+    }
+    const data = await this.membersService.savePhoto(id, source);
+    return { success: true, data, message: 'Photo uploaded' };
+  }
 
   @Put('me')
   @ApiOperation({ summary: 'Update current user member profile' })

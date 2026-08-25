@@ -20,6 +20,7 @@ import { UserRole } from '@prisma/client';
 import { roleRequiresCredentials } from './auth.constants';
 import { normalizePhoneNumber } from '../common/utils/phone.util';
 import { SignupUpdateDto } from './dto/signup-lookup.dto';
+import { MembersService } from '../members/members.service';
 
 /** Inputs that map to Cebu (Community ID starts with CEB) */
 const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
@@ -41,6 +42,7 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private membersService: MembersService,
   ) {}
 
   async register(registerDto: RegisterDto): Promise<AuthResult> {
@@ -241,7 +243,15 @@ export class AuthService {
       });
     });
 
-    return this.toSignupResult(member, false);
+    try {
+      const { photoUrl } = await this.membersService.savePhoto(member.id, signupDto.idPhoto);
+      return { ...this.toSignupResult(member, false), photoUrl };
+    } catch (err) {
+      await this.prisma.user.delete({ where: { id: member.userId } });
+      throw new BadRequestException(
+        'Could not save ID photo. Please try another photo.',
+      );
+    }
   }
 
   /**
@@ -332,8 +342,21 @@ export class AuthService {
       data: { isActive: true },
     });
 
+    let photoUrl = member.photoUrl;
+    if (dto.idPhoto) {
+      try {
+        const saved = await this.membersService.savePhoto(updated.id, dto.idPhoto);
+        photoUrl = saved.photoUrl;
+      } catch {
+        throw new BadRequestException('Could not save ID photo. Please try another photo.');
+      }
+    } else if (!member.photoUrl) {
+      throw new BadRequestException('ID photo is required for your Community ID card');
+    }
+
     return {
       ...this.toSignupResult(updated, true),
+      photoUrl,
       message: 'Your details were saved. Community ID is unchanged.',
     };
   }
@@ -378,6 +401,7 @@ export class AuthService {
       nickname: string | null;
       encounterType: string;
       classNumber: number;
+      photoUrl?: string | null;
     },
     isExistingMember: boolean,
   ): SignupResult {
@@ -390,6 +414,7 @@ export class AuthService {
       encounterType: member.encounterType,
       classNumber: member.classNumber,
       isExistingMember,
+      photoUrl: member.photoUrl ?? null,
       message: isExistingMember
         ? 'Your account already exists'
         : 'Signup successful. Your Community ID is ready for attendance. Complete mobile and ministry details later when activating your account.',

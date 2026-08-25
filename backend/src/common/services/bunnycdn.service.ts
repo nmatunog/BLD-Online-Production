@@ -101,6 +101,19 @@ export class BunnyCDNService {
   }
 
   /**
+   * Upload a member ID photo to BunnyCDN
+   */
+  async uploadMemberPhoto(
+    fileData: Buffer | string,
+    memberId: string,
+    contentType: string = 'image/jpeg',
+  ): Promise<string> {
+    const ext = contentType.includes('png') ? 'png' : 'jpg';
+    const fileName = `member-photos/${memberId}-${Date.now()}.${ext}`;
+    return this.uploadFile(fileData, fileName, contentType);
+  }
+
+  /**
    * Upload QR code image to BunnyCDN
    * @param qrCodeDataUrl - Base64 data URL of the QR code
    * @param type - Type of QR code ('member' or 'event')

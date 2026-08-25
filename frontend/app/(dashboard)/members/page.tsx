@@ -16,6 +16,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import DashboardHeader from '@/components/layout/DashboardHeader';
+import { IdPhotoUpload } from '@/components/IdPhotoUpload';
 import {
   APOSTOLATES,
   MINISTRIES_BY_APOSTOLATE,
@@ -1015,7 +1016,17 @@ export default function MembersPage() {
                       return (
                         <TableRow key={member.id} className="hover:bg-gray-100">
                           <TableCell className="px-4 py-3">
-                            <div>
+                            <div className="flex items-center gap-3">
+                              {member.photoUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={member.photoUrl}
+                                  alt=""
+                                  className="w-10 h-10 rounded-full object-cover border border-gray-200 shrink-0"
+                                />
+                              ) : (
+                                <div className="w-10 h-10 rounded-full bg-gray-200 shrink-0" />
+                              )}
                               <p className="font-medium text-gray-900">{displayName}</p>
                             </div>
                           </TableCell>
@@ -1300,6 +1311,33 @@ export default function MembersPage() {
                 {/* Personal Information */}
                 <div className="bg-gray-50 p-4 rounded-lg">
                   <h4 className="text-md font-semibold text-gray-800 mb-4">Personal Information</h4>
+                  {editingMember && (
+                    <div className="mb-4">
+                      <IdPhotoUpload
+                        currentPhoto={editingMember.photoUrl}
+                        accentColor="#7c3aed"
+                        required
+                        onPhotoProcessed={async (dataUrl) => {
+                          if (!dataUrl) return;
+                          try {
+                            const photoUrl = await membersService.uploadMemberPhoto(
+                              editingMember.id,
+                              dataUrl,
+                            );
+                            setEditingMember({ ...editingMember, photoUrl });
+                            setMembers((prev) =>
+                              prev.map((m) => (m.id === editingMember.id ? { ...m, photoUrl } : m)),
+                            );
+                            toast.success('ID photo saved');
+                          } catch (error) {
+                            toast.error('Could not save photo', {
+                              description: error instanceof Error ? error.message : 'Please try again',
+                            });
+                          }
+                        }}
+                      />
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <Label className="block text-sm font-medium text-gray-700 mb-2">First Name *</Label>

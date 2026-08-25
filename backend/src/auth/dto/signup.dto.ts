@@ -3,6 +3,8 @@ import {
   IsNotEmpty,
   IsOptional,
   IsIn,
+  MaxLength,
+  Matches,
 } from 'class-validator';
 import { SIGNUP_ENCOUNTER_TYPES } from '../auth.constants';
 
@@ -36,4 +38,13 @@ export class SignupDto {
   @IsString()
   @IsOptional()
   city?: string;
+
+  /** Processed ID photo (JPEG data URL). Required for the ID database and card. */
+  @IsString()
+  @IsNotEmpty({ message: 'ID photo is required for your Community ID card' })
+  @MaxLength(500_000)
+  @Matches(/^data:image\/(jpeg|jpg|png|webp);base64,/i, {
+    message: 'ID photo must be a processed image',
+  })
+  idPhoto!: string;
 }

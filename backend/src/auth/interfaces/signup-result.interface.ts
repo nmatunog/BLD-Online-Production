@@ -7,6 +7,7 @@ export interface SignupResult {
   encounterType: string;
   classNumber: number;
   isExistingMember: boolean;
+  photoUrl?: string | null;
   message: string;
 }
 

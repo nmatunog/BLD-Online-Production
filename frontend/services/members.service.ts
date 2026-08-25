@@ -169,6 +169,30 @@ class MembersService {
     return response.data.data;
   }
 
+  async uploadMyPhoto(photoDataUrl: string): Promise<string> {
+    const response = await apiClient.post<ApiResponse<{ photoUrl: string }>>(
+      '/members/me/photo',
+      { photoDataUrl },
+      { timeout: 30000 },
+    );
+    if (!response.data.success || !response.data.data?.photoUrl) {
+      throw new Error(response.data.error || 'Failed to upload photo');
+    }
+    return response.data.data.photoUrl;
+  }
+
+  async uploadMemberPhoto(memberId: string, photoDataUrl: string): Promise<string> {
+    const response = await apiClient.post<ApiResponse<{ photoUrl: string }>>(
+      `/members/${memberId}/photo`,
+      { photoDataUrl },
+      { timeout: 30000 },
+    );
+    if (!response.data.success || !response.data.data?.photoUrl) {
+      throw new Error(response.data.error || 'Failed to upload photo');
+    }
+    return response.data.data.photoUrl;
+  }
+
   async delete(id: string): Promise<void> {
     const response = await apiClient.delete<ApiResponse<unknown>>(`/members/${id}`);
     if (!response.data.success) {

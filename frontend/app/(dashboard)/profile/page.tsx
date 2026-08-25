@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Save, QrCode, Download, X } from 'lucide-react';
+import { IdPhotoUpload } from '@/components/IdPhotoUpload';
 import { membersService, type Member, type UpdateMemberRequest } from '@/services/members.service';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
@@ -378,6 +379,39 @@ export default function ProfilePage() {
               <CardTitle className="text-2xl text-white">Profile Information</CardTitle>
             </CardHeader>
             <CardContent className="p-6 space-y-6">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">ID Photo</h3>
+                {isEditing ? (
+                  <IdPhotoUpload
+                    currentPhoto={member.photoUrl}
+                    accentColor="#7c3aed"
+                    required
+                    onPhotoProcessed={async (dataUrl) => {
+                      if (!dataUrl) return;
+                      try {
+                        const photoUrl = await membersService.uploadMyPhoto(dataUrl);
+                        setMember({ ...member, photoUrl });
+                        toast.success('ID photo saved');
+                      } catch (error) {
+                        toast.error('Could not save photo', {
+                          description: error instanceof Error ? error.message : 'Please try again',
+                        });
+                      }
+                    }}
+                  />
+                ) : member.photoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={member.photoUrl}
+                    alt="ID photo"
+                    className="w-28 h-28 rounded-xl object-cover border-2 border-purple-300"
+                  />
+                ) : (
+                  <p className="text-gray-500">
+                    ID photo is required for your Community ID card. Tap Edit Profile to add one.
+                  </p>
+                )}
+              </div>
               {/* Basic Information */}
               <div>
                 <h3 className="text-lg font-semibold text-gray-800 mb-4">Basic Information</h3>

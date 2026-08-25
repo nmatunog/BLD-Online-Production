@@ -4,6 +4,7 @@ import {
   IsOptional,
   IsIn,
   MinLength,
+  MaxLength,
 } from 'class-validator';
 import { SIGNUP_ENCOUNTER_TYPES } from '../auth.constants';
 
@@ -48,4 +49,9 @@ export class SignupUpdateDto {
   @IsString()
   @IsNotEmpty()
   classNumber!: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(500_000)
+  idPhoto?: string;
 }
