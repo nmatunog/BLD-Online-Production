@@ -5,6 +5,7 @@ import Cropper, { type Area } from 'react-easy-crop';
 import { Camera, Upload, X, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { toast } from 'sonner';
 
 type Mode = 'select' | 'camera' | 'crop';
 
@@ -28,15 +29,14 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 async function processCrop(imageSrc: string, pixelCrop: Area): Promise<string> {
   const image = await loadImage(imageSrc);
   const size = 300;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('No canvas context');
 
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, size, size);
-  ctx.drawImage(
+  const cropCanvas = document.createElement('canvas');
+  cropCanvas.width = size;
+  cropCanvas.height = size;
+  const cropCtx = cropCanvas.getContext('2d');
+  if (!cropCtx) throw new Error('No canvas context');
+
+  cropCtx.drawImage(
     image,
     pixelCrop.x,
     pixelCrop.y,
@@ -48,6 +48,45 @@ async function processCrop(imageSrc: string, pixelCrop: Area): Promise<string> {
     size,
   );
 
+  let finalCanvas: HTMLCanvasElement;
+
+  try {
+    const { removeBackground } = await import('@imgly/background-removal');
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      cropCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Blob failed'))), 'image/png');
+    });
+
+    const removedBlob = await Promise.race([
+      removeBackground(blob, {
+        output: { format: 'image/png', quality: 0.8 },
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Timeout')), 15000)
+      ),
+    ]);
+
+    const removedImage = await loadImage(URL.createObjectURL(removedBlob));
+
+    finalCanvas = document.createElement('canvas');
+    finalCanvas.width = size;
+    finalCanvas.height = size;
+    const finalCtx = finalCanvas.getContext('2d');
+    if (!finalCtx) throw new Error('No canvas context');
+
+    finalCtx.fillStyle = '#ffffff';
+    finalCtx.fillRect(0, 0, size, size);
+    finalCtx.drawImage(removedImage, 0, 0, size, size);
+  } catch (err) {
+    console.warn('Background removal failed, using fallback:', err);
+    finalCanvas = cropCanvas;
+    toast.error('Could not remove background. Photo saved without white background.', {
+      duration: 4000,
+    });
+  }
+
+  const ctx = finalCanvas.getContext('2d');
+  if (!ctx) throw new Error('No canvas context');
+
   const imageData = ctx.getImageData(0, 0, size, size);
   const data = imageData.data;
   const brightness = 1.12;
@@ -58,7 +97,7 @@ async function processCrop(imageSrc: string, pixelCrop: Area): Promise<string> {
     data[i + 2] = Math.min(255, Math.max(0, ((data[i + 2] - 128) * contrast + 128) * brightness));
   }
   ctx.putImageData(imageData, 0, 0);
-  return canvas.toDataURL('image/jpeg', 0.88);
+  return finalCanvas.toDataURL('image/jpeg', 0.88);
 }
 
 export function IdPhotoUpload({
@@ -227,7 +266,7 @@ export function IdPhotoUpload({
           />
         </div>
         <p className="text-sm text-gray-600 text-center">
-          Frame your face, then tap Process. We crop to a square and brighten the photo.
+          Frame your face, then tap Process. We clean the background to white and brighten the photo.
         </p>
         <div className="flex gap-3">
           <Button type="button" variant="outline" className="flex-1 h-12" onClick={reset} disabled={isProcessing}>
