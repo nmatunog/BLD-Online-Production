@@ -61,7 +61,7 @@ async function processCrop(imageSrc: string, pixelCrop: Area): Promise<string> {
         output: { format: 'image/png', quality: 0.8 },
       }),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout')), 15000)
+        setTimeout(() => reject(new Error('Timeout')), 45000)
       ),
     ]);
 
@@ -79,9 +79,6 @@ async function processCrop(imageSrc: string, pixelCrop: Area): Promise<string> {
   } catch (err) {
     console.warn('Background removal failed, using fallback:', err);
     finalCanvas = cropCanvas;
-    toast.error('Could not remove background. Photo saved without white background.', {
-      duration: 4000,
-    });
   }
 
   const ctx = finalCanvas.getContext('2d');
