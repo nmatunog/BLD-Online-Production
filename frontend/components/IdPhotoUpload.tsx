@@ -319,8 +319,7 @@ export function IdPhotoUpload({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/*"
-        capture="user"
+        accept="image/jpeg,image/png,image/heic,image/webp"
         onChange={handleFile}
         className="hidden"
       />
