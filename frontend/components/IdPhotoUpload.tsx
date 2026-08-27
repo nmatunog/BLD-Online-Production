@@ -48,38 +48,36 @@ async function processCrop(imageSrc: string, pixelCrop: Area): Promise<string> {
     size,
   );
 
-  let finalCanvas: HTMLCanvasElement;
+  const { removeBackground } = await import('@imgly/background-removal');
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    cropCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Blob failed'))), 'image/png');
+  });
 
-  try {
-    const { removeBackground } = await import('@imgly/background-removal');
-    const blob = await new Promise<Blob>((resolve, reject) => {
-      cropCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Blob failed'))), 'image/png');
-    });
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+  const config = {
+    device: 'cpu' as const,
+    model: isMobile ? 'isnet_quint8' : 'isnet',
+    output: { format: 'image/png' as const, quality: 0.8 },
+  };
 
-    const removedBlob = await Promise.race([
-      removeBackground(blob, {
-        output: { format: 'image/png', quality: 0.8 },
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Timeout')), 45000)
-      ),
-    ]);
+  const removedBlob = await Promise.race([
+    removeBackground(blob, config),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Background removal timed out after 45 seconds')), 45000)
+    ),
+  ]);
 
-    const removedImage = await loadImage(URL.createObjectURL(removedBlob));
+  const removedImage = await loadImage(URL.createObjectURL(removedBlob));
 
-    finalCanvas = document.createElement('canvas');
-    finalCanvas.width = size;
-    finalCanvas.height = size;
-    const finalCtx = finalCanvas.getContext('2d');
-    if (!finalCtx) throw new Error('No canvas context');
+  const finalCanvas = document.createElement('canvas');
+  finalCanvas.width = size;
+  finalCanvas.height = size;
+  const finalCtx = finalCanvas.getContext('2d');
+  if (!finalCtx) throw new Error('No canvas context');
 
-    finalCtx.fillStyle = '#ffffff';
-    finalCtx.fillRect(0, 0, size, size);
-    finalCtx.drawImage(removedImage, 0, 0, size, size);
-  } catch (err) {
-    console.warn('Background removal failed, using fallback:', err);
-    finalCanvas = cropCanvas;
-  }
+  finalCtx.fillStyle = '#ffffff';
+  finalCtx.fillRect(0, 0, size, size);
+  finalCtx.drawImage(removedImage, 0, 0, size, size);
 
   const ctx = finalCanvas.getContext('2d');
   if (!ctx) throw new Error('No canvas context');
@@ -196,8 +194,13 @@ export function IdPhotoUpload({
       onPhotoProcessed(dataUrl);
       setMode('select');
       setImageSrc(null);
-    } catch {
-      alert('Could not process that photo. Please try another one.');
+    } catch (err) {
+      console.error('Background removal failed:', err);
+      const message = err instanceof Error && err.message.includes('timed out')
+        ? 'Photo processing took too long. Try again with better lighting or a simpler background.'
+        : 'Could not clean the photo background. Try another photo or check your connection.';
+      toast.error('Photo processing failed', { description: message, duration: 6000 });
+      reset();
     } finally {
       setIsProcessing(false);
     }
@@ -206,6 +209,33 @@ export function IdPhotoUpload({
   const clearPhoto = () => {
     setProcessedPreview(null);
     onPhotoProcessed(null);
+  };
+
+  const reprocessPhoto = async () => {
+    if (!preview) return;
+    setIsProcessing(true);
+    try {
+      const image = await loadImage(preview);
+      const size = 300;
+      const cropArea: Area = {
+        x: 0,
+        y: 0,
+        width: image.width,
+        height: image.height,
+      };
+      const dataUrl = await processCrop(preview, cropArea);
+      setProcessedPreview(dataUrl);
+      onPhotoProcessed(dataUrl);
+      toast.success('Photo background cleaned');
+    } catch (err) {
+      console.error('Reprocessing failed:', err);
+      const message = err instanceof Error && err.message.includes('timed out')
+        ? 'Photo processing took too long. Try again or upload a new photo.'
+        : 'Could not clean the photo background. Try uploading a new photo.';
+      toast.error('Reprocessing failed', { description: message, duration: 6000 });
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   if (mode === 'camera') {
@@ -321,6 +351,19 @@ export function IdPhotoUpload({
             <X className="w-4 h-4" />
           </button>
         </div>
+      )}
+
+      {preview && (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full h-12 text-sm"
+          style={{ borderColor: `${accentColor}40`, color: accentColor }}
+          onClick={reprocessPhoto}
+          disabled={isProcessing}
+        >
+          {isProcessing ? 'Processing…' : 'Clean photo background'}
+        </Button>
       )}
 
       <p className="text-sm text-gray-600">
