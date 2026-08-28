@@ -56,7 +56,7 @@ async function processCrop(imageSrc: string, pixelCrop: Area): Promise<string> {
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
   const config = {
     device: 'cpu' as const,
-    model: isMobile ? 'isnet_quint8' : 'isnet',
+    model: isMobile ? ('isnet_quint8' as const) : ('isnet' as const),
     output: { format: 'image/png' as const, quality: 0.8 },
   };
 
