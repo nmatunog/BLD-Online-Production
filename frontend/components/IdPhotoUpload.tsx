@@ -25,18 +25,18 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-/** Crop to 1:1, 300×300 JPEG, white background, mild lighting boost. */
+/** Crop to 1:1, 300×300 JPEG, mild lighting boost. */
 async function processCrop(imageSrc: string, pixelCrop: Area): Promise<string> {
   const image = await loadImage(imageSrc);
   const size = 300;
 
-  const cropCanvas = document.createElement('canvas');
-  cropCanvas.width = size;
-  cropCanvas.height = size;
-  const cropCtx = cropCanvas.getContext('2d');
-  if (!cropCtx) throw new Error('No canvas context');
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('No canvas context');
 
-  cropCtx.drawImage(
+  ctx.drawImage(
     image,
     pixelCrop.x,
     pixelCrop.y,
@@ -48,40 +48,6 @@ async function processCrop(imageSrc: string, pixelCrop: Area): Promise<string> {
     size,
   );
 
-  const { removeBackground } = await import('@imgly/background-removal');
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    cropCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Blob failed'))), 'image/png');
-  });
-
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-  const config = {
-    device: 'cpu' as const,
-    model: isMobile ? ('isnet_quint8' as const) : ('isnet' as const),
-    output: { format: 'image/png' as const, quality: 0.8 },
-  };
-
-  const removedBlob = await Promise.race([
-    removeBackground(blob, config),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('Background removal timed out after 45 seconds')), 45000)
-    ),
-  ]);
-
-  const removedImage = await loadImage(URL.createObjectURL(removedBlob));
-
-  const finalCanvas = document.createElement('canvas');
-  finalCanvas.width = size;
-  finalCanvas.height = size;
-  const finalCtx = finalCanvas.getContext('2d');
-  if (!finalCtx) throw new Error('No canvas context');
-
-  finalCtx.fillStyle = '#ffffff';
-  finalCtx.fillRect(0, 0, size, size);
-  finalCtx.drawImage(removedImage, 0, 0, size, size);
-
-  const ctx = finalCanvas.getContext('2d');
-  if (!ctx) throw new Error('No canvas context');
-
   const imageData = ctx.getImageData(0, 0, size, size);
   const data = imageData.data;
   const brightness = 1.12;
@@ -92,7 +58,7 @@ async function processCrop(imageSrc: string, pixelCrop: Area): Promise<string> {
     data[i + 2] = Math.min(255, Math.max(0, ((data[i + 2] - 128) * contrast + 128) * brightness));
   }
   ctx.putImageData(imageData, 0, 0);
-  return finalCanvas.toDataURL('image/jpeg', 0.88);
+  return canvas.toDataURL('image/jpeg', 0.88);
 }
 
 export function IdPhotoUpload({
@@ -195,11 +161,11 @@ export function IdPhotoUpload({
       setMode('select');
       setImageSrc(null);
     } catch (err) {
-      console.error('Background removal failed:', err);
-      const message = err instanceof Error && err.message.includes('timed out')
-        ? 'Photo processing took too long. Try again with better lighting or a simpler background.'
-        : 'Could not clean the photo background. Try another photo or check your connection.';
-      toast.error('Photo processing failed', { description: message, duration: 6000 });
+      console.error('Photo processing failed:', err);
+      toast.error('Photo processing failed', { 
+        description: 'Could not process the photo. Please try another photo.', 
+        duration: 6000 
+      });
       reset();
     } finally {
       setIsProcessing(false);
@@ -226,13 +192,13 @@ export function IdPhotoUpload({
       const dataUrl = await processCrop(preview, cropArea);
       setProcessedPreview(dataUrl);
       onPhotoProcessed(dataUrl);
-      toast.success('Photo background cleaned');
+      toast.success('Photo reprocessed');
     } catch (err) {
       console.error('Reprocessing failed:', err);
-      const message = err instanceof Error && err.message.includes('timed out')
-        ? 'Photo processing took too long. Try again or upload a new photo.'
-        : 'Could not clean the photo background. Try uploading a new photo.';
-      toast.error('Reprocessing failed', { description: message, duration: 6000 });
+      toast.error('Reprocessing failed', { 
+        description: 'Could not reprocess the photo. Try uploading a new photo.', 
+        duration: 6000 
+      });
     } finally {
       setIsProcessing(false);
     }
@@ -245,7 +211,7 @@ export function IdPhotoUpload({
           <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
         </div>
         <p className="text-sm text-gray-600 text-center">
-          Face the camera. Use even lighting — avoid strong backlight.
+          Face the camera against a plain light or white wall. Use even lighting.
         </p>
         <div className="flex gap-3">
           <Button type="button" variant="outline" className="flex-1 h-12" onClick={reset}>
@@ -293,7 +259,7 @@ export function IdPhotoUpload({
           />
         </div>
         <p className="text-sm text-gray-600 text-center">
-          Frame your face, then tap Process. We clean the background to white and brighten the photo.
+          Frame your face, then tap Process. Photo will be cropped and brightened for your ID card.
         </p>
         <div className="flex gap-3">
           <Button type="button" variant="outline" className="flex-1 h-12" onClick={reset} disabled={isProcessing}>
@@ -362,14 +328,14 @@ export function IdPhotoUpload({
           onClick={reprocessPhoto}
           disabled={isProcessing}
         >
-          {isProcessing ? 'Processing…' : 'Clean photo background'}
+          {isProcessing ? 'Processing…' : 'Reprocess photo'}
         </Button>
       )}
 
       <p className="text-sm text-gray-600">
         {required
-          ? 'A face photo is required for the ID database and your Community ID card. Use even lighting and look at the camera.'
-          : 'Take or upload a face photo for your Community ID.'}
+          ? 'A face photo is required for the ID database and your Community ID card. Use a plain light or white wall background with even lighting.'
+          : 'Take or upload a face photo against a plain light or white wall for your Community ID.'}
       </p>
 
       <div className="grid grid-cols-2 gap-3">
