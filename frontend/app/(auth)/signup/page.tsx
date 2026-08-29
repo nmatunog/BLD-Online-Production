@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   ClipboardCopy,
   LogOut,
+  Printer,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AxiosError } from 'axios';
@@ -22,6 +23,8 @@ import { SIGNUP_ENCOUNTER_TYPES } from '@/lib/member-constants';
 import { parseAuthError } from '@/utils/error-handler';
 import type { SignupResult, SignupSuggestion } from '@/types/api.types';
 import { IdPhotoUpload } from '@/components/IdPhotoUpload';
+import { generateStableMemberQR } from '@/lib/qr-service';
+import { MemberIdCard } from '@/components/MemberIdCard';
 
 /** BLD logo color peg extracted from brand mark */
 const BLD = {
@@ -79,6 +82,7 @@ function SignupForm() {
   const [result, setResult] = useState<SignupResult | null>(null);
   const [isExisting, setIsExisting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [showPrintView, setShowPrintView] = useState(false);
 
   const [lastName, setLastName] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -86,6 +90,7 @@ function SignupForm() {
   const [encounterType, setEncounterType] = useState('');
   const [classNumber, setClassNumber] = useState('');
   const [idPhoto, setIdPhoto] = useState<string | null>(null);
+  const [qrCode, setQrCode] = useState<string>('');
 
   const [suggestions, setSuggestions] = useState<SignupSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -181,6 +186,21 @@ function SignupForm() {
       toast.error('Could not copy — please write it down');
     }
   };
+
+  const handlePrintId = () => {
+    setShowPrintView(true);
+    setTimeout(() => {
+      window.print();
+    }, 500);
+  };
+
+  useEffect(() => {
+    if (result?.communityId) {
+      generateStableMemberQR(result.communityId, { width: 300, margin: 1 })
+        .then(setQrCode)
+        .catch(console.error);
+    }
+  }, [result?.communityId]);
 
   const showExistingAccount = (existing: SignupResult) => {
     setResult(existing);
@@ -281,6 +301,31 @@ function SignupForm() {
   };
 
   if (result) {
+    if (showPrintView) {
+      return (
+        <div className="print-view-container">
+          <div className="no-print">
+            <Button
+              type="button"
+              variant="outline"
+              className="mb-4"
+              onClick={() => setShowPrintView(false)}
+            >
+              <ArrowLeft className="w-5 h-5 mr-2" />
+              Back to Result
+            </Button>
+          </div>
+          <MemberIdCard
+            communityId={result.communityId}
+            firstName={result.firstName}
+            lastName={result.lastName}
+            nickname={result.nickname || undefined}
+            photoUrl={idPhoto}
+          />
+        </div>
+      );
+    }
+
     return (
       <Card className="w-full max-w-md mx-auto p-5 sm:p-8 rounded-2xl shadow-xl relative z-10 bg-white border-2 border-[#D00008]/25 overflow-hidden">
         <div className="h-1.5 w-full absolute top-0 left-0 right-0 bg-[#D00008]" />
@@ -297,16 +342,26 @@ function SignupForm() {
         </div>
 
         <div className="rounded-xl border-2 border-[#D00008]/30 bg-[#FCE8E9] p-4 mb-6 text-center">
-          <p className="text-base uppercase tracking-wide font-semibold mb-2 text-[#A80006]">
+          <p className="text-base uppercase tracking-wide font-semibold mb-3 text-[#A80006]">
             Your Community ID
           </p>
-          <p className="text-2xl sm:text-3xl font-mono font-bold break-all text-[#1A1A1A]">
+          {qrCode && (
+            <div className="mb-4 flex justify-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={qrCode}
+                alt="Community ID QR Code"
+                className="w-48 h-48 sm:w-56 sm:h-56 rounded-lg"
+              />
+            </div>
+          )}
+          <p className="text-2xl sm:text-3xl font-mono font-bold break-all text-[#1A1A1A] mb-4">
             {result.communityId}
           </p>
           <Button
             type="button"
             variant="outline"
-            className="mt-4 h-12 text-lg w-full sm:w-auto border-[#D00008] text-[#D00008]"
+            className="h-12 text-lg w-full sm:w-auto border-[#D00008] text-[#D00008]"
             onClick={handleCopyCommunityId}
           >
             <ClipboardCopy className="w-5 h-5 mr-2" />
@@ -433,13 +488,23 @@ function SignupForm() {
               {isLoading ? 'Saving…' : 'Save'}
             </Button>
           ) : (
-            <Button
-              type="button"
-              className={`w-full ${primaryBtn}`}
-              onClick={() => setIsEditing(true)}
-            >
-              Edit details
-            </Button>
+            <>
+              <Button
+                type="button"
+                className={`w-full ${primaryBtn}`}
+                onClick={handlePrintId}
+              >
+                <Printer className="w-5 h-5 mr-2" />
+                Print ID Card
+              </Button>
+              <Button
+                type="button"
+                className={`w-full ${primaryBtn}`}
+                onClick={() => setIsEditing(true)}
+              >
+                Edit details
+              </Button>
+            </>
           )}
 
           <Button type="button" variant="outline" className={`w-full ${outlineBtn}`} onClick={resetForm}>

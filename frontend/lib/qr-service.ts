@@ -54,6 +54,34 @@ export async function generateMemberQR(memberData: MemberData): Promise<string> 
 }
 
 /**
+ * Generate stable QR code for a member using only Community ID
+ * This QR code is stable and can be printed on ID cards
+ */
+export async function generateStableMemberQR(
+  communityId: string,
+  options?: {
+    width?: number;
+    margin?: number;
+  }
+): Promise<string> {
+  try {
+    const qrCodeDataURL = await QRCode.toDataURL(communityId, {
+      width: options?.width || 256,
+      margin: options?.margin ?? 2,
+      color: {
+        dark: '#000000',
+        light: '#FFFFFF',
+      },
+    });
+
+    return qrCodeDataURL;
+  } catch (error) {
+    console.error('Error generating stable QR code:', error);
+    throw new Error('Failed to generate QR code');
+  }
+}
+
+/**
  * Download QR code as PNG file
  */
 export function downloadQRCode(dataURL: string, communityId: string): void {
