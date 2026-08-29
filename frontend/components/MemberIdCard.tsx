@@ -34,7 +34,7 @@ export function MemberIdCard({
   const [qrCode, setQrCode] = useState<string>('');
 
   useEffect(() => {
-    generateStableMemberQR(communityId, { width: 400, margin: 1 })
+    generateStableMemberQR(communityId, { width: 300, margin: 1 })
       .then(setQrCode)
       .catch(console.error);
   }, [communityId]);
@@ -120,12 +120,12 @@ export function MemberIdCard({
         }
 
         .id-card {
-          width: 85.6mm;
-          height: 53.98mm;
+          width: 53.98mm;
+          height: 85.6mm;
           background: #FEFCF8;
           border: 1px solid ${BLD.red};
           border-radius: 8px;
-          overflow: hidden;
+          overflow: visible;
           position: relative;
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
@@ -133,7 +133,7 @@ export function MemberIdCard({
         .card-content {
           width: 100%;
           height: 100%;
-          padding: 12px;
+          padding: 10px;
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -142,37 +142,39 @@ export function MemberIdCard({
 
         /* Front Card Styles */
         .id-card-front .card-content {
-          border-top: 2px solid ${BLD.red};
+          border-top: 1px solid ${BLD.red};
           border-bottom: 1px solid ${BLD.red};
+          justify-content: space-evenly;
         }
 
         .logo-section {
-          margin-bottom: 4px;
+          margin-bottom: 2px;
         }
 
         .logo {
-          width: 64px;
-          height: 64px;
+          width: 40px;
+          height: 40px;
           object-fit: contain;
         }
 
         .district-line {
-          font-size: 9px;
+          font-size: 8px;
           color: ${BLD.navy};
           font-weight: 600;
           text-transform: uppercase;
-          letter-spacing: 0.5px;
-          margin-bottom: 6px;
+          letter-spacing: 0.3px;
+          margin-bottom: 4px;
         }
 
         .photo-section {
-          width: 80px;
-          height: 80px;
+          width: 72px;
+          height: 72px;
           border-radius: 4px;
           overflow: hidden;
-          border: 2px solid ${BLD.red};
-          margin-bottom: 6px;
+          border: 1.5px solid ${BLD.red};
+          margin-bottom: 4px;
           background: #f5f5f5;
+          flex-shrink: 0;
         }
 
         .member-photo {
@@ -189,80 +191,80 @@ export function MemberIdCard({
 
         .name-section {
           text-align: center;
-          margin-bottom: 4px;
+          margin-bottom: 3px;
           max-width: 90%;
         }
 
         .display-name {
-          font-size: 16px;
+          font-size: 14px;
           font-weight: 700;
           color: ${BLD.ink};
           margin-bottom: 2px;
-          line-height: 1.2;
+          line-height: 1.1;
         }
 
         .full-name {
-          font-size: 11px;
+          font-size: 10px;
           font-weight: 500;
           color: ${BLD.ink};
-          line-height: 1.2;
+          line-height: 1.1;
         }
 
         .member-chip {
-          font-size: 7px;
+          font-size: 6px;
           font-weight: 700;
           color: ${BLD.navy};
           background: ${BLD.redSoft};
-          padding: 2px 8px;
-          border-radius: 3px;
-          letter-spacing: 0.5px;
-          margin-bottom: 4px;
+          padding: 2px 6px;
+          border-radius: 2px;
+          letter-spacing: 0.4px;
+          margin-bottom: 3px;
         }
 
         .community-id {
-          font-size: 13px;
+          font-size: 11px;
           font-weight: 700;
           font-family: 'Courier New', monospace;
           color: ${BLD.ink};
-          letter-spacing: 0.5px;
+          letter-spacing: 0.4px;
         }
 
         /* Back Card Styles */
         .id-card-back .card-content {
           justify-content: center;
-          padding: 16px;
+          padding: 12px;
         }
 
         .qr-section {
-          margin-bottom: 8px;
+          margin-bottom: 6px;
         }
 
         .qr-code {
-          width: 140px;
-          height: 140px;
+          width: 110px;
+          height: 110px;
           display: block;
         }
 
         .back-community-id {
-          font-size: 16px;
+          font-size: 13px;
           font-weight: 700;
           font-family: 'Courier New', monospace;
           color: ${BLD.ink};
-          letter-spacing: 1px;
+          letter-spacing: 0.8px;
           margin-bottom: 2px;
           text-align: center;
         }
 
         .back-name {
-          font-size: 11px;
+          font-size: 10px;
           font-weight: 600;
           color: ${BLD.ink};
-          margin-bottom: 6px;
+          margin-bottom: 5px;
           text-align: center;
         }
 
         .instruction-text {
-          font-size: 8px;
+          font-size: 7px;
           color: #666;
           text-align: center;
           margin-bottom: 2px;
@@ -294,8 +296,8 @@ export function MemberIdCard({
 
         @media screen and (max-width: 640px) {
           .id-card {
-            width: 342.4px;
-            height: 215.92px;
+            width: 215.92px;
+            height: 342.4px;
           }
         }
       `}</style>

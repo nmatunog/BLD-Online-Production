@@ -127,7 +127,7 @@ function SignupForm() {
     setShowSuggestions(false);
   };
 
-  const applySuggestion = (s: SignupSuggestion) => {
+  const applySuggestion = async (s: SignupSuggestion) => {
     setLastName(s.lastName);
     setFirstName(s.firstName);
     setNickname(s.nickname || '');
@@ -137,7 +137,8 @@ function SignupForm() {
     setShowSuggestions(false);
     setIsExisting(true);
     setIsEditing(false);
-    setResult({
+    
+    const resultData = {
       memberId: s.memberId,
       communityId: s.communityId,
       firstName: s.firstName,
@@ -147,7 +148,21 @@ function SignupForm() {
       classNumber: s.classNumber,
       isExistingMember: true,
       message: 'Your account already exists',
-    });
+    };
+    setResult(resultData);
+    
+    try {
+      const { apiClient } = await import('@/services/api-client');
+      const response = await apiClient.get<{ success: boolean; data: { photoUrl?: string | null } }>(
+        `/members/public/community/${s.communityId}`
+      );
+      if (response.data.success && response.data.data?.photoUrl) {
+        setIdPhoto(response.data.data.photoUrl);
+      }
+    } catch (error) {
+      console.error('Failed to fetch member photo:', error);
+    }
+    
     toast.error('Your account already exists', {
       description: `Community ID: ${s.communityId}`,
       duration: 5000,
