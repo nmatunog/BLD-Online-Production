@@ -194,6 +194,10 @@ function SignupForm() {
     }, 500);
   };
 
+  // Generate stable QR code for check-in
+  // The QR encodes only the Community ID (e.g., "CEB-ME1802") so it's stable for printing.
+  // The check-in scanner at /checkin/[eventId] uses qrUtils.extractMemberData() which
+  // accepts plain Community ID strings, then looks up the member and checks them in.
   useEffect(() => {
     if (result?.communityId) {
       generateStableMemberQR(result.communityId, { width: 300, margin: 1 })

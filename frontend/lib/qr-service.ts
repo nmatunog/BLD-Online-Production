@@ -55,7 +55,23 @@ export async function generateMemberQR(memberData: MemberData): Promise<string> 
 
 /**
  * Generate stable QR code for a member using only Community ID
- * This QR code is stable and can be printed on ID cards
+ * 
+ * This QR code is stable and can be printed on ID cards. The payload is just
+ * the Community ID string (e.g., "CEB-ME1802") with no timestamp or dynamic data.
+ * 
+ * **Check-in Compatibility:**
+ * - The QR scanner at `/checkin/[eventId]` calls `qrUtils.extractMemberData()`
+ * - `extractMemberData()` accepts plain Community ID strings matching pattern:
+ *   `/^[A-Z]{3}-[A-Z]{2,3}\d{2,3}\d{2}$/` (e.g., CEB-ME1802)
+ * - After parsing, the scanner calls `/members/public/community/:id` lookup
+ * - Then checks in via `POST /attendance/public/check-in` with `{ communityId, eventId }`
+ * 
+ * This stable payload works for both on-screen QR (signup result) and printed
+ * ID card back, allowing members to check in by scanning either their phone or
+ * physical ID card at any event.
+ * 
+ * @see qr-scanner-service.ts:476-486 for plain Community ID parsing
+ * @see app/checkin/[eventId]/page.tsx:187-207 for check-in scanner usage
  */
 export async function generateStableMemberQR(
   communityId: string,
