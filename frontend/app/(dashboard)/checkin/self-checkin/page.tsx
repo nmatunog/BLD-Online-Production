@@ -387,7 +387,12 @@ function SelfCheckInContent() {
           await loadEventList();
         }
         await loadEvent(eventData.eventId);
-        toast.success('Event selected. You can check in below.');
+        
+        // Auto check-in: signed-in member scans event QR and checks in automatically
+        // Wait a bit for loadEvent to complete and update state
+        setTimeout(() => {
+          handleSelfCheckIn();
+        }, 300);
         return;
       }
       toast.error('Please scan a valid event QR code.');
