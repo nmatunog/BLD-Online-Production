@@ -58,6 +58,9 @@ export function MemberIdCard({
               />
             </div>
 
+            <div className="community-name">Bukas Loob sa Diyos</div>
+            <div className="community-subtitle">Catholic Charismatic Covenant Community</div>
+
             <div className="district-line">Cebu District</div>
 
             <div className="photo-section">
@@ -133,7 +136,7 @@ export function MemberIdCard({
         .card-content {
           width: 100%;
           height: 100%;
-          padding: 10px;
+          padding: 8px 10px;
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -148,22 +151,43 @@ export function MemberIdCard({
         }
 
         .logo-section {
-          margin-bottom: 2px;
+          margin-bottom: 1px;
         }
 
         .logo {
-          width: 40px;
-          height: 40px;
+          width: 32px;
+          height: 32px;
           object-fit: contain;
         }
 
+        .community-name {
+          font-size: 9px;
+          color: ${BLD.ink};
+          font-weight: 600;
+          text-align: center;
+          letter-spacing: 0.3px;
+          margin-bottom: 1px;
+          line-height: 1.1;
+        }
+
+        .community-subtitle {
+          font-size: 6.5px;
+          color: ${BLD.ink};
+          font-weight: 500;
+          text-align: center;
+          letter-spacing: 0.2px;
+          margin-bottom: 2px;
+          line-height: 1.2;
+          max-width: 90%;
+        }
+
         .district-line {
-          font-size: 8px;
+          font-size: 7.5px;
           color: ${BLD.navy};
           font-weight: 600;
           text-transform: uppercase;
           letter-spacing: 0.3px;
-          margin-bottom: 4px;
+          margin-bottom: 3px;
         }
 
         .photo-section {
@@ -172,7 +196,7 @@ export function MemberIdCard({
           border-radius: 4px;
           overflow: hidden;
           border: 1.5px solid ${BLD.red};
-          margin-bottom: 4px;
+          margin-bottom: 3px;
           background: #f5f5f5;
           flex-shrink: 0;
         }
@@ -191,7 +215,7 @@ export function MemberIdCard({
 
         .name-section {
           text-align: center;
-          margin-bottom: 3px;
+          margin-bottom: 2px;
           max-width: 90%;
         }
 
@@ -218,7 +242,7 @@ export function MemberIdCard({
           padding: 2px 6px;
           border-radius: 2px;
           letter-spacing: 0.4px;
-          margin-bottom: 3px;
+          margin-bottom: 2px;
         }
 
         .community-id {
