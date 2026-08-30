@@ -26,6 +26,7 @@ import { normalizePhoneNumber } from '@/utils/phone.util';
 import { parseAuthError } from '@/utils/error-handler';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { QRScanner, qrUtils } from '@/lib/qr-scanner-service';
+import { deviceMemory } from '@/lib/device-memory';
 
 const QR_LOGIN_REGION_ID = 'qr-reader-login';
 
@@ -130,7 +131,28 @@ export default function LoginPage() {
     }
     setIsLoading(true);
     try {
-      await authService.loginByQr({ communityId: qrScannedCommunityId, password: qrLoginPassword });
+      const result = await authService.loginByQr({ communityId: qrScannedCommunityId, password: qrLoginPassword });
+      
+      // Remember this member on this device after successful login
+      if (result.member?.communityId) {
+        // Get member ID from the member profile
+        const { membersService } = await import('@/services/members.service');
+        try {
+          const memberProfile = await membersService.getMe();
+          if (memberProfile?.id) {
+            deviceMemory.rememberMember({
+              communityId: result.member.communityId,
+              memberId: memberProfile.id,
+              firstName: result.member.firstName,
+              lastName: result.member.lastName,
+              nickname: result.member.nickname,
+            });
+          }
+        } catch (error) {
+          console.error('Failed to remember member after login:', error);
+        }
+      }
+      
       toast.success('Signed in successfully', { description: 'Redirecting to dashboard...' });
       router.push('/dashboard');
     } catch (error) {
@@ -183,7 +205,28 @@ export default function LoginPage() {
 
     setIsLoading(true);
     try {
-      await authService.login(loginData);
+      const result = await authService.login(loginData);
+      
+      // Remember this member on this device after successful login
+      if (result.member?.communityId) {
+        // Get member ID from the member profile
+        const { membersService } = await import('@/services/members.service');
+        try {
+          const memberProfile = await membersService.getMe();
+          if (memberProfile?.id) {
+            deviceMemory.rememberMember({
+              communityId: result.member.communityId,
+              memberId: memberProfile.id,
+              firstName: result.member.firstName,
+              lastName: result.member.lastName,
+              nickname: result.member.nickname,
+            });
+          }
+        } catch (error) {
+          console.error('Failed to remember member after login:', error);
+        }
+      }
+      
       toast.success('Signed in successfully', { description: 'Redirecting to dashboard...' });
       router.push('/dashboard');
     } catch (error) {

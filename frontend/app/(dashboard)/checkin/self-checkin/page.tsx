@@ -38,6 +38,7 @@ import {
   isPastEventCategory,
   isRelevantForCheckIn,
 } from '@/lib/event-checkin-window';
+import { deviceMemory } from '@/lib/device-memory';
 
 const qrCodeRegionId = 'qr-reader-self';
 
@@ -148,6 +149,9 @@ function SelfCheckInContent() {
   const [pastSelectValue, setPastSelectValue] = useState<string>('');
   const [showEventPicker, setShowEventPicker] = useState(false);
   const [myAttendances, setMyAttendances] = useState<Attendance[]>([]);
+  
+  // Device memory for remembered member
+  const [rememberedMember, setRememberedMember] = useState<ReturnType<typeof deviceMemory.getRememberedMember>>(null);
 
   const loadEventList = useCallback(async () => {
     setLoadingEvents(true);
@@ -309,7 +313,19 @@ function SelfCheckInContent() {
         const memberResult = await membersService.getMe();
         if (memberResult) setCurrentMember(memberResult);
       } catch {
-        // ignore
+        // If not logged in, check for remembered member
+        const remembered = deviceMemory.getRememberedMember();
+        if (remembered) {
+          setRememberedMember(remembered);
+          // Use remembered member as current member for check-in
+          setCurrentMember({
+            id: remembered.memberId,
+            communityId: remembered.communityId,
+            firstName: '', // Will be filled from remembered data
+            lastName: '',
+            nickname: null,
+          });
+        }
       }
     };
     loadMember();
@@ -550,6 +566,30 @@ function SelfCheckInContent() {
 
         <h1 className="text-3xl font-bold text-gray-900 mb-1">Self Check-In</h1>
         <p className="text-lg text-gray-600 mb-6">Tap the green button to check in for today&apos;s event.</p>
+
+        {/* Device memory status */}
+        {rememberedMember && (
+          <div className="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200">
+            <p className="text-sm text-blue-800 text-center">
+              {deviceMemory.getDisplayText()}
+              {' · '}
+              <button
+                type="button"
+                onClick={() => {
+                  deviceMemory.clearRememberedMember();
+                  setRememberedMember(null);
+                  toast.success('Device cleared', {
+                    description: 'This phone no longer remembers your identity. Please log in.',
+                  });
+                  router.push('/login');
+                }}
+                className="text-blue-700 underline font-semibold hover:text-blue-900"
+              >
+                Not you?
+              </button>
+            </p>
+          </div>
+        )}
 
         <Card className="bg-white border-2 border-gray-200 shadow-md">
           <CardContent className="p-6 space-y-6">

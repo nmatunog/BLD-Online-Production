@@ -25,6 +25,7 @@ import type { SignupResult, SignupSuggestion } from '@/types/api.types';
 import { IdPhotoUpload } from '@/components/IdPhotoUpload';
 import { generateStableMemberQR } from '@/lib/qr-service';
 import { MemberIdCard } from '@/components/MemberIdCard';
+import { deviceMemory } from '@/lib/device-memory';
 
 /** BLD logo color peg extracted from brand mark */
 const BLD = {
@@ -151,6 +152,15 @@ function SignupForm() {
     };
     setResult(resultData);
     
+    // Remember this member on this device
+    deviceMemory.rememberMember({
+      communityId: s.communityId,
+      memberId: s.memberId,
+      firstName: s.firstName,
+      lastName: s.lastName,
+      nickname: s.nickname,
+    });
+    
     try {
       const { apiClient } = await import('@/services/api-client');
       const response = await apiClient.get<{ success: boolean; data: { photoUrl?: string | null } }>(
@@ -231,6 +241,16 @@ function SignupForm() {
     setEncounterType(existing.encounterType);
     setClassNumber(String(existing.classNumber));
     setIdPhoto(existing.photoUrl || null);
+    
+    // Remember this member on this device
+    deviceMemory.rememberMember({
+      communityId: existing.communityId,
+      memberId: existing.memberId,
+      firstName: existing.firstName,
+      lastName: existing.lastName,
+      nickname: existing.nickname,
+    });
+    
     toast.error('Your account already exists', {
       description: `Community ID: ${existing.communityId}`,
       duration: 5000,
@@ -264,6 +284,15 @@ function SignupForm() {
       setResult(data);
       setIsExisting(false);
       setIsEditing(false);
+      
+      // Remember this member on this device
+      deviceMemory.rememberMember({
+        communityId: data.communityId,
+        memberId: data.memberId,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        nickname: data.nickname,
+      });
     } catch (error) {
       const existing = extractExistingFromError(error);
       if (existing) {
@@ -386,6 +415,27 @@ function SignupForm() {
             <ClipboardCopy className="w-5 h-5 mr-2" />
             Copy ID
           </Button>
+        </div>
+
+        {/* Device memory status */}
+        <div className="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200">
+          <p className="text-sm text-blue-800 text-center">
+            {deviceMemory.getDisplayText()}
+            {' · '}
+            <button
+              type="button"
+              onClick={() => {
+                deviceMemory.clearRememberedMember();
+                toast.success('Device cleared', {
+                  description: 'This phone no longer remembers your identity',
+                });
+                router.push('/signup');
+              }}
+              className="text-blue-700 underline font-semibold hover:text-blue-900"
+            >
+              Not you?
+            </button>
+          </p>
         </div>
 
         {isEditing ? (

@@ -29,6 +29,7 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { QRScanner, qrUtils } from '@/lib/qr-scanner-service';
 import { Label } from '@/components/ui/label';
+import { deviceMemory } from '@/lib/device-memory';
 
 export default function PublicCheckInPage() {
   const router = useRouter();
@@ -47,12 +48,25 @@ export default function PublicCheckInPage() {
   const scannerRef = useRef<QRScanner | null>(null);
   const qrCodeRegionId = 'qr-reader-public';
   const [continuousMode, setContinuousMode] = useState(false);
+  
+  // Device memory for remembered member check-in
+  const [rememberedMember, setRememberedMember] = useState<ReturnType<typeof deviceMemory.getRememberedMember>>(null);
+  const [checkInMode, setCheckInMode] = useState<'choose' | 'self' | 'staff'>('choose'); // choose, self (remembered), staff (scanner)
 
   useEffect(() => {
     checkCameraAvailability();
     
     if (eventId) {
       loadEvent(eventId);
+    }
+    
+    // Check if this device has a remembered member
+    const remembered = deviceMemory.getRememberedMember();
+    setRememberedMember(remembered);
+    
+    // If no remembered member, go straight to staff mode
+    if (!remembered) {
+      setCheckInMode('staff');
     }
   }, [eventId]);
 
@@ -216,6 +230,61 @@ export default function PublicCheckInPage() {
   };
 
   const handleSelfCheckIn = async () => {
+    // For remembered member check-in
+    if (checkInMode === 'self' && rememberedMember) {
+      if (!event) {
+        toast.error('Missing Information', {
+          description: 'Event information is missing',
+        });
+        return;
+      }
+
+      if (isCheckedIn) {
+        toast.info('Already Checked In', {
+          description: 'You have already checked in to this event',
+        });
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const response = await apiClient.post<ApiResponse<{ message: string }>>('/attendance/public/check-in', {
+          communityId: rememberedMember.communityId,
+          eventId: event.id,
+        });
+
+        if (response.data.success) {
+          setIsCheckedIn(true);
+          toast.success('✅ Check-in Successful!', {
+            description: 'You have been successfully checked in to this event',
+            duration: 5000,
+          });
+        }
+      } catch (error: any) {
+        let errorMessage = 'Failed to check in';
+        
+        if (error?.response?.data) {
+          const errorData = error.response.data;
+          if (Array.isArray(errorData.message)) {
+            errorMessage = errorData.message.join(', ');
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          }
+        } else if (error instanceof Error) {
+          errorMessage = error.message;
+        }
+        
+        toast.error('Check-in Failed', {
+          description: errorMessage,
+          duration: 5000,
+        });
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+    
+    // Original flow for staff scanner
     if (!event || !memberData?.id) {
       toast.error('Missing Information', {
         description: 'Event or member information is missing',
@@ -339,6 +408,130 @@ export default function PublicCheckInPage() {
       
       <div className="p-4 md:p-6">
         <div className="max-w-4xl mx-auto space-y-6">
+          {/* Mode Selection: If remembered member exists, show choice */}
+          {checkInMode === 'choose' && rememberedMember && event && (
+            <Card className="bg-white border-blue-200 shadow-sm">
+              <CardHeader>
+                <CardTitle className="text-lg">Choose Your Action</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-gray-600 mb-4">
+                  {deviceMemory.getDisplayText()}
+                </p>
+                <Button
+                  onClick={() => {
+                    setCheckInMode('self');
+                    // Auto-trigger check-in for remembered member
+                    setTimeout(() => {
+                      handleSelfCheckIn();
+                    }, 100);
+                  }}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white py-4 text-lg"
+                >
+                  <UserCheck className="w-5 h-5 mr-2" />
+                  Check in as {rememberedMember.displayName}
+                </Button>
+                <Button
+                  onClick={() => setCheckInMode('staff')}
+                  variant="outline"
+                  className="w-full border-2 py-4 text-lg"
+                >
+                  <Camera className="w-5 h-5 mr-2" />
+                  I&apos;m staff — scan members
+                </Button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    deviceMemory.clearRememberedMember();
+                    setRememberedMember(null);
+                    setCheckInMode('staff');
+                    toast.success('Device cleared', {
+                      description: 'This phone no longer remembers your identity',
+                    });
+                  }}
+                  className="w-full text-sm text-blue-700 underline hover:text-blue-900 py-2"
+                >
+                  Not you? Clear device memory
+                </button>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Self check-in result for remembered member */}
+          {checkInMode === 'self' && rememberedMember && event && (
+            <>
+              <Card className="bg-gradient-to-br from-purple-50 to-blue-50 border-purple-200 shadow-sm">
+                <CardHeader>
+                  <CardTitle className="text-2xl text-purple-800">{event.title}</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="flex items-start gap-3">
+                      <Calendar className="w-5 h-5 text-purple-600 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium text-gray-600">Date</p>
+                        <p className="text-base font-semibold text-gray-900">{formatDate(event.startDate)}</p>
+                      </div>
+                    </div>
+                    {event.startTime && (
+                      <div className="flex items-start gap-3">
+                        <Clock className="w-5 h-5 text-purple-600 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium text-gray-600">Time</p>
+                          <p className="text-base font-semibold text-gray-900">{formatTime(event.startTime)}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-white border-green-200 shadow-sm">
+                <CardHeader>
+                  <CardTitle className="text-lg">Check-In Status</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {isCheckedIn ? (
+                    <div className="flex items-center gap-3 text-green-600">
+                      <CheckCircle className="w-6 h-6" />
+                      <div>
+                        <p className="font-semibold text-gray-900">Checked In</p>
+                        <p className="text-sm text-gray-600">You have successfully checked in as {rememberedMember.displayName}</p>
+                      </div>
+                    </div>
+                  ) : loading ? (
+                    <div className="flex items-center gap-3">
+                      <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+                      <span>Checking in...</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold text-gray-900">Ready to Check In</p>
+                        <p className="text-sm text-gray-600">Checking in as {rememberedMember.displayName}</p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Button
+                onClick={() => {
+                  setCheckInMode('choose');
+                  setIsCheckedIn(false);
+                }}
+                variant="outline"
+                className="w-full"
+              >
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Options
+              </Button>
+            </>
+          )}
+
+          {/* Staff scanner mode (original flow) */}
+          {checkInMode === 'staff' && (
+            <>
           {/* Event Information Card */}
           <Card className="bg-gradient-to-br from-purple-50 to-blue-50 border-purple-200 shadow-sm">
             <CardHeader>
@@ -581,6 +774,8 @@ export default function PublicCheckInPage() {
                 </CardContent>
               </Card>
             </>
+          )}
+          </>
           )}
 
         </div>
