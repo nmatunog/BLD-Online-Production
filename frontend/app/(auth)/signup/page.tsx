@@ -76,6 +76,68 @@ function extractExistingFromError(error: unknown): SignupResult | null {
   return null;
 }
 
+function hasValidPhoto(photoUrl: string | null | undefined): boolean {
+  if (!photoUrl) return false;
+  const trimmed = photoUrl.trim();
+  if (!trimmed) return false;
+  return trimmed.startsWith('data:image/') || trimmed.startsWith('http');
+}
+
+function isValidPhoneNumber(phone: string | null | undefined): boolean {
+  if (!phone) return false;
+  const trimmed = phone.trim();
+  // Accept 09xxxxxxxxx OR legacy +63/639 formats
+  if (trimmed.length === 11 && trimmed.startsWith('09')) return true;
+  if (trimmed.startsWith('+63') && trimmed.length >= 12) return true;
+  if (trimmed.startsWith('639') && trimmed.length >= 11) return true;
+  return false;
+}
+
+interface MemberAudit {
+  profileGaps: string[]; // Name, encounter, class, photo - shown on edit card
+  needsPhoto: boolean;
+  needsPhone: boolean;
+  needsEncounter: boolean;
+  needsClass: boolean;
+  needsFirstName: boolean;
+  needsLastName: boolean;
+}
+
+function auditMemberFields(member: {
+  firstName?: string;
+  lastName?: string;
+  encounterType?: string;
+  classNumber?: number | string;
+  photoUrl?: string | null;
+  phone?: string | null;
+}): MemberAudit {
+  const profileGaps: string[] = [];
+  
+  const needsFirstName = !member.firstName?.trim();
+  const needsLastName = !member.lastName?.trim();
+  const needsEncounter = !member.encounterType?.trim();
+  const needsClass = !member.classNumber || String(member.classNumber).trim() === '';
+  const needsPhoto = !hasValidPhoto(member.photoUrl);
+  const needsPhone = !isValidPhoneNumber(member.phone);
+  
+  if (needsFirstName) profileGaps.push('first name');
+  if (needsLastName) profileGaps.push('last name');
+  if (needsEncounter) profileGaps.push('encounter type');
+  if (needsClass) profileGaps.push('class number');
+  if (needsPhoto) profileGaps.push('ID photo');
+  // Do NOT add phone to profileGaps - it's collected on login-setup screen
+  
+  return {
+    profileGaps,
+    needsPhoto,
+    needsPhone,
+    needsEncounter,
+    needsClass,
+    needsFirstName,
+    needsLastName,
+  };
+}
+
 function SignupForm() {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -95,6 +157,7 @@ function SignupForm() {
   const [idPhoto, setIdPhoto] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string>('');
   const [originalPhotoUrl, setOriginalPhotoUrl] = useState<string | null>(null);
+  const [profileGaps, setProfileGaps] = useState<string[]>([]);
 
   const [loginPhone, setLoginPhone] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -156,8 +219,6 @@ function SignupForm() {
     setSuggestions([]);
     setShowSuggestions(false);
     setIsExisting(true);
-    setIsEditing(false);
-    setNeedsPhone(true);
     
     const resultData = {
       memberId: s.memberId,
@@ -181,24 +242,70 @@ function SignupForm() {
       role: 'MEMBER',
     });
     
+    let photoUrl: string | null = null;
+    let phone: string | null = null;
+    
     try {
       const { apiClient } = await import('@/services/api-client');
-      const response = await apiClient.get<{ success: boolean; data: { photoUrl?: string | null } }>(
-        `/members/public/community/${s.communityId}`
-      );
-      if (response.data.success && response.data.data?.photoUrl) {
-        const photoUrl = response.data.data.photoUrl;
-        setIdPhoto(photoUrl);
-        setOriginalPhotoUrl(photoUrl);
+      const response = await apiClient.get<{ 
+        success: boolean; 
+        data: { 
+          photoUrl?: string | null;
+          user?: { phone?: string | null };
+        } 
+      }>(`/members/public/community/${s.communityId}`);
+      
+      if (response.data.success) {
+        photoUrl = response.data.data?.photoUrl || null;
+        phone = response.data.data?.user?.phone || null;
       }
     } catch (error) {
-      console.error('Failed to fetch member photo:', error);
+      console.error('Failed to fetch member details:', error);
+      // Continue with null photo/phone
     }
     
-    toast.success('Your account loaded', {
-      description: `Community ID: ${s.communityId}. You can now edit details or set up login.`,
-      duration: 5000,
+    setIdPhoto(photoUrl);
+    setOriginalPhotoUrl(photoUrl);
+    
+    // Audit profile fields (name, encounter, class, photo)
+    const audit = auditMemberFields({
+      firstName: s.firstName,
+      lastName: s.lastName,
+      encounterType: s.encounterType,
+      classNumber: s.classNumber,
+      photoUrl,
+      phone,
     });
+    
+    setProfileGaps(audit.profileGaps);
+    setNeedsPhone(audit.needsPhone);
+    
+    if (audit.profileGaps.length > 0) {
+      // Has profile gaps - enter edit mode with banner
+      setIsEditing(true);
+      
+      toast.info('Profile Incomplete', {
+        description: `We still need: ${audit.profileGaps.join(', ')}. Please complete these required fields.`,
+        duration: 7000,
+      });
+    } else if (audit.needsPhone) {
+      // Only phone is missing - skip edit mode, go straight to login-setup
+      setIsEditing(false);
+      setShowLoginSetup(true);
+      
+      toast.info('Mobile Number Required', {
+        description: 'Please enter your Philippine mobile number (09xxxxxxxxx) to complete your profile.',
+        duration: 6000,
+      });
+    } else {
+      // All fields present
+      setIsEditing(false);
+      
+      toast.success('Your account loaded', {
+        description: `Community ID: ${s.communityId}. You can now edit details or set up login.`,
+        duration: 5000,
+      });
+    }
   };
 
   const handleLastNameChange = (value: string) => {
@@ -253,16 +360,15 @@ function SignupForm() {
     }
   }, [result?.communityId]);
 
-  const showExistingAccount = (existing: SignupResult) => {
+  const showExistingAccount = async (existing: SignupResult) => {
     setResult(existing);
     setIsExisting(true);
-    setIsEditing(false);
-    setNeedsPhone(true);
     setLastName(existing.lastName);
     setFirstName(existing.firstName);
     setNickname(existing.nickname || '');
     setEncounterType(existing.encounterType);
     setClassNumber(String(existing.classNumber));
+    
     const photoUrl = existing.photoUrl || null;
     setIdPhoto(photoUrl);
     setOriginalPhotoUrl(photoUrl);
@@ -276,10 +382,61 @@ function SignupForm() {
       role: 'MEMBER',
     });
     
-    toast.success('Your account loaded', {
-      description: `Community ID: ${existing.communityId}. You can now edit details or set up login.`,
-      duration: 5000,
+    // Fetch real phone data from public endpoint
+    let phone: string | null = null;
+    try {
+      const { apiClient } = await import('@/services/api-client');
+      const response = await apiClient.get<{ 
+        success: boolean; 
+        data: { user?: { phone?: string | null } }
+      }>(`/members/public/community/${existing.communityId}`);
+      
+      if (response.data.success) {
+        phone = response.data.data?.user?.phone || null;
+      }
+    } catch (error) {
+      console.error('Failed to fetch member phone:', error);
+    }
+    
+    // Audit profile fields (name, encounter, class, photo)
+    const audit = auditMemberFields({
+      firstName: existing.firstName,
+      lastName: existing.lastName,
+      encounterType: existing.encounterType,
+      classNumber: existing.classNumber,
+      photoUrl,
+      phone,
     });
+    
+    setProfileGaps(audit.profileGaps);
+    setNeedsPhone(audit.needsPhone);
+    
+    if (audit.profileGaps.length > 0) {
+      // Has profile gaps - enter edit mode with banner
+      setIsEditing(true);
+      
+      toast.info('Profile Incomplete', {
+        description: `We still need: ${audit.profileGaps.join(', ')}. Please complete these required fields.`,
+        duration: 7000,
+      });
+    } else if (audit.needsPhone) {
+      // Only phone is missing - skip edit mode, go straight to login-setup
+      setIsEditing(false);
+      setShowLoginSetup(true);
+      
+      toast.info('Mobile Number Required', {
+        description: 'Please enter your Philippine mobile number (09xxxxxxxxx) to complete your profile.',
+        duration: 6000,
+      });
+    } else {
+      // All fields present
+      setIsEditing(false);
+      
+      toast.success('Your account loaded', {
+        description: `Community ID: ${existing.communityId}. You can now edit details or set up login.`,
+        duration: 5000,
+      });
+    }
   };
 
   const handleSubmit = async () => {
@@ -341,12 +498,32 @@ function SignupForm() {
   };
 
   const handleSaveEdit = async () => {
-    if (!result || !canSubmit || !idPhoto) {
+    if (!result) return;
+    
+    // Validate only profile fields (name, encounter, class, photo) - NOT phone
+    const currentAudit = auditMemberFields({
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      encounterType: encounterType.trim(),
+      classNumber: classNumber.trim(),
+      photoUrl: idPhoto,
+      phone: '09999999999', // Dummy phone to skip phone validation here
+    });
+    
+    if (currentAudit.profileGaps.length > 0) {
+      toast.error('Required fields missing', {
+        description: `Please complete: ${currentAudit.profileGaps.join(', ')}`,
+        duration: 6000,
+      });
+      return;
+    }
+    
+    if (!canSubmit || !idPhoto) {
       toast.error(
         !idPhoto ? 'ID photo is required' : 'Please complete the required fields',
         {
           description: !idPhoto
-            ? 'Take or upload a face photo for your Community ID card.'
+            ? 'Take or upload a face photo with a plain light or white wall background for your Community ID card.'
             : undefined,
         },
       );
@@ -365,20 +542,26 @@ function SignupForm() {
         encounterType,
         classNumber: classNumber.trim(),
         idPhoto: isNewPhoto ? idPhoto : undefined,
+        // Do NOT send phone here - it's collected on login-setup screen
       });
       setResult(data);
       setIsExisting(true);
       setIsEditing(false);
+      setProfileGaps([]);
       if (data.photoUrl) {
         setIdPhoto(data.photoUrl);
         setOriginalPhotoUrl(data.photoUrl);
       }
       toast.success('Details saved');
-      setShowLoginSetup(true);
+      
+      // After successful save, check if phone is still missing
+      if (needsPhone) {
+        setShowLoginSetup(true);
+      }
     } catch (error) {
       const existing = extractExistingFromError(error);
       if (existing && existing.memberId !== result.memberId) {
-        showExistingAccount(existing);
+        await showExistingAccount(existing);
       } else {
         const parsed = parseAuthError(error);
         toast.error(parsed.title, { description: parsed.message, duration: 6000 });
@@ -658,6 +841,16 @@ function SignupForm() {
 
         {isEditing ? (
           <div className="space-y-4 mb-6 text-left">
+            {profileGaps.length > 0 && (
+              <div className="mb-4 rounded-xl border-2 border-[#D00008]/30 bg-[#FCE8E9] p-4">
+                <p className="text-base font-semibold text-[#A80006] mb-2">
+                  Profile Incomplete
+                </p>
+                <p className="text-sm text-gray-700">
+                  We still need: <strong>{profileGaps.join(', ')}</strong>
+                </p>
+              </div>
+            )}
             <div>
               <Label htmlFor="editLastName" className={labelClass}>
                 Last name <span className="text-[#D00008]">*</span>
@@ -997,6 +1190,16 @@ function SignupForm() {
 
       {step === 2 && (
         <div className="space-y-4">
+          {profileGaps.includes('ID photo') && (
+            <div className="mb-4 rounded-xl border-2 border-[#D00008]/30 bg-[#FCE8E9] p-4">
+              <p className="text-base font-semibold text-[#A80006] mb-2">
+                ID Photo Required
+              </p>
+              <p className="text-sm text-gray-700">
+                Your profile is missing an ID photo. Please take or upload a photo with a <strong>plain light or white wall background</strong>. This photo will appear on your Community ID card.
+              </p>
+            </div>
+          )}
           <IdPhotoUpload
             onPhotoProcessed={setIdPhoto}
             currentPhoto={idPhoto}
@@ -1005,7 +1208,7 @@ function SignupForm() {
           />
           {!idPhoto && (
             <p className="text-sm text-[#D00008]">
-              Take or upload a photo to continue. This is used for your Community ID card.
+              Take or upload a photo to continue. Use a plain light or white wall background for best results.
             </p>
           )}
         </div>
