@@ -18,6 +18,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { authService } from '@/services/auth.service';
 import { SIGNUP_ENCOUNTER_TYPES } from '@/lib/member-constants';
 import { parseAuthError } from '@/utils/error-handler';
@@ -692,25 +699,24 @@ function SignupForm() {
               />
             </div>
             <div>
-              <Label className={labelClass}>
+              <Label htmlFor="editEncounter" className={labelClass}>
                 Encounter type <span className="text-[#D00008]">*</span>
               </Label>
-              <div className="mt-2 grid grid-cols-1 gap-2">
-                {SIGNUP_ENCOUNTER_TYPES.map(({ value, label }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setEncounterType(value)}
-                    className={`w-full min-h-12 rounded-xl border-2 px-3 py-2 text-left text-lg font-semibold ${
-                      encounterType === value
-                        ? 'border-[#D00008] bg-[#FCE8E9] text-[#A80006]'
-                        : 'border-gray-300'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <Select value={encounterType} onValueChange={setEncounterType}>
+                <SelectTrigger
+                  id="editEncounter"
+                  className="mt-2 h-14 w-full text-lg rounded-xl border-2 border-gray-300 focus:border-[#D00008] focus:ring-[#D00008]"
+                >
+                  <SelectValue placeholder="Select encounter" />
+                </SelectTrigger>
+                <SelectContent>
+                  {SIGNUP_ENCOUNTER_TYPES.map(({ value, label }) => (
+                    <SelectItem key={value} value={value} className="text-lg">
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label htmlFor="editClass" className={labelClass}>
@@ -938,25 +944,24 @@ function SignupForm() {
       {step === 1 && (
         <div className="space-y-5">
           <div>
-            <Label className={labelClass}>
+            <Label htmlFor="wizardEncounter" className={labelClass}>
               Encounter type <span className="text-[#D00008]">*</span>
             </Label>
-            <div className="mt-3 grid grid-cols-1 gap-3">
-              {SIGNUP_ENCOUNTER_TYPES.map(({ value, label }) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => setEncounterType(value)}
-                  className={`w-full min-h-14 rounded-xl border-2 px-4 py-3 text-left text-lg sm:text-xl font-semibold transition ${
-                    encounterType === value
-                      ? 'border-[#D00008] bg-[#FCE8E9] text-[#A80006]'
-                      : 'border-gray-300 bg-white text-gray-800'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <Select value={encounterType} onValueChange={setEncounterType}>
+              <SelectTrigger
+                id="wizardEncounter"
+                className="mt-3 h-14 w-full text-lg sm:text-xl rounded-xl border-2 border-gray-300 focus:border-[#D00008] focus:ring-[#D00008]"
+              >
+                <SelectValue placeholder="Select encounter" />
+              </SelectTrigger>
+              <SelectContent>
+                {SIGNUP_ENCOUNTER_TYPES.map(({ value, label }) => (
+                  <SelectItem key={value} value={value} className="text-lg sm:text-xl">
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div>
             <Label htmlFor="classNumber" className={labelClass}>
