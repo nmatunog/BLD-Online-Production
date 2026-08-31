@@ -74,6 +74,7 @@ export interface SignupRequest {
   encounterType: string;
   classNumber: string;
   city?: string;
+  phone: string;
   idPhoto: string;
 }
 
@@ -86,6 +87,8 @@ export interface SignupUpdateRequest {
   encounterType: string;
   classNumber: string;
   idPhoto?: string;
+  phone?: string;
+  password?: string;
 }
 
 export interface SignupResult {

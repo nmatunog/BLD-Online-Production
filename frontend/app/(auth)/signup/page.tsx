@@ -84,14 +84,22 @@ function SignupForm() {
   const [isExisting, setIsExisting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [showPrintView, setShowPrintView] = useState(false);
+  const [showLoginSetup, setShowLoginSetup] = useState(false);
 
   const [lastName, setLastName] = useState('');
   const [firstName, setFirstName] = useState('');
   const [nickname, setNickname] = useState('');
   const [encounterType, setEncounterType] = useState('');
   const [classNumber, setClassNumber] = useState('');
+  const [signupPhone, setSignupPhone] = useState('');
   const [idPhoto, setIdPhoto] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string>('');
+  const [originalPhotoUrl, setOriginalPhotoUrl] = useState<string | null>(null);
+
+  const [loginPhone, setLoginPhone] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [needsPhone, setNeedsPhone] = useState(false);
 
   const [suggestions, setSuggestions] = useState<SignupSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -100,7 +108,11 @@ function SignupForm() {
 
   const canContinueStep0 = lastName.trim().length > 0 && firstName.trim().length > 0;
   const canSubmit =
-    canContinueStep0 && encounterType.length > 0 && classNumber.trim().length > 0;
+    canContinueStep0 && 
+    encounterType.length > 0 && 
+    classNumber.trim().length > 0 && 
+    signupPhone.trim().length === 11 &&
+    signupPhone.startsWith('09');
   const hasIdPhoto = !!idPhoto;
 
   useEffect(() => {
@@ -117,13 +129,20 @@ function SignupForm() {
     setResult(null);
     setIsExisting(false);
     setIsEditing(false);
+    setShowLoginSetup(false);
     setStep(0);
     setLastName('');
     setFirstName('');
     setNickname('');
     setEncounterType('');
     setClassNumber('');
+    setSignupPhone('');
     setIdPhoto(null);
+    setOriginalPhotoUrl(null);
+    setLoginPhone('');
+    setLoginPassword('');
+    setShowPassword(false);
+    setNeedsPhone(false);
     setSuggestions([]);
     setShowSuggestions(false);
   };
@@ -138,6 +157,7 @@ function SignupForm() {
     setShowSuggestions(false);
     setIsExisting(true);
     setIsEditing(false);
+    setNeedsPhone(true);
     
     const resultData = {
       memberId: s.memberId,
@@ -152,13 +172,13 @@ function SignupForm() {
     };
     setResult(resultData);
     
-    // Remember this member on this device
     deviceMemory.rememberMember({
       communityId: s.communityId,
       memberId: s.memberId,
       firstName: s.firstName,
       lastName: s.lastName,
       nickname: s.nickname,
+      role: 'MEMBER',
     });
     
     try {
@@ -167,14 +187,16 @@ function SignupForm() {
         `/members/public/community/${s.communityId}`
       );
       if (response.data.success && response.data.data?.photoUrl) {
-        setIdPhoto(response.data.data.photoUrl);
+        const photoUrl = response.data.data.photoUrl;
+        setIdPhoto(photoUrl);
+        setOriginalPhotoUrl(photoUrl);
       }
     } catch (error) {
       console.error('Failed to fetch member photo:', error);
     }
     
-    toast.error('Your account already exists', {
-      description: `Community ID: ${s.communityId}`,
+    toast.success('Your account loaded', {
+      description: `Community ID: ${s.communityId}. You can now edit details or set up login.`,
       duration: 5000,
     });
   };
@@ -235,24 +257,27 @@ function SignupForm() {
     setResult(existing);
     setIsExisting(true);
     setIsEditing(false);
+    setNeedsPhone(true);
     setLastName(existing.lastName);
     setFirstName(existing.firstName);
     setNickname(existing.nickname || '');
     setEncounterType(existing.encounterType);
     setClassNumber(String(existing.classNumber));
-    setIdPhoto(existing.photoUrl || null);
+    const photoUrl = existing.photoUrl || null;
+    setIdPhoto(photoUrl);
+    setOriginalPhotoUrl(photoUrl);
     
-    // Remember this member on this device
     deviceMemory.rememberMember({
       communityId: existing.communityId,
       memberId: existing.memberId,
       firstName: existing.firstName,
       lastName: existing.lastName,
       nickname: existing.nickname,
+      role: 'MEMBER',
     });
     
-    toast.error('Your account already exists', {
-      description: `Community ID: ${existing.communityId}`,
+    toast.success('Your account loaded', {
+      description: `Community ID: ${existing.communityId}. You can now edit details or set up login.`,
       duration: 5000,
     });
   };
@@ -264,7 +289,11 @@ function SignupForm() {
         {
           description: !idPhoto
             ? 'Take or upload a face photo for your Community ID card.'
-            : undefined,
+            : !signupPhone.trim()
+              ? 'Philippine mobile number is required'
+              : signupPhone.trim().length !== 11 || !signupPhone.startsWith('09')
+                ? 'Phone must be 11 digits starting with 09'
+                : undefined,
         },
       );
       return;
@@ -279,20 +308,25 @@ function SignupForm() {
         encounterType,
         classNumber: classNumber.trim(),
         city: 'Cebu',
+        phone: signupPhone.trim(),
         idPhoto,
       });
       setResult(data);
       setIsExisting(false);
       setIsEditing(false);
+      setNeedsPhone(false);
+      setOriginalPhotoUrl(data.photoUrl || null);
       
-      // Remember this member on this device
       deviceMemory.rememberMember({
         communityId: data.communityId,
         memberId: data.memberId,
         firstName: data.firstName,
         lastName: data.lastName,
         nickname: data.nickname,
+        role: 'MEMBER',
       });
+      
+      setShowLoginSetup(true);
     } catch (error) {
       const existing = extractExistingFromError(error);
       if (existing) {
@@ -321,6 +355,7 @@ function SignupForm() {
 
     setIsLoading(true);
     try {
+      const isNewPhoto = idPhoto.startsWith('data:image/');
       const data = await authService.updateSignup({
         memberId: result.memberId,
         communityId: result.communityId,
@@ -329,12 +364,17 @@ function SignupForm() {
         nickname: nickname.trim() || undefined,
         encounterType,
         classNumber: classNumber.trim(),
-        idPhoto: idPhoto.startsWith('data:image/') ? idPhoto : undefined,
+        idPhoto: isNewPhoto ? idPhoto : undefined,
       });
       setResult(data);
       setIsExisting(true);
       setIsEditing(false);
+      if (data.photoUrl) {
+        setIdPhoto(data.photoUrl);
+        setOriginalPhotoUrl(data.photoUrl);
+      }
       toast.success('Details saved');
+      setShowLoginSetup(true);
     } catch (error) {
       const existing = extractExistingFromError(error);
       if (existing && existing.memberId !== result.memberId) {
@@ -348,7 +388,185 @@ function SignupForm() {
     }
   };
 
+  const handleLoginSetupSubmit = async () => {
+    if (!result) return;
+
+    const trimmedPhone = loginPhone.trim();
+    const trimmedPassword = loginPassword.trim();
+
+    if (needsPhone && !trimmedPhone) {
+      toast.error('Mobile number required', {
+        description: 'You must enter a Philippine mobile number to complete your profile',
+      });
+      return;
+    }
+
+    if (needsPhone && trimmedPhone) {
+      if (trimmedPhone.length !== 11 || !trimmedPhone.startsWith('09')) {
+        toast.error('Invalid phone format', {
+          description: 'Phone must be 11 digits starting with 09 (e.g., 09209648523)',
+        });
+        return;
+      }
+    }
+
+    if (trimmedPassword && needsPhone && !trimmedPhone) {
+      toast.error('Mobile number required', {
+        description: 'You must enter a mobile number when setting a password',
+      });
+      return;
+    }
+
+    if (!needsPhone && !trimmedPassword) {
+      setShowLoginSetup(false);
+      toast.success('Setup complete', {
+        description: 'You can set a password later via Forgot Password',
+      });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await authService.updateSignup({
+        memberId: result.memberId,
+        communityId: result.communityId,
+        firstName: result.firstName,
+        lastName: result.lastName,
+        nickname: result.nickname || undefined,
+        encounterType: result.encounterType,
+        classNumber: String(result.classNumber),
+        phone: needsPhone ? trimmedPhone : undefined,
+        password: trimmedPassword || undefined,
+      });
+
+      toast.success('Login setup saved', {
+        description: trimmedPhone
+          ? `You can now log in with ${trimmedPhone}${trimmedPassword ? ' and your password' : ' (set password later via Forgot Password)'}`
+          : trimmedPassword
+            ? 'Password saved. Use Forgot Password to update it later.'
+            : 'Details saved',
+      });
+
+      setShowLoginSetup(false);
+      setLoginPhone('');
+      setLoginPassword('');
+      setShowPassword(false);
+      setNeedsPhone(false);
+    } catch (error) {
+      const parsed = parseAuthError(error);
+      toast.error(parsed.title, { description: parsed.message, duration: 6000 });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSkipLoginSetup = () => {
+    setShowLoginSetup(false);
+    setLoginPhone('');
+    setLoginPassword('');
+    setShowPassword(false);
+  };
+
   if (result) {
+    if (showLoginSetup) {
+      return (
+        <Card className="w-full max-w-md mx-auto p-5 sm:p-8 rounded-2xl shadow-xl relative z-10 bg-white border-2 border-[#D00008]/25 overflow-hidden">
+          <div className="h-1.5 w-full absolute top-0 left-0 right-0 bg-[#D00008]" />
+          <div className="text-center mb-6 pt-2">
+            <BrandLogo size={72} />
+            <h1 className="text-2xl sm:text-3xl font-bold text-[#D00008] mt-4 mb-2">
+              {needsPhone ? 'Complete Your Profile' : 'Set a Password (Optional)'}
+            </h1>
+            <p className="text-base sm:text-lg text-gray-700">
+              {needsPhone
+                ? 'Enter your Philippine mobile number (required) and optionally set a password.'
+                : 'You can set a password now or skip and set it later via Forgot Password.'}
+            </p>
+          </div>
+
+          <div className="space-y-5 mb-6">
+            {needsPhone && (
+              <div>
+                <Label htmlFor="loginPhone" className={labelClass}>
+                  Philippine Mobile Number <span className="text-[#D00008]">*</span>
+                </Label>
+                <Input
+                  id="loginPhone"
+                  type="tel"
+                  className={fieldClass}
+                  placeholder="09209648523"
+                  value={loginPhone}
+                  onChange={(e) => setLoginPhone(e.target.value)}
+                  inputMode="tel"
+                  maxLength={11}
+                />
+                <p className="mt-1 text-sm text-gray-500">
+                  Format: 09 followed by 9 digits. This will be your login ID.
+                </p>
+              </div>
+            )}
+
+            <div>
+              <Label htmlFor="loginPassword" className={labelClass}>
+                Password <span className="text-gray-500 font-normal text-base">(optional)</span>
+              </Label>
+              <div className="relative">
+                <Input
+                  id="loginPassword"
+                  type={showPassword ? 'text' : 'password'}
+                  className={fieldClass}
+                  placeholder="Choose a password (6+ characters)"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                >
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
+              <p className="mt-1 text-sm text-gray-500">
+                {loginPassword.trim()
+                  ? needsPhone ? 'Password is optional' : 'You can change this later via Forgot Password'
+                  : 'Skip password now and set it later via Forgot Password'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <Button
+              type="button"
+              className={`w-full ${primaryBtn}`}
+              disabled={isLoading || (needsPhone && !loginPhone.trim())}
+              onClick={handleLoginSetupSubmit}
+            >
+              {isLoading ? 'Saving…' : needsPhone ? 'Save' : loginPassword.trim() ? 'Set Password' : 'Skip'}
+            </Button>
+
+            {!needsPhone && (
+              <Button
+                type="button"
+                variant="outline"
+                className={`w-full ${outlineBtn}`}
+                onClick={handleSkipLoginSetup}
+                disabled={isLoading}
+              >
+                Skip for now
+              </Button>
+            )}
+          </div>
+
+          <p className="text-center text-sm text-gray-600 mt-4">
+            {needsPhone
+              ? 'Mobile number is required. Password can be set later via Forgot Password.'
+              : 'You can set a password later. Your Community ID is ready for attendance and QR check-in.'}
+          </p>
+        </Card>
+      );
+    }
+
     if (showPrintView) {
       return (
         <div className="print-view-container">
@@ -573,6 +791,14 @@ function SignupForm() {
               >
                 Edit details
               </Button>
+              <Button
+                type="button"
+                className={`w-full ${outlineBtn}`}
+                onClick={() => setShowLoginSetup(true)}
+              >
+                <CheckCircle2 className="w-5 h-5 mr-2" />
+                Set up login
+              </Button>
             </>
           )}
 
@@ -745,8 +971,26 @@ function SignupForm() {
               onChange={(e) => setClassNumber(e.target.value.replace(/\D/g, ''))}
             />
           </div>
+          <div>
+            <Label htmlFor="signupPhone" className={labelClass}>
+              Philippine Mobile Number <span className="text-[#D00008]">*</span>
+            </Label>
+            <Input
+              id="signupPhone"
+              type="tel"
+              className={fieldClass}
+              inputMode="tel"
+              placeholder="09209648523"
+              value={signupPhone}
+              onChange={(e) => setSignupPhone(e.target.value.replace(/\D/g, ''))}
+              maxLength={11}
+            />
+            <p className="text-sm text-gray-500 mt-1">
+              Format: 09 followed by 9 digits. This will be your login ID.
+            </p>
+          </div>
           <p className="text-base text-gray-500">
-            Location defaults to Cebu. Mobile, ministry, and login come later.
+            Location defaults to Cebu. Password can be set after signup.
           </p>
         </div>
       )}

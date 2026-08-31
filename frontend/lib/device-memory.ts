@@ -9,22 +9,21 @@
 export interface RememberedMember {
   communityId: string;
   memberId: string;
-  displayName: string; // e.g., "Ez" or "Nilo Matunog"
-  rememberedAt: string; // ISO timestamp
+  displayName: string;
+  rememberedAt: string;
+  role?: string;
 }
 
 const STORAGE_KEY = 'bld_remembered_member';
 
 export const deviceMemory = {
-  /**
-   * Remember a member on this device
-   */
   rememberMember(data: {
     communityId: string;
     memberId: string;
     firstName: string;
     lastName: string;
     nickname?: string | null;
+    role?: string;
   }): RememberedMember {
     const displayName = data.nickname
       ? `${data.nickname} ${data.lastName}`
@@ -35,6 +34,7 @@ export const deviceMemory = {
       memberId: data.memberId,
       displayName,
       rememberedAt: new Date().toISOString(),
+      role: data.role || 'MEMBER',
     };
 
     if (typeof window !== 'undefined') {
@@ -48,9 +48,6 @@ export const deviceMemory = {
     return remembered;
   },
 
-  /**
-   * Get the remembered member on this device (if any)
-   */
   getRememberedMember(): RememberedMember | null {
     if (typeof window === 'undefined') {
       return null;
@@ -64,16 +61,18 @@ export const deviceMemory = {
 
       const parsed = JSON.parse(stored) as RememberedMember;
 
-      // Validate structure
       if (
         !parsed.communityId ||
         !parsed.memberId ||
         !parsed.displayName ||
         !parsed.rememberedAt
       ) {
-        // Invalid data, clear it
         this.clearRememberedMember();
         return null;
+      }
+
+      if (!parsed.role) {
+        parsed.role = 'MEMBER';
       }
 
       return parsed;
@@ -83,9 +82,6 @@ export const deviceMemory = {
     }
   },
 
-  /**
-   * Clear the remembered member ("Not you?" button)
-   */
   clearRememberedMember(): void {
     if (typeof window !== 'undefined') {
       try {
@@ -96,22 +92,24 @@ export const deviceMemory = {
     }
   },
 
-  /**
-   * Check if this device has a remembered member
-   */
   hasRememberedMember(): boolean {
     return this.getRememberedMember() !== null;
   },
 
-  /**
-   * Get a short description of the remembered member for UI display
-   * e.g., "This phone is remembered as Ez"
-   */
   getDisplayText(): string {
     const remembered = this.getRememberedMember();
     if (!remembered) {
       return '';
     }
     return `This phone is remembered as ${remembered.displayName}`;
+  },
+
+  isStaffOrAdmin(): boolean {
+    const remembered = this.getRememberedMember();
+    if (!remembered || !remembered.role) {
+      return false;
+    }
+    const staffRoles = ['SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR', 'CLASS_SHEPHERD'];
+    return staffRoles.includes(remembered.role);
   },
 };

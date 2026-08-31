@@ -17,8 +17,9 @@ export class SignupSuggestQueryDto {
 }
 
 /**
- * Update an existing initial-signup member (no password required).
- * Used when duplicate is found and the member edits their details.
+ * Update an existing initial-signup member.
+ * For legacy members without phone: phone becomes required before Save.
+ * Password is always optional (Skip allowed).
  */
 export class SignupUpdateDto {
   @IsString()
@@ -54,4 +55,13 @@ export class SignupUpdateDto {
   @IsOptional()
   @MaxLength(500_000)
   idPhoto?: string;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @IsString()
+  @IsOptional()
+  @MinLength(6)
+  password?: string;
 }
