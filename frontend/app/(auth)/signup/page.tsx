@@ -76,6 +76,64 @@ function extractExistingFromError(error: unknown): SignupResult | null {
   return null;
 }
 
+function hasValidPhoto(photoUrl: string | null | undefined): boolean {
+  if (!photoUrl) return false;
+  const trimmed = photoUrl.trim();
+  if (!trimmed) return false;
+  return trimmed.startsWith('data:image/') || trimmed.startsWith('http');
+}
+
+function isValidPhoneNumber(phone: string | null | undefined): boolean {
+  if (!phone) return false;
+  const trimmed = phone.trim();
+  return trimmed.length === 11 && trimmed.startsWith('09');
+}
+
+interface MemberAudit {
+  missingFields: string[];
+  needsPhoto: boolean;
+  needsPhone: boolean;
+  needsEncounter: boolean;
+  needsClass: boolean;
+  needsFirstName: boolean;
+  needsLastName: boolean;
+}
+
+function auditMemberFields(member: {
+  firstName?: string;
+  lastName?: string;
+  encounterType?: string;
+  classNumber?: number | string;
+  photoUrl?: string | null;
+  phone?: string | null;
+}): MemberAudit {
+  const missing: string[] = [];
+  
+  const needsFirstName = !member.firstName?.trim();
+  const needsLastName = !member.lastName?.trim();
+  const needsEncounter = !member.encounterType?.trim();
+  const needsClass = !member.classNumber || String(member.classNumber).trim() === '';
+  const needsPhoto = !hasValidPhoto(member.photoUrl);
+  const needsPhone = !isValidPhoneNumber(member.phone);
+  
+  if (needsFirstName) missing.push('first name');
+  if (needsLastName) missing.push('last name');
+  if (needsEncounter) missing.push('encounter type');
+  if (needsClass) missing.push('class number');
+  if (needsPhoto) missing.push('ID photo');
+  if (needsPhone) missing.push('mobile number');
+  
+  return {
+    missingFields: missing,
+    needsPhoto,
+    needsPhone,
+    needsEncounter,
+    needsClass,
+    needsFirstName,
+    needsLastName,
+  };
+}
+
 function SignupForm() {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -95,6 +153,7 @@ function SignupForm() {
   const [idPhoto, setIdPhoto] = useState<string | null>(null);
   const [qrCode, setQrCode] = useState<string>('');
   const [originalPhotoUrl, setOriginalPhotoUrl] = useState<string | null>(null);
+  const [missingFields, setMissingFields] = useState<string[]>([]);
 
   const [loginPhone, setLoginPhone] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -157,7 +216,6 @@ function SignupForm() {
     setShowSuggestions(false);
     setIsExisting(true);
     setIsEditing(false);
-    setNeedsPhone(true);
     
     const resultData = {
       memberId: s.memberId,
@@ -183,22 +241,83 @@ function SignupForm() {
     
     try {
       const { apiClient } = await import('@/services/api-client');
-      const response = await apiClient.get<{ success: boolean; data: { photoUrl?: string | null } }>(
-        `/members/public/community/${s.communityId}`
-      );
-      if (response.data.success && response.data.data?.photoUrl) {
-        const photoUrl = response.data.data.photoUrl;
-        setIdPhoto(photoUrl);
-        setOriginalPhotoUrl(photoUrl);
+      const response = await apiClient.get<{ 
+        success: boolean; 
+        data: { 
+          photoUrl?: string | null;
+          user?: { phone?: string | null };
+        } 
+      }>(`/members/public/community/${s.communityId}`);
+      
+      const photoUrl = response.data.success && response.data.data?.photoUrl 
+        ? response.data.data.photoUrl 
+        : null;
+      const phone = response.data.data?.user?.phone || null;
+      
+      setIdPhoto(photoUrl);
+      setOriginalPhotoUrl(photoUrl);
+      
+      // Audit all required fields
+      const audit = auditMemberFields({
+        firstName: s.firstName,
+        lastName: s.lastName,
+        encounterType: s.encounterType,
+        classNumber: s.classNumber,
+        photoUrl,
+        phone,
+      });
+      
+      setMissingFields(audit.missingFields);
+      setNeedsPhone(audit.needsPhone);
+      
+      if (audit.missingFields.length > 0) {
+        // Has missing fields - show what's needed and enter edit mode
+        setIsEditing(true);
+        
+        // Jump to first missing critical field
+        if (audit.needsFirstName || audit.needsLastName) {
+          setStep(0);
+        } else if (audit.needsEncounter || audit.needsClass) {
+          setStep(1);
+        } else if (audit.needsPhoto) {
+          setStep(2);
+        }
+        
+        toast.info('Profile Incomplete', {
+          description: `We still need: ${audit.missingFields.join(', ')}. Please complete these required fields.`,
+          duration: 7000,
+        });
+      } else {
+        // All required fields present
+        toast.success('Your account loaded', {
+          description: `Community ID: ${s.communityId}. You can now edit details or set up login.`,
+          duration: 5000,
+        });
       }
     } catch (error) {
-      console.error('Failed to fetch member photo:', error);
+      console.error('Failed to fetch member details:', error);
+      // Assume photo and phone are missing if fetch fails
+      const audit = auditMemberFields({
+        firstName: s.firstName,
+        lastName: s.lastName,
+        encounterType: s.encounterType,
+        classNumber: s.classNumber,
+        photoUrl: null,
+        phone: null,
+      });
+      
+      setIdPhoto(null);
+      setOriginalPhotoUrl(null);
+      setMissingFields(audit.missingFields);
+      setNeedsPhone(true);
+      setIsEditing(true);
+      setStep(audit.needsFirstName || audit.needsLastName ? 0 : audit.needsEncounter || audit.needsClass ? 1 : 2);
+      
+      toast.info('Profile Incomplete', {
+        description: `We still need: ${audit.missingFields.join(', ')}. Please complete these required fields.`,
+        duration: 7000,
+      });
     }
-    
-    toast.success('Your account loaded', {
-      description: `Community ID: ${s.communityId}. You can now edit details or set up login.`,
-      duration: 5000,
-    });
   };
 
   const handleLastNameChange = (value: string) => {
@@ -256,13 +375,12 @@ function SignupForm() {
   const showExistingAccount = (existing: SignupResult) => {
     setResult(existing);
     setIsExisting(true);
-    setIsEditing(false);
-    setNeedsPhone(true);
     setLastName(existing.lastName);
     setFirstName(existing.firstName);
     setNickname(existing.nickname || '');
     setEncounterType(existing.encounterType);
     setClassNumber(String(existing.classNumber));
+    
     const photoUrl = existing.photoUrl || null;
     setIdPhoto(photoUrl);
     setOriginalPhotoUrl(photoUrl);
@@ -276,10 +394,46 @@ function SignupForm() {
       role: 'MEMBER',
     });
     
-    toast.success('Your account loaded', {
-      description: `Community ID: ${existing.communityId}. You can now edit details or set up login.`,
-      duration: 5000,
+    // Audit all required fields (phone comes from existing result if available)
+    const audit = auditMemberFields({
+      firstName: existing.firstName,
+      lastName: existing.lastName,
+      encounterType: existing.encounterType,
+      classNumber: existing.classNumber,
+      photoUrl,
+      phone: null, // We don't have phone in SignupResult, will check via needsPhone
     });
+    
+    setMissingFields(audit.missingFields);
+    setNeedsPhone(true); // Always check phone for existing accounts
+    
+    if (audit.missingFields.length > 0) {
+      // Has missing fields - show what's needed and enter edit mode
+      setIsEditing(true);
+      
+      // Jump to first missing critical field
+      if (audit.needsFirstName || audit.needsLastName) {
+        setStep(0);
+      } else if (audit.needsEncounter || audit.needsClass) {
+        setStep(1);
+      } else if (audit.needsPhoto) {
+        setStep(2);
+      } else {
+        setIsEditing(false);
+      }
+      
+      toast.info('Profile Incomplete', {
+        description: `We still need: ${audit.missingFields.join(', ')}. Please complete these required fields.`,
+        duration: 7000,
+      });
+    } else {
+      setIsEditing(false);
+      setNeedsPhone(true); // Still need to check phone
+      toast.success('Your account loaded', {
+        description: `Community ID: ${existing.communityId}. You can now edit details or set up login.`,
+        duration: 5000,
+      });
+    }
   };
 
   const handleSubmit = async () => {
@@ -341,12 +495,32 @@ function SignupForm() {
   };
 
   const handleSaveEdit = async () => {
-    if (!result || !canSubmit || !idPhoto) {
+    if (!result) return;
+    
+    // Validate all required fields
+    const currentAudit = auditMemberFields({
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      encounterType: encounterType.trim(),
+      classNumber: classNumber.trim(),
+      photoUrl: idPhoto,
+      phone: signupPhone.trim() || null,
+    });
+    
+    if (currentAudit.missingFields.length > 0) {
+      toast.error('Required fields missing', {
+        description: `Please complete: ${currentAudit.missingFields.join(', ')}`,
+        duration: 6000,
+      });
+      return;
+    }
+    
+    if (!canSubmit || !idPhoto) {
       toast.error(
         !idPhoto ? 'ID photo is required' : 'Please complete the required fields',
         {
           description: !idPhoto
-            ? 'Take or upload a face photo for your Community ID card.'
+            ? 'Take or upload a face photo with a plain light or white wall background for your Community ID card.'
             : undefined,
         },
       );
@@ -364,11 +538,13 @@ function SignupForm() {
         nickname: nickname.trim() || undefined,
         encounterType,
         classNumber: classNumber.trim(),
+        phone: signupPhone.trim() || undefined,
         idPhoto: isNewPhoto ? idPhoto : undefined,
       });
       setResult(data);
       setIsExisting(true);
       setIsEditing(false);
+      setMissingFields([]);
       if (data.photoUrl) {
         setIdPhoto(data.photoUrl);
         setOriginalPhotoUrl(data.photoUrl);
@@ -658,6 +834,16 @@ function SignupForm() {
 
         {isEditing ? (
           <div className="space-y-4 mb-6 text-left">
+            {missingFields.length > 0 && (
+              <div className="mb-4 rounded-xl border-2 border-[#D00008]/30 bg-[#FCE8E9] p-4">
+                <p className="text-base font-semibold text-[#A80006] mb-2">
+                  Profile Incomplete
+                </p>
+                <p className="text-sm text-gray-700">
+                  We still need: <strong>{missingFields.join(', ')}</strong>
+                </p>
+              </div>
+            )}
             <div>
               <Label htmlFor="editLastName" className={labelClass}>
                 Last name <span className="text-[#D00008]">*</span>
@@ -997,6 +1183,16 @@ function SignupForm() {
 
       {step === 2 && (
         <div className="space-y-4">
+          {missingFields.includes('ID photo') && (
+            <div className="mb-4 rounded-xl border-2 border-[#D00008]/30 bg-[#FCE8E9] p-4">
+              <p className="text-base font-semibold text-[#A80006] mb-2">
+                ID Photo Required
+              </p>
+              <p className="text-sm text-gray-700">
+                Your profile is missing an ID photo. Please take or upload a photo with a <strong>plain light or white wall background</strong>. This photo will appear on your Community ID card.
+              </p>
+            </div>
+          )}
           <IdPhotoUpload
             onPhotoProcessed={setIdPhoto}
             currentPhoto={idPhoto}
@@ -1005,7 +1201,7 @@ function SignupForm() {
           />
           {!idPhoto && (
             <p className="text-sm text-[#D00008]">
-              Take or upload a photo to continue. This is used for your Community ID card.
+              Take or upload a photo to continue. Use a plain light or white wall background for best results.
             </p>
           )}
         </div>

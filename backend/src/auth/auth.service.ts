@@ -370,6 +370,7 @@ export class AuthService {
 
       userUpdateData.phone = normalizedPhone;
     } else if (!member.user.phone) {
+      // Phone is required if not already set
       throw new BadRequestException('Philippine mobile number is required to complete your profile');
     }
 
