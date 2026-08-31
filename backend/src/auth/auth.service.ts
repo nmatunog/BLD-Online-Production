@@ -71,7 +71,7 @@ export class AuthService {
 
       const existingUser = await this.prisma.user.findFirst({
         where: {
-          phone: { in: phoneVariants },
+          phone: { in: phoneVariants.filter((v): v is string => Boolean(v)) },
         },
       });
       if (existingUser) {
@@ -206,7 +206,7 @@ export class AuthService {
 
     const existingPhone = await this.prisma.user.findFirst({
       where: {
-        phone: { in: phoneVariants },
+        phone: { in: phoneVariants.filter((v): v is string => Boolean(v)) },
       },
     });
 
@@ -359,7 +359,7 @@ export class AuthService {
 
       const existingPhone = await this.prisma.user.findFirst({
         where: {
-          phone: { in: phoneVariants },
+          phone: { in: phoneVariants.filter((v): v is string => Boolean(v)) },
           id: { not: member.userId },
         },
       });
@@ -696,7 +696,7 @@ export class AuthService {
         classNumber: encounterNumber,
         user: {
           phone: {
-            in: phoneVariants,
+            in: phoneVariants.filter((v): v is string => Boolean(v)),
           },
         },
       },

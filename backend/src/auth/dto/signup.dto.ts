@@ -5,7 +5,6 @@ import {
   IsIn,
   MaxLength,
   Matches,
-  MinLength,
 } from 'class-validator';
 import { SIGNUP_ENCOUNTER_TYPES } from '../auth.constants';
 
