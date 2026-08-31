@@ -18,7 +18,7 @@ import { AuthResult } from './interfaces/auth-result.interface';
 import { SignupResult, SignupSuggestion } from './interfaces/signup-result.interface';
 import { UserRole } from '@prisma/client';
 import { roleRequiresCredentials } from './auth.constants';
-import { normalizePhoneNumber } from '../common/utils/phone.util';
+import { normalizePhoneNumber, phoneToE164 } from '../common/utils/phone.util';
 import { SignupUpdateDto } from './dto/signup-lookup.dto';
 import { MembersService } from '../members/members.service';
 
@@ -46,7 +46,6 @@ export class AuthService {
   ) {}
 
   async register(registerDto: RegisterDto): Promise<AuthResult> {
-    // Normalize phone number if provided
     const normalizedPhone = registerDto.phone
       ? normalizePhoneNumber(registerDto.phone)
       : null;
@@ -54,7 +53,6 @@ export class AuthService {
       ? registerDto.email.trim().toLowerCase()
       : null;
 
-    // Check if user already exists
     if (registerDto.email) {
       const existingUser = await this.prisma.user.findUnique({
         where: { email: registerDto.email },
@@ -64,14 +62,16 @@ export class AuthService {
       }
     }
 
-    // Check for existing phone (check both normalized and original formats)
     if (normalizedPhone) {
+      const phoneVariants = [normalizedPhone, registerDto.phone];
+      const e164Phone = phoneToE164(normalizedPhone);
+      if (e164Phone) {
+        phoneVariants.push(e164Phone);
+      }
+
       const existingUser = await this.prisma.user.findFirst({
         where: {
-          OR: [
-            { phone: normalizedPhone },
-            registerDto.phone ? { phone: registerDto.phone } : {},
-          ],
+          phone: { in: phoneVariants },
         },
       });
       if (existingUser) {
@@ -83,10 +83,8 @@ export class AuthService {
       throw new BadRequestException('Either email or phone is required');
     }
 
-    // Hash password
     const passwordHash = await bcrypt.hash(registerDto.password, 10);
 
-    // Preflight: if a user exists with same email/phone but no member, clean it so retries succeed
     if (normalizedEmail || normalizedPhone) {
       const existingUser = await this.prisma.user.findFirst({
         where: {
@@ -107,13 +105,10 @@ export class AuthService {
           );
         }
 
-        // Orphaned user without member profile: clean up to allow retry
         await this.prisma.user.delete({ where: { id: existingUser.id } });
       }
     }
 
-    // All sign-ups default to MEMBER. Only the designated master super user (env) can become SUPER_USER on sign-up.
-    // Require env vars to be set and non-empty before matching (otherwise undefined === undefined would make everyone super user).
     const masterEmail = process.env.MASTER_SUPER_USER_EMAIL?.trim().toLowerCase();
     const masterPhone = process.env.MASTER_SUPER_USER_PHONE
       ? normalizePhoneNumber(process.env.MASTER_SUPER_USER_PHONE)
@@ -128,16 +123,13 @@ export class AuthService {
       throw new BadRequestException('City or location is required.');
     }
 
-    // Generate Community ID (uses 3-letter city code; Talisay/Don Bosco/etc. → CEB)
     const communityId = await this.generateCommunityId(
       cityCode,
       registerDto.encounterType,
       registerDto.classNumber,
     );
 
-    // Create user and member in transaction
     const result = await this.prisma.$transaction(async (tx) => {
-      // Create user (use normalized phone number)
       const user = await tx.user.create({
         data: {
           email: normalizedEmail,
@@ -147,7 +139,6 @@ export class AuthService {
         },
       });
 
-      // Parse class number (01-999)
       const classNum = parseInt(registerDto.classNumber, 10);
       if (isNaN(classNum) || classNum < 1 || classNum > 999) {
         throw new BadRequestException(
@@ -155,7 +146,6 @@ export class AuthService {
         );
       }
 
-      // Create member profile (store 3-letter city code)
       const member = await tx.member.create({
         data: {
           userId: user.id,
@@ -167,14 +157,13 @@ export class AuthService {
           communityId,
           city: cityCode,
           encounterType: registerDto.encounterType,
-          classNumber: classNum, // Store as integer (e.g., 18, not 1801)
+          classNumber: classNum,
         },
       });
 
       return { user, member };
     });
 
-    // Generate tokens with member info (including communityId)
     return this.generateTokens(result.user, {
       nickname: result.member.nickname,
       lastName: result.member.lastName,
@@ -186,7 +175,8 @@ export class AuthService {
   }
 
   /**
-   * Initial signup — no password. Active immediately for attendance / Community ID + QR.
+   * Initial signup — phone required, password optional (set via post-signup prompt or forgot-password later).
+   * Active immediately for attendance / Community ID + QR.
    *
    * Duplicate hierarchy (most effective first):
    * 1. Exact lastName + firstName → block (409, existing details)
@@ -201,6 +191,27 @@ export class AuthService {
     const classNum = parseInt(signupDto.classNumber, 10);
     if (isNaN(classNum) || classNum < 1 || classNum > 999) {
       throw new BadRequestException('Class number must be between 01 and 999');
+    }
+
+    const normalizedPhone = normalizePhoneNumber(signupDto.phone);
+    if (!normalizedPhone) {
+      throw new BadRequestException('Invalid Philippine mobile number. Use format: 09XXXXXXXXX');
+    }
+
+    const phoneVariants = [normalizedPhone];
+    const e164Phone = phoneToE164(normalizedPhone);
+    if (e164Phone) {
+      phoneVariants.push(e164Phone);
+    }
+
+    const existingPhone = await this.prisma.user.findFirst({
+      where: {
+        phone: { in: phoneVariants },
+      },
+    });
+
+    if (existingPhone) {
+      throw new ConflictException('This mobile number is already registered');
     }
 
     const cityCode = normalizeCityToCode(signupDto.city?.trim() || 'Cebu') || 'CEB';
@@ -222,7 +233,7 @@ export class AuthService {
     const member = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
         data: {
-          phone: null,
+          phone: normalizedPhone,
           passwordHash: null,
           role: UserRole.MEMBER,
           isActive: true,
@@ -295,6 +306,7 @@ export class AuthService {
   /**
    * Update details of an existing initial-signup member (identified by memberId + communityId).
    * Encounter/class changes do not rewrite Community ID (stable QR identifier).
+   * Now supports setting phone and password for login activation.
    */
   async updateSignup(dto: SignupUpdateDto): Promise<SignupResult> {
     const memberId = dto.memberId.trim();
@@ -326,6 +338,48 @@ export class AuthService {
       });
     }
 
+    const userUpdateData: {
+      isActive: boolean;
+      phone?: string | null;
+      passwordHash?: string;
+    } = { isActive: true };
+
+    let normalizedPhone: string | null = null;
+    if (dto.phone) {
+      normalizedPhone = normalizePhoneNumber(dto.phone);
+      if (!normalizedPhone) {
+        throw new BadRequestException('Invalid Philippine mobile number. Use format: 09XXXXXXXXX');
+      }
+
+      const phoneVariants = [normalizedPhone];
+      const e164Phone = phoneToE164(normalizedPhone);
+      if (e164Phone) {
+        phoneVariants.push(e164Phone);
+      }
+
+      const existingPhone = await this.prisma.user.findFirst({
+        where: {
+          phone: { in: phoneVariants },
+          id: { not: member.userId },
+        },
+      });
+
+      if (existingPhone) {
+        throw new ConflictException('This mobile number is already registered');
+      }
+
+      userUpdateData.phone = normalizedPhone;
+    } else if (!member.user.phone) {
+      throw new BadRequestException('Philippine mobile number is required to complete your profile');
+    }
+
+    if (dto.password) {
+      if (!dto.phone && !member.user.phone) {
+        throw new BadRequestException('Mobile number is required when setting a password');
+      }
+      userUpdateData.passwordHash = await bcrypt.hash(dto.password, 10);
+    }
+
     const updated = await this.prisma.member.update({
       where: { id: member.id },
       data: {
@@ -337,10 +391,19 @@ export class AuthService {
       },
     });
 
-    await this.prisma.user.update({
-      where: { id: member.userId },
-      data: { isActive: true },
-    });
+    // Only update user fields if phone or password was provided
+    if (dto.phone || dto.password) {
+      await this.prisma.user.update({
+        where: { id: member.userId },
+        data: userUpdateData,
+      });
+    } else {
+      // Just ensure user is active
+      await this.prisma.user.update({
+        where: { id: member.userId },
+        data: { isActive: true },
+      });
+    }
 
     let photoUrl = member.photoUrl;
     if (dto.idPhoto) {
@@ -446,7 +509,6 @@ export class AuthService {
       throw new BadRequestException('Either email or phone is required');
     }
 
-    // Normalize: email to lowercase (matches profile update), phone to E.164
     const emailLookup = loginDto.email?.trim()
       ? loginDto.email.trim().toLowerCase()
       : null;
@@ -454,11 +516,14 @@ export class AuthService {
       ? normalizePhoneNumber(loginDto.phone)
       : null;
 
-    // Build where: only non-empty conditions so Prisma OR behaves correctly
     const orConditions: Array<{ email?: string; phone?: string }> = [];
     if (emailLookup) orConditions.push({ email: emailLookup });
     if (normalizedPhone) {
       orConditions.push({ phone: normalizedPhone });
+      const e164Phone = phoneToE164(normalizedPhone);
+      if (e164Phone) {
+        orConditions.push({ phone: e164Phone });
+      }
       if (loginDto.phone && loginDto.phone !== normalizedPhone) {
         orConditions.push({ phone: loginDto.phone });
       }
@@ -484,7 +549,6 @@ export class AuthService {
     });
 
     if (!user) {
-      // Log for debugging - check if database is empty
       const userCount = await this.prisma.user.count();
       console.log(`[AUTH] Login failed: User not found. Total users in DB: ${userCount}`);
       if (userCount === 0) {
@@ -495,7 +559,6 @@ export class AuthService {
 
     this.assertUserCanLogin(user);
 
-    // Verify password
     const isPasswordValid = await bcrypt.compare(
       loginDto.password,
       user.passwordHash!,
@@ -505,7 +568,6 @@ export class AuthService {
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    // Generate tokens with member info (including communityId)
     return this.generateTokens(
       user,
       user.member
@@ -622,15 +684,19 @@ export class AuthService {
       throw new BadRequestException('Encounter number must be between 1 and 999');
     }
 
-    // Verify identity using required fields:
-    // last name + phone + encounter number
+    const phoneVariants = [normalizedPhone, requestDto.phone.trim()];
+    const e164Phone = phoneToE164(normalizedPhone);
+    if (e164Phone) {
+      phoneVariants.push(e164Phone);
+    }
+
     const member = await this.prisma.member.findFirst({
       where: {
         lastName: { equals: normalizedLastName, mode: 'insensitive' },
         classNumber: encounterNumber,
         user: {
           phone: {
-            in: [normalizedPhone, requestDto.phone.trim()],
+            in: phoneVariants,
           },
         },
       },
@@ -638,7 +704,6 @@ export class AuthService {
     });
 
     if (!member?.user) {
-      // Don't reveal if user exists for security
       return {
         message:
           'If details match an account, password reset can continue',
@@ -646,7 +711,6 @@ export class AuthService {
     }
     const user = member.user;
 
-    // Generate reset token
     const resetToken = this.jwtService.sign(
       { userId: user.id, type: 'password-reset' },
       {

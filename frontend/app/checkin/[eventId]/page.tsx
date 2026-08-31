@@ -49,9 +49,9 @@ export default function PublicCheckInPage() {
   const qrCodeRegionId = 'qr-reader-public';
   const [continuousMode, setContinuousMode] = useState(false);
   
-  // Device memory for remembered member check-in
   const [rememberedMember, setRememberedMember] = useState<ReturnType<typeof deviceMemory.getRememberedMember>>(null);
-  const [checkInMode, setCheckInMode] = useState<'choose' | 'self' | 'staff'>('choose'); // choose, self (remembered), staff (scanner)
+  const [checkInMode, setCheckInMode] = useState<'choose' | 'self' | 'staff'>('choose');
+  const [autoCheckInAttempted, setAutoCheckInAttempted] = useState(false);
 
   useEffect(() => {
     checkCameraAvailability();
@@ -60,15 +60,26 @@ export default function PublicCheckInPage() {
       loadEvent(eventId);
     }
     
-    // Check if this device has a remembered member
     const remembered = deviceMemory.getRememberedMember();
     setRememberedMember(remembered);
     
-    // If no remembered member, go straight to staff mode
     if (!remembered) {
       setCheckInMode('staff');
+    } else if (deviceMemory.isStaffOrAdmin()) {
+      setCheckInMode('choose');
+    } else {
+      setCheckInMode('self');
     }
   }, [eventId]);
+
+  useEffect(() => {
+    if (checkInMode === 'self' && rememberedMember && event && !isCheckedIn && !loading && !autoCheckInAttempted) {
+      setAutoCheckInAttempted(true);
+      setTimeout(() => {
+        handleSelfCheckIn();
+      }, 500);
+    }
+  }, [checkInMode, rememberedMember, event, isCheckedIn, loading, autoCheckInAttempted]);
 
   const checkCameraAvailability = async () => {
     try {

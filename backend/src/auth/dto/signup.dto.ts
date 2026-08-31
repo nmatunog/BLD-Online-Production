@@ -5,13 +5,14 @@ import {
   IsIn,
   MaxLength,
   Matches,
+  MinLength,
 } from 'class-validator';
 import { SIGNUP_ENCOUNTER_TYPES } from '../auth.constants';
 
 /**
  * Minimum for unique Community ID (CITY-ENCOUNTER+CLASS+SEQ) + member QR:
- * firstName, lastName, encounterType, classNumber.
- * City defaults to CEB. Nickname optional. Phone/ministry/DOB deferred to account activation.
+ * firstName, lastName, encounterType, classNumber, phone (09xxxxxxxxx).
+ * City defaults to CEB. Nickname optional. Password deferred to optional post-signup prompt.
  */
 export class SignupDto {
   @IsString()
@@ -39,7 +40,13 @@ export class SignupDto {
   @IsOptional()
   city?: string;
 
-  /** Processed ID photo (JPEG data URL). Required for the ID database and card. */
+  @IsString()
+  @IsNotEmpty({ message: 'Philippine mobile number is required' })
+  @Matches(/^09\d{9}$/, {
+    message: 'Phone must be 11 digits starting with 09 (e.g., 09209648523)',
+  })
+  phone!: string;
+
   @IsString()
   @IsNotEmpty({ message: 'ID photo is required for your Community ID card' })
   @MaxLength(500_000)
