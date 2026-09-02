@@ -326,7 +326,7 @@ export function IdPhotoUpload({
     }
   };
 
-  const capturePhoto = () => {
+  const capturePhoto = async () => {
     const video = videoRef.current;
     if (!video) return;
     const canvas = document.createElement('canvas');
@@ -337,13 +337,51 @@ export function IdPhotoUpload({
     ctx.drawImage(video, 0, 0);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
     stopCamera();
-    originalFileRef.current = null; // Camera photos don't need re-encoding
-    setImageSrc(dataUrl);
-    setCrop({ x: 0, y: 0 });
-    setZoom(1);
-    setCroppedAreaPixels(null);
-    setImageSize(null);
-    setMode('crop');
+    originalFileRef.current = null;
+    
+    // Auto-process captured photo immediately
+    const img = new Image();
+    img.onload = async () => {
+      const imgWidth = img.width;
+      const imgHeight = img.height;
+      
+      const minDimension = Math.min(imgWidth, imgHeight);
+      const cropArea: Area = {
+        x: (imgWidth - minDimension) / 2,
+        y: (imgHeight - minDimension) / 2,
+        width: minDimension,
+        height: minDimension,
+      };
+      
+      setIsProcessing(true);
+      try {
+        const processedUrl = await processCrop(dataUrl, cropArea);
+        setProcessedPreview(processedUrl);
+        onPhotoProcessed(processedUrl);
+        setMode('select');
+        toast.success('Photo captured', {
+          description: 'Your ID photo is ready. Tap Save when ready.',
+          duration: 3000,
+        });
+      } catch (err) {
+        console.error('Camera photo processing failed:', err);
+        toast.error('Photo processing failed', {
+          description: 'Could not process the photo. Please try again.',
+          duration: 6000,
+        });
+        setMode('select');
+      } finally {
+        setIsProcessing(false);
+      }
+    };
+    img.onerror = () => {
+      toast.error('Photo capture failed', {
+        description: 'Could not process captured photo. Please try again.',
+        duration: 6000,
+      });
+      setMode('select');
+    };
+    img.src = dataUrl;
   };
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -424,14 +462,41 @@ export function IdPhotoUpload({
     
     // Test if the image loads
     const testImg = new Image();
-    testImg.onload = () => {
-      // Success - use this URL
-      setImageSrc(objectUrl);
-      setCrop({ x: 0, y: 0 });
-      setZoom(1);
-      setCroppedAreaPixels(null);
-      setImageSize(null);
-      setMode('crop');
+    testImg.onload = async () => {
+      // Success - auto-process the image immediately
+      const imgWidth = testImg.width;
+      const imgHeight = testImg.height;
+      
+      // Calculate centered 1:1 crop
+      const minDimension = Math.min(imgWidth, imgHeight);
+      const cropArea: Area = {
+        x: (imgWidth - minDimension) / 2,
+        y: (imgHeight - minDimension) / 2,
+        width: minDimension,
+        height: minDimension,
+      };
+      
+      setIsProcessing(true);
+      try {
+        const dataUrl = await processCrop(objectUrl, cropArea);
+        setProcessedPreview(dataUrl);
+        onPhotoProcessed(dataUrl);
+        toast.success('Photo processed', {
+          description: 'Your ID photo is ready. Tap Save when ready.',
+          duration: 3000,
+        });
+      } catch (err) {
+        console.error('Auto-processing failed:', err);
+        toast.error('Photo processing failed', {
+          description: 'Could not process the photo. Please try another photo.',
+          duration: 6000,
+        });
+      } finally {
+        setIsProcessing(false);
+        // Clean up object URL after processing
+        URL.revokeObjectURL(objectUrl);
+        objectUrlRef.current = null;
+      }
     };
     testImg.onerror = async () => {
       // Image load failed - try appropriate recovery based on file type
@@ -455,14 +520,49 @@ export function IdPhotoUpload({
           const newObjectUrl = URL.createObjectURL(reencodedBlob);
           objectUrlRef.current = newObjectUrl;
           
-          toast.success('Photo loaded', { id: fallbackToastId, duration: 2000 });
-          
-          setImageSrc(newObjectUrl);
-          setCrop({ x: 0, y: 0 });
-          setZoom(1);
-          setCroppedAreaPixels(null);
-          setImageSize(null);
-          setMode('crop');
+          // Auto-process after successful re-encoding
+          const retryImg = new Image();
+          retryImg.onload = async () => {
+            const imgWidth = retryImg.width;
+            const imgHeight = retryImg.height;
+            
+            const minDimension = Math.min(imgWidth, imgHeight);
+            const cropArea: Area = {
+              x: (imgWidth - minDimension) / 2,
+              y: (imgHeight - minDimension) / 2,
+              width: minDimension,
+              height: minDimension,
+            };
+            
+            setIsProcessing(true);
+            try {
+              const dataUrl = await processCrop(newObjectUrl, cropArea);
+              setProcessedPreview(dataUrl);
+              onPhotoProcessed(dataUrl);
+              toast.success('Photo processed', { id: fallbackToastId, duration: 3000 });
+            } catch (err) {
+              console.error('Auto-processing after retry failed:', err);
+              toast.error('Photo processing failed', {
+                id: fallbackToastId,
+                description: 'Could not process the photo. Please try another photo.',
+                duration: 6000,
+              });
+            } finally {
+              setIsProcessing(false);
+              URL.revokeObjectURL(newObjectUrl);
+              objectUrlRef.current = null;
+            }
+          };
+          retryImg.onerror = () => {
+            toast.error('Image load failed', {
+              id: fallbackToastId,
+              description: 'Could not load this image. Please try taking a new photo or use a different file.',
+              duration: 6000,
+            });
+            URL.revokeObjectURL(newObjectUrl);
+            objectUrlRef.current = null;
+          };
+          retryImg.src = newObjectUrl;
         } catch (reencodeError) {
           console.error('Fallback JPEG re-encoding failed:', reencodeError);
           toast.error('Image load failed', {
@@ -485,14 +585,49 @@ export function IdPhotoUpload({
           const newObjectUrl = URL.createObjectURL(convertedBlob);
           objectUrlRef.current = newObjectUrl;
           
-          toast.success('Photo loaded', { id: fallbackToastId, duration: 2000 });
-          
-          setImageSrc(newObjectUrl);
-          setCrop({ x: 0, y: 0 });
-          setZoom(1);
-          setCroppedAreaPixels(null);
-          setImageSize(null);
-          setMode('crop');
+          // Auto-process after successful conversion
+          const retryImg = new Image();
+          retryImg.onload = async () => {
+            const imgWidth = retryImg.width;
+            const imgHeight = retryImg.height;
+            
+            const minDimension = Math.min(imgWidth, imgHeight);
+            const cropArea: Area = {
+              x: (imgWidth - minDimension) / 2,
+              y: (imgHeight - minDimension) / 2,
+              width: minDimension,
+              height: minDimension,
+            };
+            
+            setIsProcessing(true);
+            try {
+              const dataUrl = await processCrop(newObjectUrl, cropArea);
+              setProcessedPreview(dataUrl);
+              onPhotoProcessed(dataUrl);
+              toast.success('Photo processed', { id: fallbackToastId, duration: 3000 });
+            } catch (err) {
+              console.error('Auto-processing after conversion failed:', err);
+              toast.error('Photo processing failed', {
+                id: fallbackToastId,
+                description: 'Could not process the photo. Please try another photo.',
+                duration: 6000,
+              });
+            } finally {
+              setIsProcessing(false);
+              URL.revokeObjectURL(newObjectUrl);
+              objectUrlRef.current = null;
+            }
+          };
+          retryImg.onerror = () => {
+            toast.error('Image load failed', {
+              id: fallbackToastId,
+              description: 'Could not load this image. Please try taking a new photo or use a different file.',
+              duration: 6000,
+            });
+            URL.revokeObjectURL(newObjectUrl);
+            objectUrlRef.current = null;
+          };
+          retryImg.src = newObjectUrl;
         } catch (conversionError) {
           console.error('Fallback conversion failed:', conversionError);
           toast.error('Image load failed', {

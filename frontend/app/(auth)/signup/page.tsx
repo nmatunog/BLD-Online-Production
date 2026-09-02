@@ -100,6 +100,45 @@ function isValidPhoneNumber(phone: string | null | undefined): boolean {
   return false;
 }
 
+/**
+ * Convert phone from +63XXXXXXXXXX / 63XXXXXXXXXX / 0XXXXXXXXXX to 09XXXXXXXXX
+ * for pre-filling the input field.
+ */
+function normalizePhoneForInput(phone: string): string | null {
+  const trimmed = phone.trim();
+  
+  // Already in 09XXXXXXXXX format
+  if (trimmed.length === 11 && trimmed.startsWith('09')) {
+    return trimmed;
+  }
+  
+  // +63XXXXXXXXXX -> 09XXXXXXXXX
+  if (trimmed.startsWith('+63')) {
+    const digits = trimmed.slice(3);
+    if (digits.length === 10) {
+      return '0' + digits;
+    }
+  }
+  
+  // 63XXXXXXXXXX -> 09XXXXXXXXX
+  if (trimmed.startsWith('63') && !trimmed.startsWith('639')) {
+    const digits = trimmed.slice(2);
+    if (digits.length === 10) {
+      return '0' + digits;
+    }
+  }
+  
+  // 639XXXXXXXXX -> 09XXXXXXXXX
+  if (trimmed.startsWith('639')) {
+    const digits = trimmed.slice(2);
+    if (digits.length === 10) {
+      return digits;
+    }
+  }
+  
+  return null;
+}
+
 interface MemberAudit {
   profileGaps: string[]; // Name, encounter, class, photo - shown on edit card
   needsPhoto: boolean;
@@ -177,12 +216,19 @@ function SignupForm() {
   const suggestBoxRef = useRef<HTMLDivElement>(null);
 
   const canContinueStep0 = lastName.trim().length > 0 && firstName.trim().length > 0;
-  const canSubmit =
-    canContinueStep0 && 
-    encounterType.length > 0 && 
-    classNumber.trim().length > 0 && 
+  
+  // Profile fields required for both new and existing members
+  const canSaveProfile =
+    canContinueStep0 &&
+    encounterType.length > 0 &&
+    classNumber.trim().length > 0;
+  
+  // New member submission requires phone
+  const canSubmitNew =
+    canSaveProfile &&
     signupPhone.trim().length === 11 &&
     signupPhone.startsWith('09');
+  
   const hasIdPhoto = !!idPhoto;
 
   useEffect(() => {
@@ -273,6 +319,14 @@ function SignupForm() {
     
     setIdPhoto(photoUrl);
     setOriginalPhotoUrl(photoUrl);
+    
+    // Convert phone to 09XXXXXXXXX format if present
+    if (phone) {
+      const normalized = normalizePhoneForInput(phone);
+      if (normalized) {
+        setSignupPhone(normalized);
+      }
+    }
     
     // Audit profile fields (name, encounter, class, photo)
     const audit = auditMemberFields({
@@ -405,6 +459,14 @@ function SignupForm() {
       console.error('Failed to fetch member phone:', error);
     }
     
+    // Convert phone to 09XXXXXXXXX format if present
+    if (phone) {
+      const normalized = normalizePhoneForInput(phone);
+      if (normalized) {
+        setSignupPhone(normalized);
+      }
+    }
+    
     // Audit profile fields (name, encounter, class, photo)
     const audit = auditMemberFields({
       firstName: existing.firstName,
@@ -447,7 +509,7 @@ function SignupForm() {
   };
 
   const handleSubmit = async () => {
-    if (!canSubmit || !idPhoto) {
+    if (!canSubmitNew || !idPhoto) {
       toast.error(
         !idPhoto ? 'ID photo is required' : 'Please complete the required fields',
         {
@@ -525,7 +587,7 @@ function SignupForm() {
       return;
     }
     
-    if (!canSubmit || !idPhoto) {
+    if (!canSaveProfile || !idPhoto) {
       toast.error(
         !idPhoto ? 'ID photo is required' : 'Please complete the required fields',
         {
@@ -968,7 +1030,7 @@ function SignupForm() {
             <Button
               type="button"
               className={`w-full ${primaryBtn}`}
-              disabled={isLoading || !canSubmit || !hasIdPhoto}
+              disabled={isLoading || !canSaveProfile || !hasIdPhoto}
               onClick={handleSaveEdit}
             >
               {isLoading ? 'Saving…' : 'Save'}
@@ -1247,7 +1309,7 @@ function SignupForm() {
           <Button
             type="button"
             className={`ml-auto ${primaryBtn}`}
-            disabled={!canSubmit}
+            disabled={!canSubmitNew}
             onClick={() => setStep(2)}
           >
             Next
@@ -1257,7 +1319,7 @@ function SignupForm() {
           <Button
             type="button"
             className={`ml-auto ${primaryBtn}`}
-            disabled={isLoading || !canSubmit || !hasIdPhoto}
+            disabled={isLoading || !canSubmitNew || !hasIdPhoto}
             onClick={handleSubmit}
           >
             {isLoading ? 'Saving…' : 'Get Community ID'}
