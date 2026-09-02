@@ -25,6 +25,47 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
+/** Detect if file is HEIC/HEIF based on MIME type or extension */
+function isHeicFile(file: File): boolean {
+  const mimeType = file.type.toLowerCase();
+  const fileName = file.name.toLowerCase();
+  
+  // Check MIME type (may be empty or application/octet-stream on some devices)
+  if (mimeType === 'image/heic' || mimeType === 'image/heif') {
+    return true;
+  }
+  
+  // Check file extension as fallback
+  if (fileName.endsWith('.heic') || fileName.endsWith('.heif')) {
+    return true;
+  }
+  
+  return false;
+}
+
+/** Convert HEIC/HEIF file to JPEG blob */
+async function convertHeicToJpeg(file: File): Promise<Blob> {
+  try {
+    // Dynamic import to avoid server-side 'window is not defined' error
+    const heic2any = (await import('heic2any')).default;
+    
+    const result = await heic2any({
+      blob: file,
+      toType: 'image/jpeg',
+      quality: 0.92,
+    });
+    
+    // heic2any can return Blob or Blob[] - handle both cases
+    if (Array.isArray(result)) {
+      return result[0];
+    }
+    return result;
+  } catch (error) {
+    console.error('HEIC conversion failed:', error);
+    throw new Error('Could not convert HEIC image');
+  }
+}
+
 /** Crop to 1:1, 300×300 JPEG, mild lighting boost. */
 async function processCrop(imageSrc: string, pixelCrop: Area): Promise<string> {
   const image = await loadImage(imageSrc);
@@ -74,6 +115,8 @@ export function IdPhotoUpload({
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [preview, setProcessedPreview] = useState<string | null>(currentPhoto);
+  const [imageLoadError, setImageLoadError] = useState(false);
+  const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -91,6 +134,30 @@ export function IdPhotoUpload({
   useEffect(() => {
     setProcessedPreview(currentPhoto);
   }, [currentPhoto]);
+
+  // Load image to get dimensions and handle load errors
+  useEffect(() => {
+    if (!imageSrc) {
+      setImageSize(null);
+      setImageLoadError(false);
+      return;
+    }
+
+    const img = new Image();
+    img.onload = () => {
+      setImageSize({ width: img.width, height: img.height });
+      setImageLoadError(false);
+    };
+    img.onerror = () => {
+      setImageLoadError(true);
+      setImageSize(null);
+      toast.error('Image load failed', {
+        description: 'Could not load the image. Please try taking a new photo.',
+        duration: 6000,
+      });
+    };
+    img.src = imageSrc;
+  }, [imageSrc]);
 
   const startCamera = async () => {
     try {
@@ -123,25 +190,69 @@ export function IdPhotoUpload({
     setImageSrc(dataUrl);
     setCrop({ x: 0, y: 0 });
     setZoom(1);
+    setCroppedAreaPixels(null);
+    setImageLoadError(false);
+    setImageSize(null);
     setMode('crop');
   };
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      alert('Please choose a photo (JPEG, PNG, or HEIC).');
+    
+    // Check if it's an image file (including HEIC/HEIF which may have empty MIME type)
+    const isImage = file.type.startsWith('image/') || isHeicFile(file);
+    if (!isImage) {
+      toast.error('Invalid file type', {
+        description: 'Please choose a photo file.',
+        duration: 5000,
+      });
       return;
     }
+    
+    let fileToRead = file;
+    
+    // Convert HEIC/HEIF to JPEG seamlessly
+    if (isHeicFile(file)) {
+      const convertToastId = toast.loading('Converting photo...', {
+        description: 'Processing HEIC image format',
+      });
+      
+      try {
+        const jpegBlob = await convertHeicToJpeg(file);
+        fileToRead = new File([jpegBlob], file.name.replace(/\.heic$/i, '.jpg'), {
+          type: 'image/jpeg',
+        });
+        toast.success('Photo converted', { id: convertToastId, duration: 2000 });
+      } catch (error) {
+        console.error('HEIC conversion error:', error);
+        toast.error('Conversion failed', {
+          id: convertToastId,
+          description: 'Could not convert HEIC image. Please try taking a new photo.',
+          duration: 6000,
+        });
+        return;
+      }
+    }
+    
     const reader = new FileReader();
     reader.onload = () => {
       setImageSrc(reader.result as string);
       setCrop({ x: 0, y: 0 });
       setZoom(1);
+      setCroppedAreaPixels(null);
+      setImageLoadError(false);
+      setImageSize(null);
       setMode('crop');
     };
-    reader.readAsDataURL(file);
+    reader.onerror = () => {
+      toast.error('File read error', {
+        description: 'Could not read the file. Please try again.',
+        duration: 6000,
+      });
+    };
+    reader.readAsDataURL(fileToRead);
   };
 
   const reset = () => {
@@ -149,13 +260,52 @@ export function IdPhotoUpload({
     setMode('select');
     setImageSrc(null);
     setCroppedAreaPixels(null);
+    setImageLoadError(false);
+    setImageSize(null);
   };
 
   const applyCrop = async () => {
-    if (!imageSrc || !croppedAreaPixels) return;
+    if (!imageSrc) return;
+    
     setIsProcessing(true);
     try {
-      const dataUrl = await processCrop(imageSrc, croppedAreaPixels);
+      let cropArea = croppedAreaPixels;
+      
+      // If onCropComplete never fired (iOS Safari issue), calculate a sensible default:
+      // centered 1:1 crop
+      if (!cropArea && imageSize) {
+        const minDimension = Math.min(imageSize.width, imageSize.height);
+        const x = (imageSize.width - minDimension) / 2;
+        const y = (imageSize.height - minDimension) / 2;
+        cropArea = {
+          x,
+          y,
+          width: minDimension,
+          height: minDimension,
+        };
+        toast.info('Using centered crop', {
+          description: 'Crop area auto-detected. Photo will be centered and cropped to square.',
+          duration: 4000,
+        });
+      } else if (!cropArea) {
+        // Fallback: load image dimensions now if imageSize is not available
+        const image = await loadImage(imageSrc);
+        const minDimension = Math.min(image.width, image.height);
+        const x = (image.width - minDimension) / 2;
+        const y = (image.height - minDimension) / 2;
+        cropArea = {
+          x,
+          y,
+          width: minDimension,
+          height: minDimension,
+        };
+        toast.info('Using centered crop', {
+          description: 'Crop area auto-detected. Photo will be centered and cropped to square.',
+          duration: 4000,
+        });
+      }
+      
+      const dataUrl = await processCrop(imageSrc, cropArea);
       setProcessedPreview(dataUrl);
       onPhotoProcessed(dataUrl);
       setMode('select');
@@ -271,7 +421,7 @@ export function IdPhotoUpload({
             className="flex-1 h-12 text-white"
             style={{ backgroundColor: accentColor }}
             onClick={applyCrop}
-            disabled={isProcessing || !croppedAreaPixels}
+            disabled={isProcessing || imageLoadError}
           >
             {isProcessing ? (
               'Processing…'
