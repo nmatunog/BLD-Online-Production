@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 
-type Mode = 'select' | 'camera' | 'crop';
+type Mode = 'select' | 'camera' | 'crop' | 'preview-processed';
 
 interface IdPhotoUploadProps {
   onPhotoProcessed: (photoDataUrl: string | null) => void;
@@ -258,6 +258,7 @@ export function IdPhotoUpload({
 }: IdPhotoUploadProps) {
   const [mode, setMode] = useState<Mode>('select');
   const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [originalImageSrc, setOriginalImageSrc] = useState<string | null>(null);
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
@@ -291,7 +292,7 @@ export function IdPhotoUpload({
     setProcessedPreview(currentPhoto);
   }, [currentPhoto]);
 
-  // Load image to get dimensions
+  // Load image to get dimensions (for crop mode)
   useEffect(() => {
     if (!imageSrc) {
       setImageSize(null);
@@ -303,11 +304,57 @@ export function IdPhotoUpload({
       setImageSize({ width: img.width, height: img.height });
     };
     img.onerror = () => {
-      // Image load failed, but don't block the user - they can still try to process
       setImageSize(null);
     };
     img.src = imageSrc;
   }, [imageSrc]);
+
+  const reset = () => {
+    stopCamera();
+    setMode('select');
+    setImageSrc(null);
+    setOriginalImageSrc(null);
+    setCroppedAreaPixels(null);
+    setImageSize(null);
+    originalFileRef.current = null;
+    
+    // Revoke object URL
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
+  };
+
+  const autoProcessImage = async (imageSource: string) => {
+    setIsProcessing(true);
+    try {
+      const img = await loadImage(imageSource);
+      const imgWidth = img.width;
+      const imgHeight = img.height;
+      
+      const minDimension = Math.min(imgWidth, imgHeight);
+      const cropArea: Area = {
+        x: (imgWidth - minDimension) / 2,
+        y: (imgHeight - minDimension) / 2,
+        width: minDimension,
+        height: minDimension,
+      };
+      
+      const processedUrl = await processCrop(imageSource, cropArea);
+      setProcessedPreview(processedUrl);
+      onPhotoProcessed(processedUrl);
+      setMode('preview-processed');
+    } catch (err) {
+      console.error('Auto-process failed:', err);
+      toast.error('Photo processing failed', {
+        description: 'Could not process the photo. Please try again.',
+        duration: 6000,
+      });
+      reset();
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const startCamera = async () => {
     try {
@@ -339,49 +386,9 @@ export function IdPhotoUpload({
     stopCamera();
     originalFileRef.current = null;
     
-    // Auto-process captured photo immediately
-    const img = new Image();
-    img.onload = async () => {
-      const imgWidth = img.width;
-      const imgHeight = img.height;
-      
-      const minDimension = Math.min(imgWidth, imgHeight);
-      const cropArea: Area = {
-        x: (imgWidth - minDimension) / 2,
-        y: (imgHeight - minDimension) / 2,
-        width: minDimension,
-        height: minDimension,
-      };
-      
-      setIsProcessing(true);
-      try {
-        const processedUrl = await processCrop(dataUrl, cropArea);
-        setProcessedPreview(processedUrl);
-        onPhotoProcessed(processedUrl);
-        setMode('select');
-        toast.success('Photo captured', {
-          description: 'Your ID photo is ready. Tap Save when ready.',
-          duration: 3000,
-        });
-      } catch (err) {
-        console.error('Camera photo processing failed:', err);
-        toast.error('Photo processing failed', {
-          description: 'Could not process the photo. Please try again.',
-          duration: 6000,
-        });
-        setMode('select');
-      } finally {
-        setIsProcessing(false);
-      }
-    };
-    img.onerror = () => {
-      toast.error('Photo capture failed', {
-        description: 'Could not process captured photo. Please try again.',
-        duration: 6000,
-      });
-      setMode('select');
-    };
-    img.src = dataUrl;
+    // Store original and auto-process
+    setOriginalImageSrc(dataUrl);
+    await autoProcessImage(dataUrl);
   };
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -423,13 +430,11 @@ export function IdPhotoUpload({
           description: 'Could not convert HEIC image. Trying alternate method...',
           duration: 4000,
         });
-        // Don't return - try to load the original file anyway (Safari 17+ can display HEIC)
         blobToUse = file;
       }
     }
     
     // Check if it's a progressive JPEG and re-encode to baseline if needed
-    // Progressive JPEGs cause canvas issues in iOS Safari
     const isJpeg = file.type === 'image/jpeg' || file.type === 'image/jpg' || 
                    file.name.toLowerCase().endsWith('.jpg') || file.name.toLowerCase().endsWith('.jpeg');
     
@@ -445,7 +450,6 @@ export function IdPhotoUpload({
           toast.success('Photo optimized', { id: reencodeToastId, duration: 2000 });
         } catch (error) {
           console.error('JPEG re-encoding failed:', error);
-          // Continue with original - will retry if load fails
           toast.dismiss(reencodeToastId);
         }
       }
@@ -456,52 +460,20 @@ export function IdPhotoUpload({
       URL.revokeObjectURL(objectUrlRef.current);
     }
     
-    // Create object URL (preferred over FileReader data URL)
+    // Create object URL
     const objectUrl = URL.createObjectURL(blobToUse);
     objectUrlRef.current = objectUrl;
     
     // Test if the image loads
     const testImg = new Image();
     testImg.onload = async () => {
-      // Success - auto-process the image immediately
-      const imgWidth = testImg.width;
-      const imgHeight = testImg.height;
-      
-      // Calculate centered 1:1 crop
-      const minDimension = Math.min(imgWidth, imgHeight);
-      const cropArea: Area = {
-        x: (imgWidth - minDimension) / 2,
-        y: (imgHeight - minDimension) / 2,
-        width: minDimension,
-        height: minDimension,
-      };
-      
-      setIsProcessing(true);
-      try {
-        const dataUrl = await processCrop(objectUrl, cropArea);
-        setProcessedPreview(dataUrl);
-        onPhotoProcessed(dataUrl);
-        toast.success('Photo processed', {
-          description: 'Your ID photo is ready. Tap Save when ready.',
-          duration: 3000,
-        });
-      } catch (err) {
-        console.error('Auto-processing failed:', err);
-        toast.error('Photo processing failed', {
-          description: 'Could not process the photo. Please try another photo.',
-          duration: 6000,
-        });
-      } finally {
-        setIsProcessing(false);
-        // Clean up object URL after processing
-        URL.revokeObjectURL(objectUrl);
-        objectUrlRef.current = null;
-      }
+      // Success - store original and auto-process
+      setOriginalImageSrc(objectUrl);
+      await autoProcessImage(objectUrl);
     };
     testImg.onerror = async () => {
-      // Image load failed - try appropriate recovery based on file type
+      // Image load failed - try recovery
       if (needsHeicConversion) {
-        // Already tried HEIC conversion, give up
         toast.error('Image load failed', {
           description: 'Could not load this HEIC image. Please try taking a new photo or use a different file.',
           duration: 6000,
@@ -509,7 +481,6 @@ export function IdPhotoUpload({
         URL.revokeObjectURL(objectUrl);
         objectUrlRef.current = null;
       } else if (isJpeg) {
-        // Try re-encoding JPEG to baseline
         const fallbackToastId = toast.loading('Retrying with image optimization...', {
           description: 'First attempt failed, trying alternate encoding',
         });
@@ -520,49 +491,10 @@ export function IdPhotoUpload({
           const newObjectUrl = URL.createObjectURL(reencodedBlob);
           objectUrlRef.current = newObjectUrl;
           
-          // Auto-process after successful re-encoding
-          const retryImg = new Image();
-          retryImg.onload = async () => {
-            const imgWidth = retryImg.width;
-            const imgHeight = retryImg.height;
-            
-            const minDimension = Math.min(imgWidth, imgHeight);
-            const cropArea: Area = {
-              x: (imgWidth - minDimension) / 2,
-              y: (imgHeight - minDimension) / 2,
-              width: minDimension,
-              height: minDimension,
-            };
-            
-            setIsProcessing(true);
-            try {
-              const dataUrl = await processCrop(newObjectUrl, cropArea);
-              setProcessedPreview(dataUrl);
-              onPhotoProcessed(dataUrl);
-              toast.success('Photo processed', { id: fallbackToastId, duration: 3000 });
-            } catch (err) {
-              console.error('Auto-processing after retry failed:', err);
-              toast.error('Photo processing failed', {
-                id: fallbackToastId,
-                description: 'Could not process the photo. Please try another photo.',
-                duration: 6000,
-              });
-            } finally {
-              setIsProcessing(false);
-              URL.revokeObjectURL(newObjectUrl);
-              objectUrlRef.current = null;
-            }
-          };
-          retryImg.onerror = () => {
-            toast.error('Image load failed', {
-              id: fallbackToastId,
-              description: 'Could not load this image. Please try taking a new photo or use a different file.',
-              duration: 6000,
-            });
-            URL.revokeObjectURL(newObjectUrl);
-            objectUrlRef.current = null;
-          };
-          retryImg.src = newObjectUrl;
+          toast.success('Photo loaded', { id: fallbackToastId, duration: 2000 });
+          
+          setOriginalImageSrc(newObjectUrl);
+          await autoProcessImage(newObjectUrl);
         } catch (reencodeError) {
           console.error('Fallback JPEG re-encoding failed:', reencodeError);
           toast.error('Image load failed', {
@@ -574,7 +506,6 @@ export function IdPhotoUpload({
           objectUrlRef.current = null;
         }
       } else {
-        // Non-JPEG, non-HEIC image failed - could try HEIC conversion as last resort
         const fallbackToastId = toast.loading('Retrying with format conversion...', {
           description: 'First attempt failed, trying alternate method',
         });
@@ -585,49 +516,10 @@ export function IdPhotoUpload({
           const newObjectUrl = URL.createObjectURL(convertedBlob);
           objectUrlRef.current = newObjectUrl;
           
-          // Auto-process after successful conversion
-          const retryImg = new Image();
-          retryImg.onload = async () => {
-            const imgWidth = retryImg.width;
-            const imgHeight = retryImg.height;
-            
-            const minDimension = Math.min(imgWidth, imgHeight);
-            const cropArea: Area = {
-              x: (imgWidth - minDimension) / 2,
-              y: (imgHeight - minDimension) / 2,
-              width: minDimension,
-              height: minDimension,
-            };
-            
-            setIsProcessing(true);
-            try {
-              const dataUrl = await processCrop(newObjectUrl, cropArea);
-              setProcessedPreview(dataUrl);
-              onPhotoProcessed(dataUrl);
-              toast.success('Photo processed', { id: fallbackToastId, duration: 3000 });
-            } catch (err) {
-              console.error('Auto-processing after conversion failed:', err);
-              toast.error('Photo processing failed', {
-                id: fallbackToastId,
-                description: 'Could not process the photo. Please try another photo.',
-                duration: 6000,
-              });
-            } finally {
-              setIsProcessing(false);
-              URL.revokeObjectURL(newObjectUrl);
-              objectUrlRef.current = null;
-            }
-          };
-          retryImg.onerror = () => {
-            toast.error('Image load failed', {
-              id: fallbackToastId,
-              description: 'Could not load this image. Please try taking a new photo or use a different file.',
-              duration: 6000,
-            });
-            URL.revokeObjectURL(newObjectUrl);
-            objectUrlRef.current = null;
-          };
-          retryImg.src = newObjectUrl;
+          toast.success('Photo loaded', { id: fallbackToastId, duration: 2000 });
+          
+          setOriginalImageSrc(newObjectUrl);
+          await autoProcessImage(newObjectUrl);
         } catch (conversionError) {
           console.error('Fallback conversion failed:', conversionError);
           toast.error('Image load failed', {
@@ -643,19 +535,14 @@ export function IdPhotoUpload({
     testImg.src = objectUrl;
   };
 
-  const reset = () => {
-    stopCamera();
-    setMode('select');
-    setImageSrc(null);
+  const openAdjust = () => {
+    if (!originalImageSrc) return;
+    setImageSrc(originalImageSrc);
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
     setCroppedAreaPixels(null);
     setImageSize(null);
-    originalFileRef.current = null;
-    
-    // Revoke object URL
-    if (objectUrlRef.current) {
-      URL.revokeObjectURL(objectUrlRef.current);
-      objectUrlRef.current = null;
-    }
+    setMode('crop');
   };
 
   const applyCrop = async () => {
@@ -665,8 +552,7 @@ export function IdPhotoUpload({
     try {
       let cropArea = croppedAreaPixels;
       
-      // If onCropComplete never fired (iOS Safari issue), calculate a sensible default:
-      // centered 1:1 crop
+      // If onCropComplete never fired, calculate default centered crop
       if (!cropArea && imageSize) {
         const minDimension = Math.min(imageSize.width, imageSize.height);
         const x = (imageSize.width - minDimension) / 2;
@@ -682,7 +568,6 @@ export function IdPhotoUpload({
           duration: 4000,
         });
       } else if (!cropArea) {
-        // Fallback: load image dimensions now if imageSize is not available
         const image = await loadImage(imageSrc);
         const minDimension = Math.min(image.width, image.height);
         const x = (image.width - minDimension) / 2;
@@ -703,30 +588,26 @@ export function IdPhotoUpload({
       try {
         dataUrl = await processCrop(imageSrc, cropArea);
       } catch (cropError: any) {
-        // If canvas is blank (progressive JPEG issue), retry with re-encoded image
+        // If canvas is blank, retry with re-encoded image
         if (cropError.message?.includes('blank') && originalFileRef.current) {
           const retryToastId = toast.loading('Retrying with optimized image...', {
             description: 'Canvas issue detected, re-encoding image',
           });
           
           try {
-            // Re-encode the original file to baseline JPEG
             const reencodedBlob = await reencodeToBaselineJpeg(originalFileRef.current);
             
-            // Create new object URL
             if (objectUrlRef.current) {
               URL.revokeObjectURL(objectUrlRef.current);
             }
             const newObjectUrl = URL.createObjectURL(reencodedBlob);
             objectUrlRef.current = newObjectUrl;
             
-            // Update the cropper's image source
             setImageSrc(newObjectUrl);
+            setOriginalImageSrc(newObjectUrl);
             
-            // Wait a bit for the new image to load
             await new Promise(resolve => setTimeout(resolve, 500));
             
-            // Retry processing with the new image
             dataUrl = await processCrop(newObjectUrl, cropArea);
             toast.success('Photo processed', { id: retryToastId, duration: 2000 });
           } catch (retryError) {
@@ -745,14 +626,8 @@ export function IdPhotoUpload({
       
       setProcessedPreview(dataUrl);
       onPhotoProcessed(dataUrl);
-      setMode('select');
+      setMode('preview-processed');
       setImageSrc(null);
-      
-      // Revoke object URL after successful processing
-      if (objectUrlRef.current) {
-        URL.revokeObjectURL(objectUrlRef.current);
-        objectUrlRef.current = null;
-      }
     } catch (err) {
       console.error('Photo processing failed:', err);
       toast.error('Photo processing failed', { 
@@ -768,6 +643,8 @@ export function IdPhotoUpload({
   const clearPhoto = () => {
     setProcessedPreview(null);
     onPhotoProcessed(null);
+    setOriginalImageSrc(null);
+    // Keep object URL for potential re-use, but clear the processed photo
   };
 
   if (mode === 'camera') {
@@ -825,10 +702,16 @@ export function IdPhotoUpload({
           />
         </div>
         <p className="text-sm text-gray-600 text-center">
-          Frame your face, then tap Process. Photo will be cropped and brightened for your ID card.
+          Adjust crop and zoom, then tap Done.
         </p>
         <div className="flex gap-3">
-          <Button type="button" variant="outline" className="flex-1 h-12" onClick={reset} disabled={isProcessing}>
+          <Button 
+            type="button" 
+            variant="outline" 
+            className="flex-1 h-12" 
+            onClick={() => setMode('preview-processed')} 
+            disabled={isProcessing}
+          >
             <X className="w-4 h-4" />
             Cancel
           </Button>
@@ -844,11 +727,58 @@ export function IdPhotoUpload({
             ) : (
               <>
                 <Check className="w-4 h-4" />
-                Process
+                Done
               </>
             )}
           </Button>
         </div>
+      </div>
+    );
+  }
+
+  if (mode === 'preview-processed' && preview) {
+    return (
+      <div className="space-y-4">
+        <Label className="text-lg md:text-xl font-semibold text-gray-900">
+          ID Photo{' '}
+          {required ? (
+            <span className="text-[#D00008]">*</span>
+          ) : (
+            <span className="text-gray-500 font-normal text-base">(optional)</span>
+          )}
+        </Label>
+
+        <div className="relative w-32 h-32 mx-auto">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={preview}
+            alt="ID photo preview"
+            className="w-full h-full object-cover rounded-xl border-2"
+            style={{ borderColor: accentColor }}
+          />
+          <button
+            type="button"
+            onClick={clearPhoto}
+            className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
+            aria-label={required ? 'Retake photo' : 'Remove photo'}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <p className="text-sm text-gray-600 text-center">
+          Photo ready. Tap Adjust to crop/zoom, or tap Save when ready.
+        </p>
+
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full h-12 text-base font-semibold"
+          style={{ borderColor: `${accentColor}40`, color: accentColor }}
+          onClick={openAdjust}
+        >
+          Adjust photo
+        </Button>
       </div>
     );
   }
@@ -866,7 +796,6 @@ export function IdPhotoUpload({
 
       {preview && (
         <div className="relative w-32 h-32 mx-auto">
-          {/* Processed JPEG data URL or CDN URL */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={preview}
