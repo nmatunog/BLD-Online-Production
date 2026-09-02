@@ -25,17 +25,46 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-/** Detect if file is HEIC/HEIF based on MIME type or extension */
-function isHeicFile(file: File): boolean {
-  const mimeType = file.type.toLowerCase();
-  const fileName = file.name.toLowerCase();
+/**
+ * Check HEIC/HEIF via magic bytes (most reliable), MIME type, and extension.
+ * Magic bytes: offset 4 has 'ftyp', offset 8 has brand (heic, heix, hevc, hevx, etc.)
+ */
+async function checkHeicMagicBytes(file: File): Promise<boolean> {
+  try {
+    const slice = file.slice(0, 16);
+    const buffer = await slice.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    
+    if (bytes.length < 12) return false;
+    
+    // Check for 'ftyp' box at offset 4
+    const ftyp = String.fromCharCode(bytes[4], bytes[5], bytes[6], bytes[7]);
+    if (ftyp !== 'ftyp') return false;
+    
+    // Check brand at offset 8
+    const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]);
+    const heicBrands = ['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs', 'mif1', 'msf1'];
+    
+    return heicBrands.includes(brand);
+  } catch {
+    return false;
+  }
+}
+
+/** Detect if file is HEIC/HEIF based on magic bytes, MIME type, or extension */
+async function isHeicFile(file: File): Promise<boolean> {
+  // Check magic bytes first (most reliable)
+  const hasMagicBytes = await checkHeicMagicBytes(file);
+  if (hasMagicBytes) return true;
   
-  // Check MIME type (may be empty or application/octet-stream on some devices)
+  // Check MIME type
+  const mimeType = file.type.toLowerCase();
   if (mimeType === 'image/heic' || mimeType === 'image/heif') {
     return true;
   }
   
-  // Check file extension as fallback
+  // Check file extension as final fallback
+  const fileName = file.name.toLowerCase();
   if (fileName.endsWith('.heic') || fileName.endsWith('.heif')) {
     return true;
   }
@@ -44,7 +73,7 @@ function isHeicFile(file: File): boolean {
 }
 
 /** Convert HEIC/HEIF file to JPEG blob */
-async function convertHeicToJpeg(file: File): Promise<Blob> {
+async function convertHeicToJpeg(file: File | Blob): Promise<Blob> {
   try {
     // Dynamic import to avoid server-side 'window is not defined' error
     const heic2any = (await import('heic2any')).default;
@@ -115,12 +144,12 @@ export function IdPhotoUpload({
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [preview, setProcessedPreview] = useState<string | null>(currentPhoto);
-  const [imageLoadError, setImageLoadError] = useState(false);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const objectUrlRef = useRef<string | null>(null);
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -128,33 +157,34 @@ export function IdPhotoUpload({
   }, []);
 
   useEffect(() => {
-    return () => stopCamera();
+    return () => {
+      stopCamera();
+      // Cleanup object URL on unmount
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
+    };
   }, [stopCamera]);
 
   useEffect(() => {
     setProcessedPreview(currentPhoto);
   }, [currentPhoto]);
 
-  // Load image to get dimensions and handle load errors
+  // Load image to get dimensions
   useEffect(() => {
     if (!imageSrc) {
       setImageSize(null);
-      setImageLoadError(false);
       return;
     }
 
     const img = new Image();
     img.onload = () => {
       setImageSize({ width: img.width, height: img.height });
-      setImageLoadError(false);
     };
     img.onerror = () => {
-      setImageLoadError(true);
+      // Image load failed, but don't block the user - they can still try to process
       setImageSize(null);
-      toast.error('Image load failed', {
-        description: 'Could not load the image. Please try taking a new photo.',
-        duration: 6000,
-      });
     };
     img.src = imageSrc;
   }, [imageSrc]);
@@ -191,7 +221,6 @@ export function IdPhotoUpload({
     setCrop({ x: 0, y: 0 });
     setZoom(1);
     setCroppedAreaPixels(null);
-    setImageLoadError(false);
     setImageSize(null);
     setMode('crop');
   };
@@ -201,9 +230,11 @@ export function IdPhotoUpload({
     e.target.value = '';
     if (!file) return;
     
-    // Check if it's an image file (including HEIC/HEIF which may have empty MIME type)
-    const isImage = file.type.startsWith('image/') || isHeicFile(file);
-    if (!isImage) {
+    // Check if it's an image file
+    const isImage = file.type.startsWith('image/');
+    const isPotentialHeic = await isHeicFile(file);
+    
+    if (!isImage && !isPotentialHeic) {
       toast.error('Invalid file type', {
         description: 'Please choose a photo file.',
         duration: 5000,
@@ -211,48 +242,92 @@ export function IdPhotoUpload({
       return;
     }
     
-    let fileToRead = file;
+    let blobToUse: Blob = file;
+    let needsConversion = isPotentialHeic;
     
-    // Convert HEIC/HEIF to JPEG seamlessly
-    if (isHeicFile(file)) {
+    // Convert HEIC/HEIF to JPEG before creating object URL
+    if (needsConversion) {
       const convertToastId = toast.loading('Converting photo...', {
         description: 'Processing HEIC image format',
       });
       
       try {
-        const jpegBlob = await convertHeicToJpeg(file);
-        fileToRead = new File([jpegBlob], file.name.replace(/\.heic$/i, '.jpg'), {
-          type: 'image/jpeg',
-        });
+        blobToUse = await convertHeicToJpeg(file);
         toast.success('Photo converted', { id: convertToastId, duration: 2000 });
       } catch (error) {
         console.error('HEIC conversion error:', error);
         toast.error('Conversion failed', {
           id: convertToastId,
-          description: 'Could not convert HEIC image. Please try taking a new photo.',
-          duration: 6000,
+          description: 'Could not convert HEIC image. Trying alternate method...',
+          duration: 4000,
         });
-        return;
+        // Don't return - try to load the original file anyway (Safari 17+ can display HEIC)
+        blobToUse = file;
       }
     }
     
-    const reader = new FileReader();
-    reader.onload = () => {
-      setImageSrc(reader.result as string);
+    // Revoke previous object URL if any
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+    }
+    
+    // Create object URL (preferred over FileReader data URL)
+    const objectUrl = URL.createObjectURL(blobToUse);
+    objectUrlRef.current = objectUrl;
+    
+    // Test if the image loads
+    const testImg = new Image();
+    testImg.onload = () => {
+      // Success - use this URL
+      setImageSrc(objectUrl);
       setCrop({ x: 0, y: 0 });
       setZoom(1);
       setCroppedAreaPixels(null);
-      setImageLoadError(false);
       setImageSize(null);
       setMode('crop');
     };
-    reader.onerror = () => {
-      toast.error('File read error', {
-        description: 'Could not read the file. Please try again.',
-        duration: 6000,
-      });
+    testImg.onerror = async () => {
+      // Image load failed - try HEIC conversion as fallback (even if magic bytes were inconclusive)
+      if (!needsConversion) {
+        const fallbackToastId = toast.loading('Retrying with image conversion...', {
+          description: 'First attempt failed, trying alternate format',
+        });
+        
+        try {
+          const convertedBlob = await convertHeicToJpeg(file);
+          URL.revokeObjectURL(objectUrl);
+          const newObjectUrl = URL.createObjectURL(convertedBlob);
+          objectUrlRef.current = newObjectUrl;
+          
+          toast.success('Photo loaded', { id: fallbackToastId, duration: 2000 });
+          
+          setImageSrc(newObjectUrl);
+          setCrop({ x: 0, y: 0 });
+          setZoom(1);
+          setCroppedAreaPixels(null);
+          setImageSize(null);
+          setMode('crop');
+        } catch (conversionError) {
+          console.error('Fallback HEIC conversion failed:', conversionError);
+          toast.error('Image load failed', {
+            id: fallbackToastId,
+            description: 'Could not load this image. Please try taking a new photo or use a different file.',
+            duration: 6000,
+          });
+          URL.revokeObjectURL(objectUrl);
+          objectUrlRef.current = null;
+        }
+      } else {
+        // Already tried conversion, give up
+        toast.error('Image load failed', {
+          description: 'Could not load this image. Please try taking a new photo or use a different file.',
+          duration: 6000,
+        });
+        URL.revokeObjectURL(objectUrl);
+        objectUrlRef.current = null;
+      }
     };
-    reader.readAsDataURL(fileToRead);
+    testImg.src = objectUrl;
   };
 
   const reset = () => {
@@ -260,8 +335,13 @@ export function IdPhotoUpload({
     setMode('select');
     setImageSrc(null);
     setCroppedAreaPixels(null);
-    setImageLoadError(false);
     setImageSize(null);
+    
+    // Revoke object URL
+    if (objectUrlRef.current) {
+      URL.revokeObjectURL(objectUrlRef.current);
+      objectUrlRef.current = null;
+    }
   };
 
   const applyCrop = async () => {
@@ -310,6 +390,12 @@ export function IdPhotoUpload({
       onPhotoProcessed(dataUrl);
       setMode('select');
       setImageSrc(null);
+      
+      // Revoke object URL after successful processing
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
     } catch (err) {
       console.error('Photo processing failed:', err);
       toast.error('Photo processing failed', { 
@@ -325,33 +411,6 @@ export function IdPhotoUpload({
   const clearPhoto = () => {
     setProcessedPreview(null);
     onPhotoProcessed(null);
-  };
-
-  const reprocessPhoto = async () => {
-    if (!preview) return;
-    setIsProcessing(true);
-    try {
-      const image = await loadImage(preview);
-      const size = 300;
-      const cropArea: Area = {
-        x: 0,
-        y: 0,
-        width: image.width,
-        height: image.height,
-      };
-      const dataUrl = await processCrop(preview, cropArea);
-      setProcessedPreview(dataUrl);
-      onPhotoProcessed(dataUrl);
-      toast.success('Photo reprocessed');
-    } catch (err) {
-      console.error('Reprocessing failed:', err);
-      toast.error('Reprocessing failed', { 
-        description: 'Could not reprocess the photo. Try uploading a new photo.', 
-        duration: 6000 
-      });
-    } finally {
-      setIsProcessing(false);
-    }
   };
 
   if (mode === 'camera') {
@@ -385,7 +444,7 @@ export function IdPhotoUpload({
   if (mode === 'crop' && imageSrc) {
     return (
       <div className="space-y-4">
-        <div className="relative w-full aspect-square bg-gray-100 rounded-xl overflow-hidden">
+        <div className="relative w-full bg-gray-100 rounded-xl overflow-hidden" style={{ maxHeight: '45vh', minHeight: '240px', height: '240px' }}>
           <Cropper
             image={imageSrc}
             crop={crop}
@@ -421,7 +480,7 @@ export function IdPhotoUpload({
             className="flex-1 h-12 text-white"
             style={{ backgroundColor: accentColor }}
             onClick={applyCrop}
-            disabled={isProcessing || imageLoadError}
+            disabled={isProcessing}
           >
             {isProcessing ? (
               'Processing…'
@@ -469,19 +528,6 @@ export function IdPhotoUpload({
         </div>
       )}
 
-      {preview && (
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full h-12 text-sm"
-          style={{ borderColor: `${accentColor}40`, color: accentColor }}
-          onClick={reprocessPhoto}
-          disabled={isProcessing}
-        >
-          {isProcessing ? 'Processing…' : 'Reprocess photo'}
-        </Button>
-      )}
-
       <p className="text-sm text-gray-600">
         {required
           ? 'A face photo is required for the ID database and your Community ID card. Use a plain light or white wall background with even lighting.'
@@ -514,7 +560,7 @@ export function IdPhotoUpload({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/heic,image/webp"
+        accept="image/*,.heic,.heif,image/heic,image/heif"
         onChange={handleFile}
         className="hidden"
       />
