@@ -6,6 +6,7 @@ import { Camera, Upload, X, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import heic2any from 'heic2any';
 
 type Mode = 'select' | 'camera' | 'crop';
 
@@ -23,6 +24,44 @@ function loadImage(src: string): Promise<HTMLImageElement> {
     image.onerror = () => reject(new Error('Could not load image'));
     image.src = src;
   });
+}
+
+/** Detect if file is HEIC/HEIF based on MIME type or extension */
+function isHeicFile(file: File): boolean {
+  const mimeType = file.type.toLowerCase();
+  const fileName = file.name.toLowerCase();
+  
+  // Check MIME type (may be empty or application/octet-stream on some devices)
+  if (mimeType === 'image/heic' || mimeType === 'image/heif') {
+    return true;
+  }
+  
+  // Check file extension as fallback
+  if (fileName.endsWith('.heic') || fileName.endsWith('.heif')) {
+    return true;
+  }
+  
+  return false;
+}
+
+/** Convert HEIC/HEIF file to JPEG blob */
+async function convertHeicToJpeg(file: File): Promise<Blob> {
+  try {
+    const result = await heic2any({
+      blob: file,
+      toType: 'image/jpeg',
+      quality: 0.92,
+    });
+    
+    // heic2any can return Blob or Blob[] - handle both cases
+    if (Array.isArray(result)) {
+      return result[0];
+    }
+    return result;
+  } catch (error) {
+    console.error('HEIC conversion failed:', error);
+    throw new Error('Could not convert HEIC image');
+  }
 }
 
 /** Crop to 1:1, 300×300 JPEG, mild lighting boost. */
@@ -111,7 +150,7 @@ export function IdPhotoUpload({
       setImageLoadError(true);
       setImageSize(null);
       toast.error('Image load failed', {
-        description: 'Could not load the image. Try using Take photo, or choose a JPEG/PNG file.',
+        description: 'Could not load the image. Please try taking a new photo.',
         duration: 6000,
       });
     };
@@ -155,24 +194,44 @@ export function IdPhotoUpload({
     setMode('crop');
   };
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
+    
+    // Check if it's an image file (including HEIC/HEIF which may have empty MIME type)
+    const isImage = file.type.startsWith('image/') || isHeicFile(file);
+    if (!isImage) {
       toast.error('Invalid file type', {
-        description: 'Please choose a photo (JPEG, PNG, or HEIC).',
+        description: 'Please choose a photo file.',
         duration: 5000,
       });
       return;
     }
     
-    // Warn about HEIC but allow upload attempt
-    if (file.type === 'image/heic' || file.name.toLowerCase().endsWith('.heic')) {
-      toast.warning('HEIC format detected', {
-        description: 'If upload fails, please use Take photo or choose a JPEG/PNG instead.',
-        duration: 7000,
+    let fileToRead = file;
+    
+    // Convert HEIC/HEIF to JPEG seamlessly
+    if (isHeicFile(file)) {
+      const convertToastId = toast.loading('Converting photo...', {
+        description: 'Processing HEIC image format',
       });
+      
+      try {
+        const jpegBlob = await convertHeicToJpeg(file);
+        fileToRead = new File([jpegBlob], file.name.replace(/\.heic$/i, '.jpg'), {
+          type: 'image/jpeg',
+        });
+        toast.success('Photo converted', { id: convertToastId, duration: 2000 });
+      } catch (error) {
+        console.error('HEIC conversion error:', error);
+        toast.error('Conversion failed', {
+          id: convertToastId,
+          description: 'Could not convert HEIC image. Please try taking a new photo.',
+          duration: 6000,
+        });
+        return;
+      }
     }
     
     const reader = new FileReader();
@@ -187,11 +246,11 @@ export function IdPhotoUpload({
     };
     reader.onerror = () => {
       toast.error('File read error', {
-        description: 'Could not read the file. Try taking a photo instead, or choose a JPEG/PNG.',
+        description: 'Could not read the file. Please try again.',
         duration: 6000,
       });
     };
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(fileToRead);
   };
 
   const reset = () => {
