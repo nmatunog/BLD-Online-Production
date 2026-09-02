@@ -6,7 +6,6 @@ import { Camera, Upload, X, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
-import heic2any from 'heic2any';
 
 type Mode = 'select' | 'camera' | 'crop';
 
@@ -47,6 +46,9 @@ function isHeicFile(file: File): boolean {
 /** Convert HEIC/HEIF file to JPEG blob */
 async function convertHeicToJpeg(file: File): Promise<Blob> {
   try {
+    // Dynamic import to avoid server-side 'window is not defined' error
+    const heic2any = (await import('heic2any')).default;
+    
     const result = await heic2any({
       blob: file,
       toType: 'image/jpeg',
