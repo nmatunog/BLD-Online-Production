@@ -72,6 +72,93 @@ async function isHeicFile(file: File): Promise<boolean> {
   return false;
 }
 
+/**
+ * Detect progressive JPEG by scanning for SOF2 (FF C2) marker.
+ * Progressive JPEGs are known to cause issues in iOS Safari with canvas operations.
+ */
+async function isProgressiveJpeg(file: Blob): Promise<boolean> {
+  try {
+    // Read first 64KB to scan for markers
+    const slice = file.slice(0, 65536);
+    const buffer = await slice.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    
+    // Check for JPEG SOI (FF D8)
+    if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) {
+      return false;
+    }
+    
+    // Scan for SOF2 (Start Of Frame - Progressive DCT: FF C2)
+    for (let i = 2; i < bytes.length - 1; i++) {
+      if (bytes[i] === 0xFF && bytes[i + 1] === 0xC2) {
+        return true;
+      }
+    }
+    
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Re-encode JPEG (especially progressive) to baseline JPEG.
+ * This fixes Safari canvas issues with progressive JPEGs.
+ */
+async function reencodeToBaselineJpeg(blob: Blob): Promise<Blob> {
+  try {
+    // Try createImageBitmap first (more reliable for progressive JPEGs)
+    if (typeof createImageBitmap !== 'undefined') {
+      const imageBitmap = await createImageBitmap(blob);
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = imageBitmap.width;
+      canvas.height = imageBitmap.height;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('No canvas context');
+      
+      ctx.drawImage(imageBitmap, 0, 0);
+      imageBitmap.close();
+      
+      // Export as baseline JPEG
+      return await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('Failed to create blob'));
+        }, 'image/jpeg', 0.95);
+      });
+    }
+    
+    // Fallback to Image element
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      const img = await loadImage(objectUrl);
+      
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('No canvas context');
+      
+      ctx.drawImage(img, 0, 0);
+      
+      return await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('Failed to create blob'));
+        }, 'image/jpeg', 0.95);
+      });
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  } catch (error) {
+    console.error('JPEG re-encoding failed:', error);
+    throw new Error('Could not re-encode JPEG');
+  }
+}
+
 /** Convert HEIC/HEIF file to JPEG blob */
 async function convertHeicToJpeg(file: File | Blob): Promise<Blob> {
   try {
@@ -93,6 +180,33 @@ async function convertHeicToJpeg(file: File | Blob): Promise<Blob> {
     console.error('HEIC conversion failed:', error);
     throw new Error('Could not convert HEIC image');
   }
+}
+
+/**
+ * Check if canvas is blank/transparent (common issue with progressive JPEGs in Safari)
+ */
+function isCanvasBlank(canvas: HTMLCanvasElement): boolean {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return true;
+  
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  
+  // Check first 100 pixels - if all transparent or all same color, likely blank
+  let nonZeroCount = 0;
+  for (let i = 0; i < Math.min(400, data.length); i += 4) {
+    const r = data[i];
+    const g = data[i + 1];
+    const b = data[i + 2];
+    const a = data[i + 3];
+    
+    if (a > 0 && (r > 0 || g > 0 || b > 0)) {
+      nonZeroCount++;
+    }
+  }
+  
+  // If less than 10% of sampled pixels have color, consider blank
+  return nonZeroCount < 10;
 }
 
 /** Crop to 1:1, 300×300 JPEG, mild lighting boost. */
@@ -117,6 +231,11 @@ async function processCrop(imageSrc: string, pixelCrop: Area): Promise<string> {
     size,
     size,
   );
+
+  // Check if canvas is blank (progressive JPEG issue in Safari)
+  if (isCanvasBlank(canvas)) {
+    throw new Error('Canvas is blank - image may not be fully decoded');
+  }
 
   const imageData = ctx.getImageData(0, 0, size, size);
   const data = imageData.data;
@@ -150,6 +269,7 @@ export function IdPhotoUpload({
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const objectUrlRef = useRef<string | null>(null);
+  const originalFileRef = useRef<File | null>(null);
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -217,6 +337,7 @@ export function IdPhotoUpload({
     ctx.drawImage(video, 0, 0);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
     stopCamera();
+    originalFileRef.current = null; // Camera photos don't need re-encoding
     setImageSrc(dataUrl);
     setCrop({ x: 0, y: 0 });
     setZoom(1);
@@ -229,6 +350,9 @@ export function IdPhotoUpload({
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    
+    // Store original file for potential retry
+    originalFileRef.current = file;
     
     // Check if it's an image file
     const isImage = file.type.startsWith('image/');
@@ -243,10 +367,10 @@ export function IdPhotoUpload({
     }
     
     let blobToUse: Blob = file;
-    let needsConversion = isPotentialHeic;
+    let needsHeicConversion = isPotentialHeic;
     
     // Convert HEIC/HEIF to JPEG before creating object URL
-    if (needsConversion) {
+    if (needsHeicConversion) {
       const convertToastId = toast.loading('Converting photo...', {
         description: 'Processing HEIC image format',
       });
@@ -263,6 +387,29 @@ export function IdPhotoUpload({
         });
         // Don't return - try to load the original file anyway (Safari 17+ can display HEIC)
         blobToUse = file;
+      }
+    }
+    
+    // Check if it's a progressive JPEG and re-encode to baseline if needed
+    // Progressive JPEGs cause canvas issues in iOS Safari
+    const isJpeg = file.type === 'image/jpeg' || file.type === 'image/jpg' || 
+                   file.name.toLowerCase().endsWith('.jpg') || file.name.toLowerCase().endsWith('.jpeg');
+    
+    if (isJpeg && !needsHeicConversion) {
+      const isProgressive = await isProgressiveJpeg(blobToUse);
+      if (isProgressive) {
+        const reencodeToastId = toast.loading('Processing photo...', {
+          description: 'Optimizing progressive JPEG for compatibility',
+        });
+        
+        try {
+          blobToUse = await reencodeToBaselineJpeg(blobToUse);
+          toast.success('Photo optimized', { id: reencodeToastId, duration: 2000 });
+        } catch (error) {
+          console.error('JPEG re-encoding failed:', error);
+          // Continue with original - will retry if load fails
+          toast.dismiss(reencodeToastId);
+        }
       }
     }
     
@@ -287,10 +434,49 @@ export function IdPhotoUpload({
       setMode('crop');
     };
     testImg.onerror = async () => {
-      // Image load failed - try HEIC conversion as fallback (even if magic bytes were inconclusive)
-      if (!needsConversion) {
-        const fallbackToastId = toast.loading('Retrying with image conversion...', {
-          description: 'First attempt failed, trying alternate format',
+      // Image load failed - try appropriate recovery based on file type
+      if (needsHeicConversion) {
+        // Already tried HEIC conversion, give up
+        toast.error('Image load failed', {
+          description: 'Could not load this HEIC image. Please try taking a new photo or use a different file.',
+          duration: 6000,
+        });
+        URL.revokeObjectURL(objectUrl);
+        objectUrlRef.current = null;
+      } else if (isJpeg) {
+        // Try re-encoding JPEG to baseline
+        const fallbackToastId = toast.loading('Retrying with image optimization...', {
+          description: 'First attempt failed, trying alternate encoding',
+        });
+        
+        try {
+          const reencodedBlob = await reencodeToBaselineJpeg(file);
+          URL.revokeObjectURL(objectUrl);
+          const newObjectUrl = URL.createObjectURL(reencodedBlob);
+          objectUrlRef.current = newObjectUrl;
+          
+          toast.success('Photo loaded', { id: fallbackToastId, duration: 2000 });
+          
+          setImageSrc(newObjectUrl);
+          setCrop({ x: 0, y: 0 });
+          setZoom(1);
+          setCroppedAreaPixels(null);
+          setImageSize(null);
+          setMode('crop');
+        } catch (reencodeError) {
+          console.error('Fallback JPEG re-encoding failed:', reencodeError);
+          toast.error('Image load failed', {
+            id: fallbackToastId,
+            description: 'Could not load this image. Please try taking a new photo or use a different file.',
+            duration: 6000,
+          });
+          URL.revokeObjectURL(objectUrl);
+          objectUrlRef.current = null;
+        }
+      } else {
+        // Non-JPEG, non-HEIC image failed - could try HEIC conversion as last resort
+        const fallbackToastId = toast.loading('Retrying with format conversion...', {
+          description: 'First attempt failed, trying alternate method',
         });
         
         try {
@@ -308,7 +494,7 @@ export function IdPhotoUpload({
           setImageSize(null);
           setMode('crop');
         } catch (conversionError) {
-          console.error('Fallback HEIC conversion failed:', conversionError);
+          console.error('Fallback conversion failed:', conversionError);
           toast.error('Image load failed', {
             id: fallbackToastId,
             description: 'Could not load this image. Please try taking a new photo or use a different file.',
@@ -317,14 +503,6 @@ export function IdPhotoUpload({
           URL.revokeObjectURL(objectUrl);
           objectUrlRef.current = null;
         }
-      } else {
-        // Already tried conversion, give up
-        toast.error('Image load failed', {
-          description: 'Could not load this image. Please try taking a new photo or use a different file.',
-          duration: 6000,
-        });
-        URL.revokeObjectURL(objectUrl);
-        objectUrlRef.current = null;
       }
     };
     testImg.src = objectUrl;
@@ -336,6 +514,7 @@ export function IdPhotoUpload({
     setImageSrc(null);
     setCroppedAreaPixels(null);
     setImageSize(null);
+    originalFileRef.current = null;
     
     // Revoke object URL
     if (objectUrlRef.current) {
@@ -385,7 +564,50 @@ export function IdPhotoUpload({
         });
       }
       
-      const dataUrl = await processCrop(imageSrc, cropArea);
+      let dataUrl: string;
+      try {
+        dataUrl = await processCrop(imageSrc, cropArea);
+      } catch (cropError: any) {
+        // If canvas is blank (progressive JPEG issue), retry with re-encoded image
+        if (cropError.message?.includes('blank') && originalFileRef.current) {
+          const retryToastId = toast.loading('Retrying with optimized image...', {
+            description: 'Canvas issue detected, re-encoding image',
+          });
+          
+          try {
+            // Re-encode the original file to baseline JPEG
+            const reencodedBlob = await reencodeToBaselineJpeg(originalFileRef.current);
+            
+            // Create new object URL
+            if (objectUrlRef.current) {
+              URL.revokeObjectURL(objectUrlRef.current);
+            }
+            const newObjectUrl = URL.createObjectURL(reencodedBlob);
+            objectUrlRef.current = newObjectUrl;
+            
+            // Update the cropper's image source
+            setImageSrc(newObjectUrl);
+            
+            // Wait a bit for the new image to load
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // Retry processing with the new image
+            dataUrl = await processCrop(newObjectUrl, cropArea);
+            toast.success('Photo processed', { id: retryToastId, duration: 2000 });
+          } catch (retryError) {
+            console.error('Retry with re-encoding failed:', retryError);
+            toast.error('Processing failed', {
+              id: retryToastId,
+              description: 'Could not process this image. Please try taking a new photo.',
+              duration: 6000,
+            });
+            throw retryError;
+          }
+        } else {
+          throw cropError;
+        }
+      }
+      
       setProcessedPreview(dataUrl);
       onPhotoProcessed(dataUrl);
       setMode('select');
