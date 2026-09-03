@@ -8,6 +8,7 @@ export interface SignupResult {
   classNumber: number;
   isExistingMember: boolean;
   photoUrl?: string | null;
+  qrCodeUrl?: string | null;
   message: string;
 }
 
