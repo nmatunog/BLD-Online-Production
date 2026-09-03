@@ -360,6 +360,20 @@ export class MembersService {
       );
     }
 
+    // Backfill missing QR code for existing members
+    if (!member.qrCodeUrl) {
+      try {
+        const qrCodeUrl = await this.generateQRCode(member.id, member.communityId);
+        await this.prisma.member.update({
+          where: { id: member.id },
+          data: { qrCodeUrl },
+        });
+        member.qrCodeUrl = qrCodeUrl;
+      } catch (error) {
+        console.warn(`Failed to generate QR code for ${member.communityId}:`, error);
+      }
+    }
+
     return member;
   }
 
@@ -766,14 +780,10 @@ export class MembersService {
     communityId: string,
   ): Promise<string> {
     try {
-      // Generate QR code data URL
-      const qrData = JSON.stringify({
-        memberId,
-        communityId,
-        type: 'member',
-      });
-
-      const qrCodeDataUrl = await QRCode.toDataURL(qrData, {
+      // Generate QR code with plain Community ID string (e.g., "CEB-ME1002")
+      // This matches the format expected by the check-in scanner
+      // The scanner calls qrUtils.extractMemberData() which accepts plain Community ID strings
+      const qrCodeDataUrl = await QRCode.toDataURL(communityId, {
         errorCorrectionLevel: 'M',
         type: 'image/png',
         width: 300,

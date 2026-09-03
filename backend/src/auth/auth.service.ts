@@ -256,7 +256,17 @@ export class AuthService {
 
     try {
       const { photoUrl } = await this.membersService.savePhoto(member.id, signupDto.idPhoto);
-      return { ...this.toSignupResult(member, false), photoUrl };
+      
+      // Generate QR code for new member
+      let qrCodeUrl: string | null = null;
+      try {
+        const regenerated = await this.membersService.regenerateQRCode(member.id);
+        qrCodeUrl = regenerated.qrCodeUrl;
+      } catch (error) {
+        console.warn(`Failed to generate QR code for ${member.communityId}:`, error);
+      }
+      
+      return { ...this.toSignupResult(member, false), photoUrl, qrCodeUrl };
     } catch (err) {
       await this.prisma.user.delete({ where: { id: member.userId } });
       throw new BadRequestException(
@@ -416,9 +426,21 @@ export class AuthService {
       throw new BadRequestException('ID photo is required for your Community ID card');
     }
 
+    // Generate QR code if missing (backfill for existing members)
+    let qrCodeUrl = member.qrCodeUrl;
+    if (!qrCodeUrl) {
+      try {
+        const regenerated = await this.membersService.regenerateQRCode(updated.id);
+        qrCodeUrl = regenerated.qrCodeUrl;
+      } catch (error) {
+        console.warn(`Failed to generate QR code for ${updated.communityId}:`, error);
+      }
+    }
+
     return {
       ...this.toSignupResult(updated, true),
       photoUrl,
+      qrCodeUrl,
       message: 'Your details were saved. Community ID is unchanged.',
     };
   }
