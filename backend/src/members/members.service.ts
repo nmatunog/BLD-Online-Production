@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateMemberDto } from './dto/create-member.dto';
@@ -41,6 +42,8 @@ function normalizeCityToCode(input: string): string {
 
 @Injectable()
 export class MembersService {
+  private readonly logger = new Logger(MembersService.name);
+
   constructor(
     private prisma: PrismaService,
     private bunnyCDN: BunnyCDNService,
@@ -371,6 +374,28 @@ export class MembersService {
         member.qrCodeUrl = qrCodeUrl;
       } catch (error) {
         console.warn(`Failed to generate QR code for ${member.communityId}:`, error);
+      }
+    }
+
+    // Lazy backfill: migrate data:image/ photoUrl to BunnyCDN when configured
+    if (this.bunnyCDN.isConfigured() && member.photoUrl?.startsWith('data:image/')) {
+      try {
+        const cdnUrl = await this.bunnyCDN.uploadMemberPhoto(
+          member.photoUrl,
+          member.communityId,
+          'image/jpeg',
+        );
+        await this.prisma.member.update({
+          where: { id: member.id },
+          data: { photoUrl: cdnUrl },
+        });
+        member.photoUrl = cdnUrl;
+        this.logger.log(`Migrated photo to CDN for ${member.communityId}`);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to backfill photo to CDN for ${member.communityId}:`,
+          error,
+        );
       }
     }
 
@@ -820,7 +845,7 @@ export class MembersService {
     memberId: string,
     file: { buffer: Buffer; mimetype?: string } | string,
   ): Promise<{ photoUrl: string }> {
-    await this.findOne(memberId);
+    const member = await this.findOne(memberId);
 
     let buffer: Buffer;
     let contentType = 'image/jpeg';
@@ -853,7 +878,7 @@ export class MembersService {
     let photoUrl: string;
     if (this.bunnyCDN.isConfigured()) {
       try {
-        photoUrl = await this.bunnyCDN.uploadMemberPhoto(buffer, memberId, contentType);
+        photoUrl = await this.bunnyCDN.uploadMemberPhoto(buffer, member.communityId, contentType);
       } catch (error) {
         console.warn('BunnyCDN photo upload failed, storing data URL:', error);
         photoUrl = `data:${contentType};base64,${buffer.toString('base64')}`;

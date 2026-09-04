@@ -8,13 +8,25 @@ export class BunnyCDNService {
   private readonly storageZone: string;
   private readonly accessKey: string;
   private readonly cdnUrl: string;
+  private readonly storageHostname: string;
   private readonly storageUrl: string;
 
   constructor(private configService: ConfigService) {
-    this.storageZone = this.configService.get<string>('BUNNYCDN_STORAGE_ZONE') || '';
-    this.accessKey = this.configService.get<string>('BUNNYCDN_ACCESS_KEY') || '';
-    this.cdnUrl = this.configService.get<string>('BUNNYCDN_CDN_URL') || '';
-    this.storageUrl = `https://storage.bunnycdn.com/${this.storageZone}`;
+    this.storageZone = 
+      this.configService.get<string>('BUNNYCDN_STORAGE_ZONE') || 
+      this.configService.get<string>('BUNNY_CDN_STORAGE_ZONE') || '';
+    this.accessKey = 
+      this.configService.get<string>('BUNNYCDN_ACCESS_KEY') || 
+      this.configService.get<string>('BUNNY_CDN_ACCESS_KEY') || '';
+    this.cdnUrl = 
+      this.configService.get<string>('BUNNYCDN_CDN_URL') || 
+      this.configService.get<string>('BUNNY_CDN_PULL_ZONE_URL') || 
+      this.configService.get<string>('BUNNY_CDN_CDN_URL') || '';
+    this.storageHostname = 
+      this.configService.get<string>('BUNNYCDN_STORAGE_HOSTNAME') || 
+      this.configService.get<string>('BUNNY_CDN_STORAGE_HOSTNAME') || 
+      'storage.bunnycdn.com';
+    this.storageUrl = `https://${this.storageHostname}/${this.storageZone}`;
   }
 
   /**
@@ -102,14 +114,18 @@ export class BunnyCDNService {
 
   /**
    * Upload a member ID photo to BunnyCDN
+   * @param fileData - Buffer or base64 data URL
+   * @param communityId - Community ID (e.g., CEB-ME1002) for stable path
+   * @param contentType - MIME type
+   * @returns URL of the uploaded file
    */
   async uploadMemberPhoto(
     fileData: Buffer | string,
-    memberId: string,
+    communityId: string,
     contentType: string = 'image/jpeg',
   ): Promise<string> {
     const ext = contentType.includes('png') ? 'png' : 'jpg';
-    const fileName = `member-photos/${memberId}-${Date.now()}.${ext}`;
+    const fileName = `member-photos/${communityId}.${ext}`;
     return this.uploadFile(fileData, fileName, contentType);
   }
 
