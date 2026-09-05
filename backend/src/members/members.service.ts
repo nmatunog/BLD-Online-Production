@@ -377,6 +377,24 @@ export class MembersService {
       }
     }
 
+    // Lazy backfill: migrate data:image/ qrCodeUrl to BunnyCDN when configured
+    if (this.bunnyCDN.isConfigured() && member.qrCodeUrl?.startsWith('data:image/')) {
+      try {
+        const qrCodeUrl = await this.generateQRCode(member.id, member.communityId);
+        await this.prisma.member.update({
+          where: { id: member.id },
+          data: { qrCodeUrl },
+        });
+        member.qrCodeUrl = qrCodeUrl;
+        this.logger.log(`Migrated QR code to CDN for ${member.communityId}`);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to backfill QR code to CDN for ${member.communityId}:`,
+          error,
+        );
+      }
+    }
+
     // Lazy backfill: migrate data:image/ photoUrl to BunnyCDN when configured
     if (this.bunnyCDN.isConfigured() && member.photoUrl?.startsWith('data:image/')) {
       try {
