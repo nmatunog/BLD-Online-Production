@@ -399,6 +399,32 @@ export class MembersService {
       }
     }
 
+    // Soft-fix: rewrite photoUrl/qrCodeUrl missing https:// scheme
+    const updates: { photoUrl?: string; qrCodeUrl?: string } = {};
+    if (member.photoUrl && !member.photoUrl.startsWith('data:') && !member.photoUrl.startsWith('http://') && !member.photoUrl.startsWith('https://')) {
+      if (/^[\w.-]+\.[\w.-]+\//.test(member.photoUrl) || member.photoUrl.includes('.b-cdn.net/')) {
+        updates.photoUrl = `https://${member.photoUrl}`;
+        member.photoUrl = updates.photoUrl;
+      }
+    }
+    if (member.qrCodeUrl && !member.qrCodeUrl.startsWith('data:') && !member.qrCodeUrl.startsWith('http://') && !member.qrCodeUrl.startsWith('https://')) {
+      if (/^[\w.-]+\.[\w.-]+\//.test(member.qrCodeUrl) || member.qrCodeUrl.includes('.b-cdn.net/')) {
+        updates.qrCodeUrl = `https://${member.qrCodeUrl}`;
+        member.qrCodeUrl = updates.qrCodeUrl;
+      }
+    }
+    if (Object.keys(updates).length > 0) {
+      try {
+        await this.prisma.member.update({
+          where: { id: member.id },
+          data: updates,
+        });
+        this.logger.log(`Fixed scheme-less URLs for ${member.communityId}`);
+      } catch (error) {
+        this.logger.warn(`Failed to fix URLs for ${member.communityId}:`, error);
+      }
+    }
+
     return member;
   }
 

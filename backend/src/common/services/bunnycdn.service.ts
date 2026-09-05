@@ -18,10 +18,18 @@ export class BunnyCDNService {
     this.accessKey = 
       this.configService.get<string>('BUNNYCDN_ACCESS_KEY') || 
       this.configService.get<string>('BUNNY_CDN_ACCESS_KEY') || '';
-    this.cdnUrl = 
+    
+    // Normalize CDN URL: ensure it has https:// scheme
+    let rawCdnUrl = 
       this.configService.get<string>('BUNNYCDN_CDN_URL') || 
       this.configService.get<string>('BUNNY_CDN_PULL_ZONE_URL') || 
       this.configService.get<string>('BUNNY_CDN_CDN_URL') || '';
+    rawCdnUrl = rawCdnUrl.trim().replace(/\/$/, '');
+    if (rawCdnUrl && !rawCdnUrl.startsWith('http://') && !rawCdnUrl.startsWith('https://')) {
+      rawCdnUrl = `https://${rawCdnUrl}`;
+    }
+    this.cdnUrl = rawCdnUrl;
+    
     this.storageHostname = 
       this.configService.get<string>('BUNNYCDN_STORAGE_HOSTNAME') || 
       this.configService.get<string>('BUNNY_CDN_STORAGE_HOSTNAME') || 
