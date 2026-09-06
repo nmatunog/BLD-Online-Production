@@ -2217,5 +2217,252 @@ export class EventsService implements OnModuleInit {
       occurrencesGenerated,
     };
   }
+
+  /**
+   * BLD Event Standards v1 - Phase 4: Create a one-off annual program from the catalog.
+   * Programs: Marriage Encounter, Singles Encounter, Solo Parents Encounter, Youth Encounter, Family Enrichment, LSS Weekend.
+   * Uses official titles with optional serialNumber (no dates in title).
+   * 
+   * Role gates: SUPER_USER, ADMINISTRATOR, DCS
+   */
+  async createOneOffProgram(
+    programKey: string,
+    data: {
+      startDate: string;
+      endDate: string;
+      startTime?: string;
+      endTime?: string;
+      serialNumber?: number;
+      location?: string;
+      venue?: string;
+      classNumber?: number;
+    },
+    createdById?: string,
+  ): Promise<{ eventId: string; title: string }> {
+    const { ANNUAL_PROGRAMS_CATALOG } = await import('./event-standards-v1-phase4.helpers');
+    
+    // Validate program key
+    const program = ANNUAL_PROGRAMS_CATALOG[programKey as keyof typeof ANNUAL_PROGRAMS_CATALOG];
+    if (!program) {
+      throw new BadRequestException(
+        `Invalid program key. Must be one of: ${Object.keys(ANNUAL_PROGRAMS_CATALOG).join(', ')}`
+      );
+    }
+
+    // Compute title: official title + optional serialNumber
+    let title = program.title;
+    if (data.serialNumber) {
+      title = `${program.title} ${data.serialNumber}`;
+    }
+
+    // Check for duplicates (same title, year)
+    const startDate = new Date(data.startDate);
+    const year = startDate.getUTCFullYear();
+    const yearStart = new Date(Date.UTC(year, 0, 1));
+    const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59));
+
+    const existingEvent = await this.prisma.event.findFirst({
+      where: {
+        title,
+        startDate: { gte: yearStart, lte: yearEnd },
+        status: { in: [EventStatus.UPCOMING, EventStatus.ONGOING] },
+      },
+    });
+
+    if (existingEvent) {
+      throw new BadRequestException(
+        `Event "${title}" already exists for ${year}. Please use a different serial number or date.`
+      );
+    }
+
+    // Create the event
+    const event = await this.prisma.event.create({
+      data: {
+        title,
+        eventType: program.eventType || 'Program',
+        category: program.category,
+        description: program.description,
+        startDate: new Date(data.startDate),
+        endDate: new Date(data.endDate),
+        startTime: data.startTime || null,
+        endTime: data.endTime || null,
+        location: data.location || 'BLD Covenant Community Center',
+        venue: data.venue || null,
+        status: EventStatus.UPCOMING,
+        hasRegistration: true, // Annual programs typically require registration
+        encounterType: program.encounterType || null,
+        classNumber: data.classNumber || null,
+        serialNumber: data.serialNumber || null,
+        eventKind: EventKind.ONE_OFF,
+        isRecurring: false,
+        ministry: null, // General / community-wide
+        createdById: createdById || null,
+      },
+    });
+
+    // Generate QR code
+    if (event.id) {
+      await this.generateQRCode(event.id);
+    }
+
+    // Audit log
+    if (createdById) {
+      const user = await this.prisma.user.findUnique({ where: { id: createdById }, select: { email: true, phone: true } });
+      const userEmail = user?.email ?? user?.phone ?? null;
+      await this.prisma.eventAuditLog.create({
+        data: {
+          eventId: event.id,
+          action: EventAuditAction.CREATE,
+          userId: createdById,
+          userEmail: userEmail ?? undefined,
+          previousSnapshot: Prisma.JsonNull,
+          changedFields: Prisma.JsonNull,
+        },
+      });
+    }
+
+    return { eventId: event.id, title: event.title };
+  }
+
+  /**
+   * BLD Event Standards v1 - Phase 4: Ensure LSS Shepherding track exists.
+   * Creates Salubungan + Shepherding Sessions 1-6.
+   * Time: 20:00-21:00 Manila (right after CW, which is shortened to 19:00-20:00 if CW exists same night).
+   * Idempotent: does not duplicate if already generated for that LSS year.
+   * 
+   * Role gates: SUPER_USER, ADMINISTRATOR
+   */
+  async ensureLssShepherdingTrack(
+    lssWeekendDate: Date,
+    year: number,
+    location: string = 'BLD Covenant Community Center',
+    venue: string = 'Main Hall',
+    createdById?: string,
+  ): Promise<{ eventsCreated: number; sessionTitles: string[] }> {
+    const {
+      calculateLssShepherdingDates,
+      getLastTuesdayOfJanuary,
+      toManilaDateString,
+    } = await import('./event-standards-v1-phase4.helpers');
+
+    // Calculate all shepherding dates (Salubungan + 6 sessions)
+    const shepherdingDates = calculateLssShepherdingDates(lssWeekendDate, year);
+    
+    const sessionTitles: string[] = [];
+    let eventsCreated = 0;
+
+    // Check if LSS Shepherding for this year already exists
+    const yearStart = new Date(Date.UTC(year, 0, 1));
+    const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59));
+    
+    const existingSalubungan = await this.prisma.event.findFirst({
+      where: {
+        title: 'LSS Salubungan',
+        startDate: { gte: yearStart, lte: yearEnd },
+        status: { in: [EventStatus.UPCOMING, EventStatus.ONGOING, EventStatus.COMPLETED] },
+      },
+    });
+
+    if (existingSalubungan) {
+      // Already exists, don't duplicate
+      return { eventsCreated: 0, sessionTitles: [] };
+    }
+
+    // Create Salubungan
+    const salubunganDate = shepherdingDates[0];
+    const salubunganStart = new Date(salubunganDate);
+    salubunganStart.setUTCHours(20, 0, 0, 0);
+    const salubunganEnd = new Date(salubunganDate);
+    salubunganEnd.setUTCHours(21, 0, 0, 0);
+
+    await this.prisma.event.create({
+      data: {
+        title: 'LSS Salubungan',
+        eventType: 'LSS',
+        category: 'Formation',
+        description: 'LSS Salubungan - welcoming session for LSS participants.',
+        startDate: salubunganStart,
+        endDate: salubunganEnd,
+        startTime: '20:00',
+        endTime: '21:00',
+        location,
+        venue,
+        status: EventStatus.UPCOMING,
+        hasRegistration: false,
+        eventKind: EventKind.ONE_OFF,
+        isRecurring: false,
+        ministry: null,
+        createdById: createdById || null,
+      },
+    });
+    sessionTitles.push('LSS Salubungan');
+    eventsCreated++;
+
+    // Create Shepherding Sessions 1-6
+    for (let i = 1; i <= 6; i++) {
+      const sessionDate = shepherdingDates[i];
+      const sessionStart = new Date(sessionDate);
+      sessionStart.setUTCHours(20, 0, 0, 0);
+      const sessionEnd = new Date(sessionDate);
+      sessionEnd.setUTCHours(21, 0, 0, 0);
+
+      const title = `LSS Shepherding Session ${i}`;
+
+      await this.prisma.event.create({
+        data: {
+          title,
+          eventType: 'LSS',
+          category: 'Formation',
+          description: `LSS Shepherding Session ${i} - ongoing formation for LSS participants.`,
+          startDate: sessionStart,
+          endDate: sessionEnd,
+          startTime: '20:00',
+          endTime: '21:00',
+          location,
+          venue,
+          status: EventStatus.UPCOMING,
+          hasRegistration: false,
+          eventKind: EventKind.ONE_OFF,
+          isRecurring: false,
+          ministry: null,
+          createdById: createdById || null,
+        },
+      });
+      sessionTitles.push(title);
+      eventsCreated++;
+    }
+
+    // Shorten CW on same Tuesday nights if CW occurrences exist
+    // Find all CW occurrences on the same dates and update endTime to 20:00
+    for (const date of shepherdingDates) {
+      const dayStart = new Date(date);
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const dayEnd = new Date(date);
+      dayEnd.setUTCHours(23, 59, 59, 999);
+
+      const cwOccurrences = await this.prisma.event.findMany({
+        where: {
+          category: 'Community Worship',
+          startDate: { gte: dayStart, lte: dayEnd },
+          eventKind: EventKind.OCCURRENCE,
+        },
+      });
+
+      for (const cw of cwOccurrences) {
+        // Update CW endTime to 20:00 (shortened)
+        await this.prisma.event.update({
+          where: { id: cw.id },
+          data: {
+            endTime: '20:00',
+            description: cw.description
+              ? `${cw.description}\n\nNote: CW shortened to 19:00-20:00 for LSS Shepherding session.`
+              : 'Note: CW shortened to 19:00-20:00 for LSS Shepherding session.',
+          },
+        });
+      }
+    }
+
+    return { eventsCreated, sessionTitles };
+  }
 }
 

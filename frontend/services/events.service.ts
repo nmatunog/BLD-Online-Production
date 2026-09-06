@@ -213,6 +213,56 @@ class EventsService {
     >('/events/word-sharing-circle/ensure', request, { timeout: 60000 });
     return ensureBody(response);
   }
+
+  /** Phase 4: Get the official annual programs catalog */
+  async getProgramsCatalog(): Promise<ApiResponse<Record<string, ProgramCatalogEntry>>> {
+    const response = await apiClient.get<ApiResponse<Record<string, ProgramCatalogEntry>>>('/events/programs/catalog');
+    return ensureBody(response);
+  }
+
+  /** Phase 4: Create a one-off annual program from the catalog */
+  async createOneOffProgram(request: {
+    programKey: string;
+    startDate: string;
+    endDate: string;
+    startTime?: string;
+    endTime?: string;
+    serialNumber?: number;
+    location?: string;
+    venue?: string;
+    classNumber?: number;
+  }): Promise<ApiResponse<{ eventId: string; title: string }>> {
+    const response = await apiClient.post<ApiResponse<{ eventId: string; title: string }>>(
+      '/events/programs/create',
+      request,
+      { timeout: 60000 }
+    );
+    return ensureBody(response);
+  }
+
+  /** Phase 4: Suggest default dates for LSS Weekend */
+  async suggestLssWeekendDates(year: number): Promise<ApiResponse<{ startDate: string; endDate: string }>> {
+    const response = await apiClient.get<ApiResponse<{ startDate: string; endDate: string }>>(
+      `/events/lss/suggest-dates/${year}`
+    );
+    return ensureBody(response);
+  }
+
+  /** Phase 4: Ensure LSS Shepherding track exists */
+  async ensureLssShepherdingTrack(request: {
+    lssWeekendEventId?: string;
+    lssWeekendDate?: string;
+    year: string;
+    location?: string;
+    venue?: string;
+  }): Promise<ApiResponse<{ eventsCreated: number; sessionTitles: string[] }>> {
+    const response = await apiClient.post<ApiResponse<{ eventsCreated: number; sessionTitles: string[] }>>(
+      '/events/lss/shepherding/ensure',
+      request,
+      { timeout: 60000 }
+    );
+    return ensureBody(response);
+  }
 }
 
 export interface EventAuditLogEntry {
@@ -266,6 +316,20 @@ export interface EventWithCreator extends Event {
     phone: string | null;
     member?: { firstName: string; lastName: string; nickname: string | null } | null;
   } | null;
+}
+
+/** Phase 4: Annual program catalog entry */
+export interface ProgramCatalogEntry {
+  title: string;
+  category: string;
+  eventType: string;
+  encounterType?: string;
+  maxPerYear: number;
+  typicalMonths: number[];
+  description: string;
+  durationDays: number;
+  defaultWeekOfMonth?: number;
+  defaultDayOfWeek?: number;
 }
 
 export const eventsService = new EventsService();

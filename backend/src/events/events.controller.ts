@@ -21,6 +21,8 @@ import { EventQueryDto } from './dto/event-query.dto';
 import { AssignClassShepherdDto } from './dto/assign-class-shepherd.dto';
 import { CancelEventDto } from './dto/cancel-event.dto';
 import { EnsureWscSeriesDto } from './dto/ensure-wsc-series.dto';
+import { CreateOneOffProgramDto } from './dto/create-one-off-program.dto';
+import { EnsureLssShepherdingDto } from './dto/ensure-lss-shepherding.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -138,6 +140,133 @@ export class EventsController {
       success: true,
       data: result,
       message: `WSC series for ${ensureWscDto.ministry} ensured: ${result.occurrencesGenerated} occurrences generated`,
+    };
+  }
+
+  @Post('programs/create')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ 
+    summary: 'Create a one-off annual program from the official catalog',
+    description: 'BLD Event Standards v1 - Phase 4: Create Marriage Encounter, Singles Encounter, Solo Parents Encounter, Youth Encounter, Family Enrichment, or LSS Weekend. Uses official titles with optional serialNumber (no dates in title).'
+  })
+  @ApiResponse({ status: 201, description: 'Program created successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid program key or duplicate exists' })
+  async createOneOffProgram(
+    @Body() createProgramDto: CreateOneOffProgramDto,
+    @CurrentUser() user: { id: string },
+  ): Promise<ApiResponseDto<unknown>> {
+    const result = await this.eventsService.createOneOffProgram(
+      createProgramDto.programKey,
+      {
+        startDate: createProgramDto.startDate,
+        endDate: createProgramDto.endDate,
+        startTime: createProgramDto.startTime,
+        endTime: createProgramDto.endTime,
+        serialNumber: createProgramDto.serialNumber,
+        location: createProgramDto.location,
+        venue: createProgramDto.venue,
+        classNumber: createProgramDto.classNumber,
+      },
+      user.id,
+    );
+    return {
+      success: true,
+      data: result,
+      message: `Program "${result.title}" created successfully`,
+    };
+  }
+
+  @Get('programs/catalog')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @ApiOperation({ 
+    summary: 'Get the official annual programs catalog',
+    description: 'BLD Event Standards v1 - Phase 4: Returns the catalog of official annual programs (Marriage Encounter, Singles Encounter, etc.) with metadata for the suggest/create wizard.'
+  })
+  @ApiResponse({ status: 200, description: 'Catalog retrieved successfully' })
+  async getProgramsCatalog(): Promise<ApiResponseDto<unknown>> {
+    const { ANNUAL_PROGRAMS_CATALOG } = await import('./event-standards-v1-phase4.helpers');
+    return {
+      success: true,
+      data: ANNUAL_PROGRAMS_CATALOG,
+      message: 'Programs catalog retrieved successfully',
+    };
+  }
+
+  @Post('lss/shepherding/ensure')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ 
+    summary: 'Ensure LSS Shepherding track exists',
+    description: 'BLD Event Standards v1 - Phase 4: Creates Salubungan + Shepherding Sessions 1-6. Time: 20:00-21:00 Manila (right after CW, which is shortened). Idempotent: does not duplicate if already generated for that LSS year.'
+  })
+  @ApiResponse({ status: 200, description: 'LSS Shepherding track ensured' })
+  @ApiResponse({ status: 400, description: 'Invalid LSS Weekend date or year' })
+  async ensureLssShepherdingTrack(
+    @Body() ensureLssDto: EnsureLssShepherdingDto,
+    @CurrentUser() user: { id: string },
+  ): Promise<ApiResponseDto<unknown>> {
+    // Determine LSS Weekend date (from event ID or provided date)
+    let lssWeekendDate: Date;
+
+    if (ensureLssDto.lssWeekendEventId) {
+      const lssEvent = await this.eventsService.findOne(ensureLssDto.lssWeekendEventId);
+      if (!lssEvent) {
+        throw new NotFoundException('LSS Weekend event not found');
+      }
+      lssWeekendDate = new Date(lssEvent.startDate);
+    } else if (ensureLssDto.lssWeekendDate) {
+      lssWeekendDate = new Date(ensureLssDto.lssWeekendDate);
+    } else {
+      throw new BadRequestException('Either lssWeekendEventId or lssWeekendDate must be provided');
+    }
+
+    const year = parseInt(ensureLssDto.year, 10);
+    if (isNaN(year) || year < 2020 || year > 2100) {
+      throw new BadRequestException('Invalid year');
+    }
+
+    const result = await this.eventsService.ensureLssShepherdingTrack(
+      lssWeekendDate,
+      year,
+      ensureLssDto.location || 'BLD Covenant Community Center',
+      ensureLssDto.venue || 'Main Hall',
+      user.id,
+    );
+
+    return {
+      success: true,
+      data: result,
+      message: `LSS Shepherding track created: ${result.eventsCreated} events (${result.sessionTitles.join(', ')})`,
+    };
+  }
+
+  @Get('lss/suggest-dates/:year')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)
+  @ApiOperation({ 
+    summary: 'Suggest default dates for LSS Weekend',
+    description: 'BLD Event Standards v1 - Phase 4: Returns suggested dates for LSS Weekend (1st Saturday-Sunday of March in Manila timezone).'
+  })
+  @ApiResponse({ status: 200, description: 'Suggested dates returned' })
+  async suggestLssWeekendDates(
+    @Param('year') yearStr: string,
+  ): Promise<ApiResponseDto<unknown>> {
+    const year = parseInt(yearStr, 10);
+    if (isNaN(year) || year < 2020 || year > 2100) {
+      throw new BadRequestException('Invalid year');
+    }
+
+    const { suggestLssWeekendDates } = await import('./event-standards-v1-phase4.helpers');
+    const dates = suggestLssWeekendDates(year);
+
+    return {
+      success: true,
+      data: dates,
+      message: `Suggested LSS Weekend dates for ${year}`,
     };
   }
 

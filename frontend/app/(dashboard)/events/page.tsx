@@ -150,6 +150,30 @@ export default function EventsPage() {
     location: 'BLD Covenant Community Center',
     venue: '',
   });
+  /** Phase 4: One-off program creation dialog */
+  const [showProgramDialog, setShowProgramDialog] = useState(false);
+  const [programCreating, setProgramCreating] = useState(false);
+  const [programCatalog, setProgramCatalog] = useState<Record<string, any>>({});
+  const [programForm, setProgramForm] = useState({
+    programKey: '',
+    startDate: '',
+    endDate: '',
+    startTime: '08:00',
+    endTime: '17:00',
+    serialNumber: 1,
+    location: 'BLD Covenant Community Center',
+    venue: '',
+    classNumber: undefined as number | undefined,
+  });
+  /** Phase 4: LSS Shepherding setup dialog */
+  const [showLssDialog, setShowLssDialog] = useState(false);
+  const [lssGenerating, setLssGenerating] = useState(false);
+  const [lssForm, setLssForm] = useState({
+    lssWeekendDate: '',
+    year: new Date().getFullYear().toString(),
+    location: 'BLD Covenant Community Center',
+    venue: 'Main Hall',
+  });
   // Event categories from old system
   const eventCategories = [
     'Community Worship',
@@ -537,6 +561,116 @@ export default function EventsPage() {
       toast.error('WSC generation failed', { description: errorMsg });
     } finally {
       setWscGenerating(false);
+    }
+  };
+
+  /** Phase 4: Load program catalog */
+  const loadProgramCatalog = async () => {
+    try {
+      const res = await eventsService.getProgramsCatalog();
+      if (res?.success && res.data) {
+        setProgramCatalog(res.data);
+      }
+    } catch (e) {
+      toast.error('Failed to load program catalog');
+    }
+  };
+
+  /** Phase 4: Create one-off program */
+  const handleCreateProgram = async () => {
+    if (!programForm.programKey) {
+      toast.error('Please select a program');
+      return;
+    }
+    if (!programForm.startDate || !programForm.endDate) {
+      toast.error('Please select start and end dates');
+      return;
+    }
+    setProgramCreating(true);
+    try {
+      const res = await eventsService.createOneOffProgram(programForm);
+      if (res?.success && res.data) {
+        toast.success(`Program "${res.data.title}" created successfully`);
+        setShowProgramDialog(false);
+        // Reset form
+        setProgramForm({
+          programKey: '',
+          startDate: '',
+          endDate: '',
+          startTime: '08:00',
+          endTime: '17:00',
+          serialNumber: 1,
+          location: 'BLD Covenant Community Center',
+          venue: '',
+          classNumber: undefined,
+        });
+        await loadEvents();
+      } else {
+        toast.error('Program creation failed', { description: res.error || 'Please try again.' });
+      }
+    } catch (e: any) {
+      const errorMsg = e?.response?.data?.message || e?.message || 'Unknown error';
+      toast.error('Program creation failed', { description: errorMsg });
+    } finally {
+      setProgramCreating(false);
+    }
+  };
+
+  /** Phase 4: Ensure LSS Shepherding track */
+  const handleEnsureLssShepherding = async () => {
+    if (!lssForm.lssWeekendDate) {
+      toast.error('Please select LSS Weekend date');
+      return;
+    }
+    if (!lssForm.year) {
+      toast.error('Please enter year');
+      return;
+    }
+    setLssGenerating(true);
+    try {
+      const res = await eventsService.ensureLssShepherdingTrack(lssForm);
+      if (res?.success && res.data) {
+        toast.success(
+          `LSS Shepherding track created: ${res.data.eventsCreated} events`,
+          { description: res.data.sessionTitles.join(', ') }
+        );
+        setShowLssDialog(false);
+        // Reset form
+        setLssForm({
+          lssWeekendDate: '',
+          year: new Date().getFullYear().toString(),
+          location: 'BLD Covenant Community Center',
+          venue: 'Main Hall',
+        });
+        await loadEvents();
+      } else {
+        toast.error('LSS Shepherding setup failed', { description: res.error || 'Please try again.' });
+      }
+    } catch (e: any) {
+      const errorMsg = e?.response?.data?.message || e?.message || 'Unknown error';
+      toast.error('LSS Shepherding setup failed', { description: errorMsg });
+    } finally {
+      setLssGenerating(false);
+    }
+  };
+
+  /** Phase 4: Suggest LSS Weekend dates */
+  const handleSuggestLssWeekendDates = async () => {
+    if (!lssForm.year) {
+      toast.error('Please enter year first');
+      return;
+    }
+    try {
+      const year = parseInt(lssForm.year, 10);
+      const res = await eventsService.suggestLssWeekendDates(year);
+      if (res?.success && res.data) {
+        // Extract date part (YYYY-MM-DD) from ISO string
+        const startDate = res.data.startDate.split('T')[0];
+        setLssForm(prev => ({ ...prev, lssWeekendDate: startDate }));
+        toast.success(`Suggested LSS Weekend: 1st Saturday of March ${year}`);
+      }
+    } catch (e: any) {
+      toast.error('Failed to suggest dates', { description: e?.message || 'Unknown error' });
     }
   };
 
@@ -1427,6 +1561,35 @@ export default function EventsPage() {
                 >
                   <Users className="mr-2 h-4 w-4" />
                   WSC Setup
+                </Button>
+              )}
+              {/* Phase 4: One-off program creation */}
+              {(userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR' || userRole === 'DCS') && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    loadProgramCatalog();
+                    setShowProgramDialog(true);
+                  }}
+                  className="h-10"
+                  title="Create annual program (Marriage Encounter, Singles Encounter, LSS Weekend, etc.)"
+                >
+                  <Calendar className="mr-2 h-4 w-4" />
+                  Create Program
+                </Button>
+              )}
+              {/* Phase 4: LSS Shepherding setup */}
+              {(userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR') && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowLssDialog(true)}
+                  className="h-10"
+                  title="Setup LSS Shepherding track (Salubungan + Sessions 1-6)"
+                >
+                  <Users className="mr-2 h-4 w-4" />
+                  LSS Shepherding
                 </Button>
               )}
             </div>
@@ -3043,6 +3206,334 @@ export default function EventsPage() {
                   onClick={() => setShowWscDialog(false)}
                   variant="outline"
                   disabled={wscGenerating}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Phase 4: Program Creation Dialog */}
+        <Dialog open={showProgramDialog} onOpenChange={setShowProgramDialog}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200 shadow-2xl">
+            <DialogHeader className="bg-white">
+              <DialogTitle className="text-2xl font-bold text-gray-900">
+                Create Annual Program
+              </DialogTitle>
+              <DialogDescription className="text-sm text-gray-600 mt-1">
+                Create one-off annual programs like Marriage Encounter, Singles Encounter, LSS Weekend, etc.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 bg-white py-4">
+              <div className="space-y-2">
+                <Label htmlFor="program-key" className="text-sm font-semibold text-gray-700">
+                  Program <span className="text-red-500">*</span>
+                </Label>
+                <Select
+                  value={programForm.programKey}
+                  onValueChange={(value) => {
+                    const program = programCatalog[value];
+                    setProgramForm(prev => ({
+                      ...prev,
+                      programKey: value,
+                      classNumber: program?.encounterType ? 1 : undefined,
+                    }));
+                  }}
+                >
+                  <SelectTrigger id="program-key" className="w-full">
+                    <SelectValue placeholder="Select program" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    {Object.entries(programCatalog).map(([key, program]: [string, any]) => (
+                      <SelectItem key={key} value={key}>
+                        {program.title} - {program.description.substring(0, 60)}...
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {programForm.programKey && programCatalog[programForm.programKey] && (
+                  <p className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
+                    {programCatalog[programForm.programKey].description}
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="program-startDate" className="text-sm font-semibold text-gray-700">
+                    Start Date <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="program-startDate"
+                    type="date"
+                    value={programForm.startDate}
+                    onChange={(e) => {
+                      const startDate = e.target.value;
+                      const program = programCatalog[programForm.programKey];
+                      const durationDays = program?.durationDays || 1;
+                      const endDate = new Date(startDate);
+                      endDate.setDate(endDate.getDate() + durationDays - 1);
+                      setProgramForm(prev => ({
+                        ...prev,
+                        startDate,
+                        endDate: endDate.toISOString().split('T')[0],
+                      }));
+                    }}
+                    className="w-full"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="program-endDate" className="text-sm font-semibold text-gray-700">
+                    End Date <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="program-endDate"
+                    type="date"
+                    value={programForm.endDate}
+                    onChange={(e) => setProgramForm(prev => ({ ...prev, endDate: e.target.value }))}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="program-startTime" className="text-sm font-semibold text-gray-700">
+                    Start Time
+                  </Label>
+                  <Input
+                    id="program-startTime"
+                    type="time"
+                    value={programForm.startTime}
+                    onChange={(e) => setProgramForm(prev => ({ ...prev, startTime: e.target.value }))}
+                    className="w-full"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="program-endTime" className="text-sm font-semibold text-gray-700">
+                    End Time
+                  </Label>
+                  <Input
+                    id="program-endTime"
+                    type="time"
+                    value={programForm.endTime}
+                    onChange={(e) => setProgramForm(prev => ({ ...prev, endTime: e.target.value }))}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+
+              {programForm.programKey && programCatalog[programForm.programKey]?.maxPerYear > 1 && (
+                <div className="space-y-2">
+                  <Label htmlFor="program-serialNumber" className="text-sm font-semibold text-gray-700">
+                    Serial Number (e.g., 1, 2, 3 for multiple per year)
+                  </Label>
+                  <Input
+                    id="program-serialNumber"
+                    type="number"
+                    min="1"
+                    max="99"
+                    value={programForm.serialNumber}
+                    onChange={(e) => setProgramForm(prev => ({ ...prev, serialNumber: parseInt(e.target.value, 10) }))}
+                    className="w-full"
+                  />
+                </div>
+              )}
+
+              {programForm.programKey && programCatalog[programForm.programKey]?.encounterType && (
+                <div className="space-y-2">
+                  <Label htmlFor="program-classNumber" className="text-sm font-semibold text-gray-700">
+                    Class Number (e.g., 18 for ME Class 18)
+                  </Label>
+                  <Input
+                    id="program-classNumber"
+                    type="number"
+                    min="1"
+                    value={programForm.classNumber || ''}
+                    onChange={(e) => setProgramForm(prev => ({ ...prev, classNumber: parseInt(e.target.value, 10) || undefined }))}
+                    className="w-full"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="program-location" className="text-sm font-semibold text-gray-700">
+                  Location
+                </Label>
+                <Input
+                  id="program-location"
+                  type="text"
+                  value={programForm.location}
+                  onChange={(e) => setProgramForm(prev => ({ ...prev, location: e.target.value }))}
+                  placeholder="e.g., BLD Covenant Community Center"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="program-venue" className="text-sm font-semibold text-gray-700">
+                  Venue
+                </Label>
+                <Input
+                  id="program-venue"
+                  type="text"
+                  value={programForm.venue}
+                  onChange={(e) => setProgramForm(prev => ({ ...prev, venue: e.target.value }))}
+                  placeholder="e.g., Main Hall, Room 201"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                <p className="text-xs text-blue-800">
+                  <strong>Note:</strong> This will create a one-off event with the official program title. 
+                  No dates will be included in the event title.
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4 bg-white border-t">
+                <Button
+                  onClick={handleCreateProgram}
+                  disabled={programCreating}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {programCreating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create Program'
+                  )}
+                </Button>
+                <Button
+                  onClick={() => setShowProgramDialog(false)}
+                  variant="outline"
+                  disabled={programCreating}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Phase 4: LSS Shepherding Setup Dialog */}
+        <Dialog open={showLssDialog} onOpenChange={setShowLssDialog}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200 shadow-2xl">
+            <DialogHeader className="bg-white">
+              <DialogTitle className="text-2xl font-bold text-gray-900">
+                LSS Shepherding Setup
+              </DialogTitle>
+              <DialogDescription className="text-sm text-gray-600 mt-1">
+                Create LSS Shepherding track: Salubungan + Shepherding Sessions 1-6. Time: 20:00-21:00 Manila.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 bg-white py-4">
+              <div className="space-y-2">
+                <Label htmlFor="lss-year" className="text-sm font-semibold text-gray-700">
+                  Year <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="lss-year"
+                  type="number"
+                  min="2020"
+                  max="2100"
+                  value={lssForm.year}
+                  onChange={(e) => setLssForm(prev => ({ ...prev, year: e.target.value }))}
+                  placeholder="e.g., 2026"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="lss-weekendDate" className="text-sm font-semibold text-gray-700">
+                  LSS Weekend Start Date <span className="text-red-500">*</span>
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="lss-weekendDate"
+                    type="date"
+                    value={lssForm.lssWeekendDate}
+                    onChange={(e) => setLssForm(prev => ({ ...prev, lssWeekendDate: e.target.value }))}
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleSuggestLssWeekendDates}
+                    className="whitespace-nowrap"
+                  >
+                    Suggest Dates
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-500">
+                  LSS Weekend is typically the 1st Saturday-Sunday of March. Click &quot;Suggest Dates&quot; for the default.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="lss-location" className="text-sm font-semibold text-gray-700">
+                  Location
+                </Label>
+                <Input
+                  id="lss-location"
+                  type="text"
+                  value={lssForm.location}
+                  onChange={(e) => setLssForm(prev => ({ ...prev, location: e.target.value }))}
+                  placeholder="e.g., BLD Covenant Community Center"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="lss-venue" className="text-sm font-semibold text-gray-700">
+                  Venue
+                </Label>
+                <Input
+                  id="lss-venue"
+                  type="text"
+                  value={lssForm.venue}
+                  onChange={(e) => setLssForm(prev => ({ ...prev, venue: e.target.value }))}
+                  placeholder="e.g., Main Hall"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                <p className="text-xs text-blue-800">
+                  <strong>Note:</strong> This will create:
+                </p>
+                <ul className="text-xs text-blue-800 list-disc list-inside mt-1 space-y-1">
+                  <li>Salubungan: Last Tuesday of January</li>
+                  <li>Shepherding Sessions 1-6: Subsequent Tuesdays until 2 Tuesdays after LSS Weekend</li>
+                  <li>All sessions: 20:00-21:00 Manila time</li>
+                  <li>Community Worship on same nights will be shortened to 19:00-20:00</li>
+                </ul>
+              </div>
+
+              <div className="flex gap-3 pt-4 bg-white border-t">
+                <Button
+                  onClick={handleEnsureLssShepherding}
+                  disabled={lssGenerating}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {lssGenerating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create LSS Shepherding Track'
+                  )}
+                </Button>
+                <Button
+                  onClick={() => setShowLssDialog(false)}
+                  variant="outline"
+                  disabled={lssGenerating}
                   className="flex-1"
                 >
                   Cancel
