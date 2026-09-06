@@ -187,6 +187,16 @@ class EventsService {
     >('/events/super/duplicates/correct-all', undefined, { timeout: 18000 * 1000 });
     return ensureBody(response);
   }
+
+  /** Super User / Admin only: Ensure Community Worship series exists and generate 24 weeks of occurrences */
+  async ensureCommunityWorshipSeries(): Promise<
+    ApiResponse<{ seriesId: string; seriesCreated: boolean; occurrencesGenerated: number }>
+  > {
+    const response = await apiClient.post<
+      ApiResponse<{ seriesId: string; seriesCreated: boolean; occurrencesGenerated: number }>
+    >('/events/community-worship/ensure', undefined, { timeout: 60000 });
+    return ensureBody(response);
+  }
 }
 
 export interface EventAuditLogEntry {

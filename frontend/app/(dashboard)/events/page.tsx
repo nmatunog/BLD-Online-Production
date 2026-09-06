@@ -137,6 +137,8 @@ export default function EventsPage() {
   const [duplicatesLoadError, setDuplicatesLoadError] = useState<string | null>(null);
   const [duplicateDeletingId, setDuplicateDeletingId] = useState<string | null>(null);
   const [correctAllLoading, setCorrectAllLoading] = useState(false);
+  /** Super User / Admin: Community Worship series generator */
+  const [cwGenerating, setCwGenerating] = useState(false);
   // Event categories from old system
   const eventCategories = [
     'Community Worship',
@@ -457,6 +459,29 @@ export default function EventsPage() {
       toast.error('Correct all failed', { description: e instanceof Error ? e.message : 'Unknown error' });
     } finally {
       setCorrectAllLoading(false);
+    }
+  };
+
+  const handleEnsureCommunityWorship = async () => {
+    if (!confirm('Generate Community Worship series and occurrences? Creates CW series if missing, generates 24 weeks of Tuesday 19:00-21:00 Manila occurrences.')) {
+      return;
+    }
+    setCwGenerating(true);
+    try {
+      const res = await eventsService.ensureCommunityWorshipSeries();
+      if (res?.success && res.data) {
+        toast.success(
+          res.message ??
+            `CW ${res.data.seriesCreated ? 'series created' : 'series exists'}, ${res.data.occurrencesGenerated} occurrences generated`,
+        );
+        await loadEvents();
+      } else {
+        toast.error('CW generation failed', { description: 'Please try again.' });
+      }
+    } catch (e) {
+      toast.error('CW generation failed', { description: e instanceof Error ? e.message : 'Unknown error' });
+    } finally {
+      setCwGenerating(false);
     }
   };
 
@@ -1296,8 +1321,40 @@ export default function EventsPage() {
                       <Copy className="mr-2 h-4 w-4" />
                       Find duplicates
                     </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                      BLD Event Standards v1
+                    </DropdownMenuLabel>
+                    <DropdownMenuItem
+                      onSelect={handleEnsureCommunityWorship}
+                      disabled={cwGenerating}
+                    >
+                      {cwGenerating ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Calendar className="mr-2 h-4 w-4" />
+                      )}
+                      Community Worship setup
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+              )}
+              {(userRole === 'ADMINISTRATOR' || userRole === 'DCS') && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleEnsureCommunityWorship}
+                  disabled={cwGenerating}
+                  className="h-10"
+                  title="Admin: Ensure Community Worship series and generate 24 weeks"
+                >
+                  {cwGenerating ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Calendar className="mr-2 h-4 w-4" />
+                  )}
+                  CW Setup
+                </Button>
               )}
             </div>
           )}

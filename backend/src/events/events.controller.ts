@@ -83,6 +83,28 @@ export class EventsController {
     };
   }
 
+  @Post('community-worship/ensure')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ 
+    summary: 'Super User / Admin only: Ensure Community Worship series exists and generate 24 weeks of occurrences',
+    description: 'BLD Event Standards v1: Creates CW series if missing, generates Tuesday 19:00-21:00 Manila occurrences with Holy Mass on 1st/3rd Tuesday, skips Dec 24-Jan 1 blackout'
+  })
+  @ApiResponse({ status: 200, description: 'Community Worship series ensured and occurrences generated' })
+  async ensureCommunityWorshipSeries(
+    @CurrentUser() user: { id: string },
+  ): Promise<ApiResponseDto<unknown>> {
+    const result = await this.eventsService.ensureCommunityWorshipSeries(user.id);
+    return {
+      success: true,
+      data: result,
+      message: result.seriesCreated 
+        ? `Community Worship series created and ${result.occurrencesGenerated} occurrences generated`
+        : `Community Worship series already exists, generated ${result.occurrencesGenerated} new occurrences`,
+    };
+  }
+
   @Get('super/all')
   @UseGuards(RolesGuard)
   @Roles(UserRole.SUPER_USER)

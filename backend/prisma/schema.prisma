@@ -28,6 +28,12 @@ enum EventStatus {
   CANCELLED
 }
 
+enum EventKind {
+  SERIES
+  OCCURRENCE
+  ONE_OFF
+}
+
 enum CheckInMethod {
   QR_CODE
   MANUAL
@@ -174,7 +180,7 @@ model Event {
   classNumber       Int? // e.g., 18 for ME Class 18, 101 for SE Class 101
   // Ministry-specific events (e.g. Word Sharing Circles per ministry)
   ministry          String? // null = general (all); set = only that ministry
-  // Recurring event fields
+  // Recurring event fields (legacy - kept for backward compatibility)
   isRecurring       Boolean      @default(false)
   recurrencePattern String? // daily, weekly, monthly
   recurrenceDays    String[] // For weekly: ["monday", "wednesday"]
@@ -183,13 +189,17 @@ model Event {
   monthlyDayOfMonth Int?
   monthlyWeekOfMonth Int?
   monthlyDayOfWeek   String?
+  recurrenceTemplateId String?   // occurrence of template when set; template has null (legacy - now use eventKind)
+  recurrenceTemplate   Event?     @relation("RecurrenceOccurrences", fields: [recurrenceTemplateId], references: [id], onDelete: Cascade)
+  recurrenceOccurrences Event[]   @relation("RecurrenceOccurrences")
+  // BLD Event Standards v1 fields
+  eventKind         EventKind?   // SERIES (template), OCCURRENCE (instance of series), or ONE_OFF (standalone)
+  occurrenceSubtype String?      // e.g. "Holy Mass" for CW 1st/3rd Tuesday
+  serialNumber      Int?         // For encounters/LSS/seminars (no year in title)
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
   createdById       String?
   createdBy         User?        @relation("EventCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  recurrenceTemplateId String?   // occurrence of template when set; template has null
-  recurrenceTemplate   Event?     @relation("RecurrenceOccurrences", fields: [recurrenceTemplateId], references: [id], onDelete: Cascade)
-  recurrenceOccurrences Event[]   @relation("RecurrenceOccurrences")
 
   attendances       Attendance[]
   registrations     EventRegistration[]
@@ -204,6 +214,7 @@ model Event {
   @@index([eventType])
   @@index([ministry])
   @@index([recurrenceTemplateId])
+  @@index([eventKind])
 }
 
 model TempCredentialLog {

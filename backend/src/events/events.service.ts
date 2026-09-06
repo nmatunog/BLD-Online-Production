@@ -11,7 +11,7 @@ import { UpdateEventDto } from './dto/update-event.dto';
 import { EventQueryDto } from './dto/event-query.dto';
 import { AssignClassShepherdDto } from './dto/assign-class-shepherd.dto';
 import { CancelEventDto } from './dto/cancel-event.dto';
-import { Prisma, EventStatus, UserRole, EventAuditAction } from '@prisma/client';
+import { Prisma, EventStatus, UserRole, EventAuditAction, EventKind } from '@prisma/client';
 import QRCode from 'qrcode';
 import { BunnyCDNService } from '../common/services/bunnycdn.service';
 import { MINISTRIES_BY_APOSTOLATE } from '../common/constants/organization.constants';
@@ -28,6 +28,37 @@ function getStartOfWeekUTC(d: Date): Date {
   date.setUTCDate(diff);
   date.setUTCHours(0, 0, 0, 0);
   return date;
+}
+
+/** Convert Date to Manila timezone string YYYY-MM-DD */
+function toManilaDateString(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
+/** Check if a date (in Manila timezone) falls in the blackout period Dec 24 - Jan 1 inclusive */
+function isInBlackoutPeriod(d: Date): boolean {
+  const manilaStr = toManilaDateString(d);
+  const [year, month, day] = manilaStr.split('-').map(Number);
+  // Dec 24-31 or Jan 1
+  return (month === 12 && day >= 24) || (month === 1 && day === 1);
+}
+
+/** Get the week-of-month (1st, 2nd, 3rd, 4th, or 5th) for a date in Manila timezone */
+function getWeekOfMonth(d: Date): number {
+  const manilaStr = toManilaDateString(d);
+  const [, , day] = manilaStr.split('-').map(Number);
+  return Math.ceil(day / 7);
+}
+
+/** Check if Tuesday is 1st or 3rd of the month (Holy Mass subtype) */
+function isHolyMassTuesday(d: Date): boolean {
+  const week = getWeekOfMonth(d);
+  return week === 1 || week === 3;
 }
 
 /** Serialize event to JSON for audit snapshot (dates to ISO string, Decimal to number) */
@@ -166,11 +197,12 @@ export class EventsService implements OnModuleInit {
   }
 
   onModuleInit() {
-    // Auto-generate future recurring occurrences (Community Worship, WSC, etc.) so they show every week without manual creation
+    // Auto-generate future recurring occurrences ONLY for eventKind=SERIES (BLD Event Standards v1).
+    // No longer spam-creates for legacy isRecurring rows without proper series designation.
     setTimeout(() => {
       void this.ensureRecurringOccurrencesForAllTemplates(RECURRING_OCCURRENCE_WEEKS_AHEAD).then((r) => {
         if (r.occurrencesCreated > 0) {
-          console.log(`[EventsService] Auto-generated ${r.occurrencesCreated} recurring occurrence(s) for ${r.templatesProcessed} template(s)`);
+          console.log(`[EventsService] Auto-generated ${r.occurrencesCreated} recurring occurrence(s) for ${r.templatesProcessed} SERIES template(s)`);
         }
       }).catch((err) => {
         console.error('[EventsService] Auto ensureRecurringOccurrences failed:', err);
@@ -278,6 +310,15 @@ export class EventsService implements OnModuleInit {
       );
     }
 
+    // BLD Event Standards v1: Determine eventKind
+    // SERIES if isRecurring=true and no recurrenceTemplateId (it's the template)
+    // ONE_OFF otherwise (standalone event)
+    const eventKind = createEventDto.isRecurring && !createEventDto.recurrencePattern
+      ? EventKind.ONE_OFF
+      : createEventDto.isRecurring
+        ? EventKind.SERIES
+        : EventKind.ONE_OFF;
+
     // Create event
     const event = await this.prisma.event.create({
       data: {
@@ -308,6 +349,7 @@ export class EventsService implements OnModuleInit {
         monthlyWeekOfMonth: createEventDto.monthlyWeekOfMonth || null,
         monthlyDayOfWeek: createEventDto.monthlyDayOfWeek || null,
         ministry: createEventDto.ministry?.trim() || null,
+        eventKind: eventKind,
         createdById: createdById || null,
       },
       include: {
@@ -341,8 +383,8 @@ export class EventsService implements OnModuleInit {
       });
     }
 
-    // Auto-create future occurrence rows in background so create response returns quickly (avoids timeout)
-    if (event.isRecurring && !event.recurrenceTemplateId) {
+    // Auto-create future occurrence rows in background for SERIES (BLD Event Standards v1)
+    if (event.eventKind === EventKind.SERIES) {
       void this.generateRecurringOccurrences(event.id, RECURRING_OCCURRENCE_WEEKS_AHEAD).catch((err) => {
         console.error('[EventsService] generateRecurringOccurrences failed:', err);
       });
@@ -380,9 +422,14 @@ export class EventsService implements OnModuleInit {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${templateId}))`;
 
       const template = await tx.event.findUnique({
-        where: { id: templateId, isRecurring: true, recurrenceTemplateId: null },
+        where: { id: templateId },
       });
       if (!template) return 0;
+      
+      // BLD Event Standards v1: Only generate for SERIES, not legacy recurring events
+      if (template.eventKind !== EventKind.SERIES) {
+        return 0;
+      }
 
       const pattern = (template.recurrencePattern || '').toLowerCase();
       const recurrenceDays = (template.recurrenceDays || []).map((d) => String(d).toLowerCase());
@@ -425,6 +472,11 @@ export class EventsService implements OnModuleInit {
             );
             if (occStart < recentPastCutoff) continue;
 
+            // BLD Event Standards v1: Skip blackout period (Dec 24 - Jan 1)
+            if (isInBlackoutPeriod(occStart)) {
+              continue;
+            }
+
             const occEnd = new Date(occStart.getTime() + durationMs);
 
             // Per-template idempotency rule: one occurrence row per template/day/startTime.
@@ -445,6 +497,14 @@ export class EventsService implements OnModuleInit {
               },
             });
             if (existing) continue;
+
+            // BLD Event Standards v1: Determine occurrence subtype (e.g. Holy Mass for CW 1st/3rd Tuesday)
+            let occurrenceSubtype: string | null = null;
+            if (template.category === 'Community Worship' && dayNum === 2) { // Tuesday
+              if (isHolyMassTuesday(occStart)) {
+                occurrenceSubtype = 'Holy Mass';
+              }
+            }
 
             await tx.event.create({
               data: {
@@ -476,6 +536,9 @@ export class EventsService implements OnModuleInit {
                 monthlyWeekOfMonth: template.monthlyWeekOfMonth,
                 monthlyDayOfWeek: template.monthlyDayOfWeek,
                 recurrenceTemplateId: templateId,
+                // BLD Event Standards v1 fields
+                eventKind: EventKind.OCCURRENCE,
+                occurrenceSubtype: occurrenceSubtype,
               },
             });
             count++;
@@ -491,12 +554,15 @@ export class EventsService implements OnModuleInit {
   }
 
   /**
-   * Ensure all recurring templates have future occurrence rows. Call after deploy or periodically.
+   * Ensure all SERIES (not legacy recurring) have future occurrence rows. Call after deploy or periodically.
+   * Only processes eventKind=SERIES to avoid spam-creating from legacy data.
    * Super User only.
    */
   async ensureRecurringOccurrencesForAllTemplates(weeksAhead: number = RECURRING_OCCURRENCE_WEEKS_AHEAD): Promise<{ templatesProcessed: number; occurrencesCreated: number }> {
     const templates = await this.prisma.event.findMany({
-      where: { isRecurring: true, recurrenceTemplateId: null },
+      where: { 
+        eventKind: EventKind.SERIES,
+      },
       select: { id: true },
     });
     let totalCreated = 0;
@@ -533,9 +599,10 @@ export class EventsService implements OnModuleInit {
     // Build where clause
     const where: Prisma.EventWhereInput = {};
 
-    // Never show recurring template rows in the regular listing endpoint.
-    // The UI should display concrete occurrences only; template management is via super/all.
-    where.NOT = { isRecurring: true, recurrenceTemplateId: null };
+    // BLD Event Standards v1: Never show SERIES rows in regular listing endpoint.
+    // Members/staff see only OCCURRENCES and ONE_OFF events.
+    // SERIES template management is via super/all endpoint.
+    where.NOT = { eventKind: EventKind.SERIES };
 
     // Ministry visibility: default = general (ministry null) + user's ministry only. Admin/Super can include all.
     const canSeeAllMinistryEvents =
@@ -1932,6 +1999,82 @@ export class EventsService implements OnModuleInit {
     });
 
     return updatedEvent;
+  }
+
+  /**
+   * BLD Event Standards v1: Ensure Community Worship SERIES exists and generate 24 weeks of occurrences.
+   * Super User / Administrator only.
+   * Creates the CW series template if missing, then generates future occurrences with:
+   * - Every Tuesday 19:00-21:00 Manila time
+   * - 1st & 3rd Tuesday: occurrenceSubtype "Holy Mass"
+   * - Skip Dec 24 - Jan 1 blackout period
+   */
+  async ensureCommunityWorshipSeries(createdById?: string): Promise<{ 
+    seriesId: string; 
+    seriesCreated: boolean; 
+    occurrencesGenerated: number 
+  }> {
+    // Check if Community Worship SERIES already exists
+    let cwSeries = await this.prisma.event.findFirst({
+      where: {
+        eventKind: EventKind.SERIES,
+        category: 'Community Worship',
+        title: 'Community Worship',
+      },
+    });
+
+    let seriesCreated = false;
+    if (!cwSeries) {
+      // Create Community Worship SERIES template
+      // Use next Tuesday 19:00 Manila as anchor date
+      const now = new Date();
+      const nowManila = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+      const dayOfWeek = nowManila.getDay();
+      const daysUntilTuesday = (2 - dayOfWeek + 7) % 7 || 7; // Next Tuesday
+      const nextTuesday = new Date(nowManila);
+      nextTuesday.setDate(nowManila.getDate() + daysUntilTuesday);
+      nextTuesday.setHours(19, 0, 0, 0);
+      
+      const endTime = new Date(nextTuesday);
+      endTime.setHours(21, 0, 0, 0);
+
+      cwSeries = await this.prisma.event.create({
+        data: {
+          title: 'Community Worship',
+          eventType: 'Worship',
+          category: 'Community Worship',
+          description: 'Weekly Community Worship gathering. 1st & 3rd Tuesday includes Holy Mass.',
+          startDate: nextTuesday,
+          endDate: endTime,
+          startTime: '19:00',
+          endTime: '21:00',
+          location: 'BLD Covenant Community Center',
+          venue: 'Main Hall',
+          status: EventStatus.UPCOMING,
+          hasRegistration: false,
+          ministry: null, // General / all ministries
+          isRecurring: true,
+          recurrencePattern: 'weekly',
+          recurrenceDays: ['tuesday'],
+          recurrenceInterval: 1,
+          eventKind: EventKind.SERIES,
+          createdById: createdById || null,
+        },
+      });
+      seriesCreated = true;
+    }
+
+    // Generate 24 weeks of occurrences
+    const occurrencesGenerated = await this.generateRecurringOccurrences(
+      cwSeries.id,
+      RECURRING_OCCURRENCE_WEEKS_AHEAD,
+    );
+
+    return {
+      seriesId: cwSeries.id,
+      seriesCreated,
+      occurrencesGenerated,
+    };
   }
 }
 
