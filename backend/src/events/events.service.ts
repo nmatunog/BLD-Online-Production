@@ -7,7 +7,6 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateEventDto } from './dto/create-event.dto';
-import { UpdateEventDto } from './dto/update-event.dto';
 import { UpdateEventScopeDto, OverwriteScope } from './dto/update-event-scope.dto';
 import { EventQueryDto } from './dto/event-query.dto';
 import { AssignClassShepherdDto } from './dto/assign-class-shepherd.dto';
@@ -44,7 +43,7 @@ function toManilaDateString(d: Date): string {
 /** Check if a date (in Manila timezone) falls in the blackout period Dec 24 - Jan 1 inclusive */
 function isInBlackoutPeriod(d: Date): boolean {
   const manilaStr = toManilaDateString(d);
-  const [year, month, day] = manilaStr.split('-').map(Number);
+  const [, month, day] = manilaStr.split('-').map(Number);
   // Dec 24-31 or Jan 1
   return (month === 12 && day >= 24) || (month === 1 && day === 1);
 }
@@ -2463,7 +2462,7 @@ export class EventsService implements OnModuleInit {
     }
 
     // Compute title: official title + optional serialNumber
-    let title = program.title;
+    let title: string = program.title;
     if (data.serialNumber) {
       title = `${program.title} ${data.serialNumber}`;
     }
@@ -2503,7 +2502,7 @@ export class EventsService implements OnModuleInit {
         venue: data.venue || null,
         status: EventStatus.UPCOMING,
         hasRegistration: true, // Annual programs typically require registration
-        encounterType: program.encounterType || null,
+        encounterType: ('encounterType' in program ? program.encounterType : null) || null,
         classNumber: data.classNumber || null,
         serialNumber: data.serialNumber || null,
         eventKind: EventKind.ONE_OFF,
@@ -2554,8 +2553,6 @@ export class EventsService implements OnModuleInit {
   ): Promise<{ eventsCreated: number; sessionTitles: string[] }> {
     const {
       calculateLssShepherdingDates,
-      getLastTuesdayOfJanuary,
-      toManilaDateString,
     } = await import('./event-standards-v1-phase4.helpers');
 
     // Calculate all shepherding dates (Salubungan + 6 sessions)

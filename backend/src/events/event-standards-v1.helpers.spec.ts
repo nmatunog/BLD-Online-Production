@@ -20,7 +20,7 @@ function toManilaDateString(d: Date): string {
 
 function isInBlackoutPeriod(d: Date): boolean {
   const manilaStr = toManilaDateString(d);
-  const [year, month, day] = manilaStr.split('-').map(Number);
+  const [, month, day] = manilaStr.split('-').map(Number);
   // Dec 24-31 or Jan 1
   return (month === 12 && day >= 24) || (month === 1 && day === 1);
 }
