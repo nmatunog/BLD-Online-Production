@@ -151,7 +151,7 @@ export function getTuesdayAfter(startDate: Date, count: number): Date {
  * - Salubungan: last Tuesday of January
  * - Sessions: subsequent Tuesdays until 2 Tuesdays after LSS Weekend
  */
-export function calculateLssShepherdingDates(lssWeekendDate: Date, year: number): Date[] {
+export function calculateLssShepherdingDates(_lssWeekendDate: Date, year: number): Date[] {
   const salubungan = getLastTuesdayOfJanuary(year);
   const dates: Date[] = [salubungan];
   

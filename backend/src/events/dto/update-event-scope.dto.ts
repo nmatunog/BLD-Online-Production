@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, ValidateIf } from 'class-validator';
+import { IsEnum, IsOptional } from 'class-validator';
 import { UpdateEventDto } from './update-event.dto';
 
 /**
