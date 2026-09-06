@@ -20,6 +20,7 @@ import { UpdateEventDto } from './dto/update-event.dto';
 import { EventQueryDto } from './dto/event-query.dto';
 import { AssignClassShepherdDto } from './dto/assign-class-shepherd.dto';
 import { CancelEventDto } from './dto/cancel-event.dto';
+import { EnsureWscSeriesDto } from './dto/ensure-wsc-series.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -102,6 +103,41 @@ export class EventsController {
       message: result.seriesCreated 
         ? `Community Worship series created and ${result.occurrencesGenerated} occurrences generated`
         : `Community Worship series already exists, generated ${result.occurrencesGenerated} new occurrences`,
+    };
+  }
+
+  @Post('word-sharing-circle/ensure')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ 
+    summary: 'Ensure Word Sharing Circle (WSC) series exists for a ministry',
+    description: 'BLD Event Standards v1 - Phase 3: Creates WSC series with title "WSC - {Ministry}" if missing. Each ministry can have at most one active WSC series. MINISTRY_COORDINATOR can only create for their own ministry.'
+  })
+  @ApiResponse({ status: 200, description: 'WSC series ensured and occurrences generated' })
+  @ApiResponse({ status: 400, description: 'Invalid ministry or duplicate series exists' })
+  @ApiResponse({ status: 403, description: 'Ministry Coordinator can only create for their own ministry' })
+  async ensureWscSeries(
+    @Body() ensureWscDto: EnsureWscSeriesDto,
+    @CurrentUser() user: { id: string; role: string; ministry?: string },
+  ): Promise<ApiResponseDto<unknown>> {
+    const result = await this.eventsService.ensureWscSeries(
+      ensureWscDto.ministry,
+      {
+        recurrenceDays: ensureWscDto.recurrenceDays,
+        startTime: ensureWscDto.startTime,
+        endTime: ensureWscDto.endTime,
+        location: ensureWscDto.location,
+        venue: ensureWscDto.venue,
+      },
+      user.id,
+      user.ministry,
+      user.role,
+    );
+    return {
+      success: true,
+      data: result,
+      message: `WSC series for ${ensureWscDto.ministry} ensured: ${result.occurrencesGenerated} occurrences generated`,
     };
   }
 

@@ -2076,5 +2076,146 @@ export class EventsService implements OnModuleInit {
       occurrencesGenerated,
     };
   }
+
+  /**
+   * BLD Event Standards v1 - Phase 3: Ensure Word Sharing Circle (WSC) SERIES exists for a ministry.
+   * Creates WSC series with title "WSC - {Official Ministry Name}" if missing.
+   * Validates ministry against MINISTRIES_BY_APOSTOLATE.
+   * Rejects if a second active WSC series exists for the same ministry.
+   * Generates 24 weeks of occurrences.
+   * 
+   * Role gates:
+   * - SUPER_USER, ADMINISTRATOR, DCS: can create for any ministry
+   * - MINISTRY_COORDINATOR: can only create for their own ministry
+   */
+  async ensureWscSeries(
+    ministry: string,
+    schedule: {
+      recurrenceDays: string[];
+      startTime: string;
+      endTime: string;
+      location: string;
+      venue: string;
+    },
+    createdById: string,
+    userMinistry?: string,
+    userRole?: string,
+  ): Promise<{ 
+    seriesId: string; 
+    seriesCreated: boolean; 
+    occurrencesGenerated: number 
+  }> {
+    // Validate ministry against official roster
+    const allMinistries = Object.values(MINISTRIES_BY_APOSTOLATE).flat();
+    const normalizedMinistry = ministry.trim();
+    const officialMinistry = allMinistries.find(m => m === normalizedMinistry);
+    
+    if (!officialMinistry) {
+      throw new BadRequestException(
+        `Invalid ministry. Must be one of the 30 official ministries from MINISTRIES_BY_APOSTOLATE.`
+      );
+    }
+
+    // Check if user has permission for this ministry (MINISTRY_COORDINATOR check)
+    if (userRole === UserRole.MINISTRY_COORDINATOR) {
+      if (userMinistry !== officialMinistry) {
+        throw new ForbiddenException(
+          `Ministry Coordinators can only create WSC series for their own ministry (${userMinistry})`
+        );
+      }
+    }
+
+    // Check if active WSC SERIES already exists for this ministry
+    const existingWscSeries = await this.prisma.event.findMany({
+      where: {
+        eventKind: EventKind.SERIES,
+        category: 'Word Sharing Circle',
+        ministry: officialMinistry,
+        status: { in: [EventStatus.UPCOMING, EventStatus.ONGOING] },
+      },
+    });
+
+    if (existingWscSeries.length > 0) {
+      throw new BadRequestException(
+        `A WSC series already exists for ${officialMinistry}. Each ministry can have at most one active WSC series.`
+      );
+    }
+
+    // Compute title: "WSC - {Official Ministry Name}"
+    const title = `WSC - ${officialMinistry}`;
+
+    // Calculate next occurrence date based on first recurrence day
+    const now = new Date();
+    const nowManila = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+    const dayOfWeek = nowManila.getDay();
+    
+    // Map day names to numbers (0 = Sunday, 6 = Saturday)
+    const dayMap: Record<string, number> = {
+      sunday: 0,
+      monday: 1,
+      tuesday: 2,
+      wednesday: 3,
+      thursday: 4,
+      friday: 5,
+      saturday: 6,
+    };
+    
+    const firstDayName = schedule.recurrenceDays[0].toLowerCase();
+    const targetDay = dayMap[firstDayName];
+    
+    if (targetDay === undefined) {
+      throw new BadRequestException(`Invalid day: ${schedule.recurrenceDays[0]}`);
+    }
+    
+    // Calculate days until next occurrence of target day
+    const daysUntilTarget = (targetDay - dayOfWeek + 7) % 7 || 7;
+    const nextOccurrence = new Date(nowManila);
+    nextOccurrence.setDate(nowManila.getDate() + daysUntilTarget);
+    
+    // Parse start and end times
+    const [startHour, startMinute] = schedule.startTime.split(':').map(Number);
+    const [endHour, endMinute] = schedule.endTime.split(':').map(Number);
+    
+    nextOccurrence.setHours(startHour, startMinute, 0, 0);
+    const endTime = new Date(nextOccurrence);
+    endTime.setHours(endHour, endMinute, 0, 0);
+
+    // Create WSC SERIES template
+    const wscSeries = await this.prisma.event.create({
+      data: {
+        title,
+        eventType: 'Worship',
+        category: 'Word Sharing Circle',
+        description: `Weekly Word Sharing Circle for ${officialMinistry}.`,
+        startDate: nextOccurrence,
+        endDate: endTime,
+        startTime: schedule.startTime,
+        endTime: schedule.endTime,
+        location: schedule.location,
+        venue: schedule.venue,
+        status: EventStatus.UPCOMING,
+        hasRegistration: false,
+        ministry: officialMinistry,
+        isRecurring: true,
+        recurrencePattern: 'weekly',
+        recurrenceDays: schedule.recurrenceDays,
+        recurrenceInterval: 1,
+        eventKind: EventKind.SERIES,
+        createdById,
+      },
+    });
+
+    // Generate 24 weeks of occurrences
+    const occurrencesGenerated = await this.generateRecurringOccurrences(
+      wscSeries.id,
+      RECURRING_OCCURRENCE_WEEKS_AHEAD,
+    );
+
+    return {
+      seriesId: wscSeries.id,
+      seriesCreated: true,
+      occurrencesGenerated,
+    };
+  }
 }
 
