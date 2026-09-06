@@ -197,6 +197,22 @@ class EventsService {
     >('/events/community-worship/ensure', undefined, { timeout: 60000 });
     return ensureBody(response);
   }
+
+  async ensureWscSeries(request: {
+    ministry: string;
+    recurrenceDays: string[];
+    startTime: string;
+    endTime: string;
+    location: string;
+    venue: string;
+  }): Promise<
+    ApiResponse<{ seriesId: string; seriesCreated: boolean; occurrencesGenerated: number }>
+  > {
+    const response = await apiClient.post<
+      ApiResponse<{ seriesId: string; seriesCreated: boolean; occurrencesGenerated: number }>
+    >('/events/word-sharing-circle/ensure', request, { timeout: 60000 });
+    return ensureBody(response);
+  }
 }
 
 export interface EventAuditLogEntry {

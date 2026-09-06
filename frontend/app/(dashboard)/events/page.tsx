@@ -139,6 +139,17 @@ export default function EventsPage() {
   const [correctAllLoading, setCorrectAllLoading] = useState(false);
   /** Super User / Admin: Community Worship series generator */
   const [cwGenerating, setCwGenerating] = useState(false);
+  /** WSC series generator dialog (Admin, DCS, Ministry Coordinator) */
+  const [showWscDialog, setShowWscDialog] = useState(false);
+  const [wscGenerating, setWscGenerating] = useState(false);
+  const [wscForm, setWscForm] = useState({
+    ministry: '',
+    recurrenceDays: [] as string[],
+    startTime: '19:00',
+    endTime: '21:00',
+    location: 'BLD Covenant Community Center',
+    venue: '',
+  });
   // Event categories from old system
   const eventCategories = [
     'Community Worship',
@@ -482,6 +493,50 @@ export default function EventsPage() {
       toast.error('CW generation failed', { description: e instanceof Error ? e.message : 'Unknown error' });
     } finally {
       setCwGenerating(false);
+    }
+  };
+
+  const handleEnsureWscSeries = async () => {
+    // Validate form
+    if (!wscForm.ministry.trim()) {
+      toast.error('Please select a ministry');
+      return;
+    }
+    if (wscForm.recurrenceDays.length === 0) {
+      toast.error('Please select at least one day of the week');
+      return;
+    }
+    if (!wscForm.venue.trim()) {
+      toast.error('Please enter a venue');
+      return;
+    }
+
+    setWscGenerating(true);
+    try {
+      const res = await eventsService.ensureWscSeries(wscForm);
+      if (res?.success && res.data) {
+        toast.success(
+          `WSC series for ${wscForm.ministry} created: ${res.data.occurrencesGenerated} occurrences generated`,
+        );
+        setShowWscDialog(false);
+        // Reset form
+        setWscForm({
+          ministry: '',
+          recurrenceDays: [],
+          startTime: '19:00',
+          endTime: '21:00',
+          location: 'BLD Covenant Community Center',
+          venue: '',
+        });
+        await loadEvents();
+      } else {
+        toast.error('WSC generation failed', { description: res.error || 'Please try again.' });
+      }
+    } catch (e: any) {
+      const errorMsg = e?.response?.data?.message || e?.message || 'Unknown error';
+      toast.error('WSC generation failed', { description: errorMsg });
+    } finally {
+      setWscGenerating(false);
     }
   };
 
@@ -1354,6 +1409,24 @@ export default function EventsPage() {
                     <Calendar className="mr-2 h-4 w-4" />
                   )}
                   CW Setup
+                </Button>
+              )}
+              {(userRole === 'ADMINISTRATOR' || userRole === 'DCS' || userRole === 'MINISTRY_COORDINATOR') && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    // Pre-fill ministry for MINISTRY_COORDINATOR
+                    if (userRole === 'MINISTRY_COORDINATOR' && userMinistry) {
+                      setWscForm(prev => ({ ...prev, ministry: userMinistry }));
+                    }
+                    setShowWscDialog(true);
+                  }}
+                  className="h-10"
+                  title="Create/ensure Word Sharing Circle series for a ministry"
+                >
+                  <Users className="mr-2 h-4 w-4" />
+                  WSC Setup
                 </Button>
               )}
             </div>
@@ -2810,6 +2883,172 @@ export default function EventsPage() {
                 </div>
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* WSC Series Setup Dialog */}
+        <Dialog open={showWscDialog} onOpenChange={setShowWscDialog}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200 shadow-2xl">
+            <DialogHeader className="bg-white">
+              <DialogTitle className="text-2xl font-bold text-gray-900">
+                Word Sharing Circle (WSC) Setup
+              </DialogTitle>
+              <DialogDescription className="text-sm text-gray-600 mt-1">
+                Create or ensure WSC series for a ministry. Each ministry can have at most one active WSC series.
+                {userRole === 'MINISTRY_COORDINATOR' && ` You can only create WSC for your ministry: ${userMinistry}`}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 bg-white py-4">
+              <div className="space-y-2">
+                <Label htmlFor="wsc-ministry" className="text-sm font-semibold text-gray-700">
+                  Ministry <span className="text-red-500">*</span>
+                </Label>
+                <Select
+                  value={wscForm.ministry}
+                  onValueChange={(value) => setWscForm(prev => ({ ...prev, ministry: value }))}
+                  disabled={userRole === 'MINISTRY_COORDINATOR'}
+                >
+                  <SelectTrigger id="wsc-ministry" className="w-full">
+                    <SelectValue placeholder="Select ministry" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    {Object.entries(MINISTRIES_BY_APOSTOLATE).map(([apostolate, ministries]) => (
+                      <div key={apostolate}>
+                        <div className="px-2 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">
+                          {apostolate}
+                        </div>
+                        {ministries.map((ministry) => (
+                          <SelectItem key={ministry} value={ministry}>
+                            {ministry}
+                          </SelectItem>
+                        ))}
+                      </div>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {userRole === 'MINISTRY_COORDINATOR' && (
+                  <p className="text-xs text-gray-500">Ministry Coordinators can only create WSC for their assigned ministry</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold text-gray-700">
+                  Day(s) of Week <span className="text-red-500">*</span>
+                </Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {weekDays.map((day) => (
+                    <label key={day.value} className="flex items-center gap-2 p-2 border rounded hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={wscForm.recurrenceDays.includes(day.value)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setWscForm(prev => ({
+                              ...prev,
+                              recurrenceDays: [...prev.recurrenceDays, day.value]
+                            }));
+                          } else {
+                            setWscForm(prev => ({
+                              ...prev,
+                              recurrenceDays: prev.recurrenceDays.filter(d => d !== day.value)
+                            }));
+                          }
+                        }}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm">{day.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="wsc-startTime" className="text-sm font-semibold text-gray-700">
+                    Start Time <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="wsc-startTime"
+                    type="time"
+                    value={wscForm.startTime}
+                    onChange={(e) => setWscForm(prev => ({ ...prev, startTime: e.target.value }))}
+                    className="w-full"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="wsc-endTime" className="text-sm font-semibold text-gray-700">
+                    End Time <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="wsc-endTime"
+                    type="time"
+                    value={wscForm.endTime}
+                    onChange={(e) => setWscForm(prev => ({ ...prev, endTime: e.target.value }))}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="wsc-location" className="text-sm font-semibold text-gray-700">
+                  Location <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="wsc-location"
+                  type="text"
+                  value={wscForm.location}
+                  onChange={(e) => setWscForm(prev => ({ ...prev, location: e.target.value }))}
+                  placeholder="e.g., BLD Covenant Community Center"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="wsc-venue" className="text-sm font-semibold text-gray-700">
+                  Venue <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="wsc-venue"
+                  type="text"
+                  value={wscForm.venue}
+                  onChange={(e) => setWscForm(prev => ({ ...prev, venue: e.target.value }))}
+                  placeholder="e.g., Room 201, Main Hall"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                <p className="text-xs text-blue-800">
+                  <strong>Note:</strong> This will create a weekly WSC series with title &quot;WSC - {wscForm.ministry || '[Ministry]'}&quot; 
+                  and generate 24 weeks of occurrences starting from the next selected weekday.
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4 bg-white border-t">
+                <Button
+                  onClick={handleEnsureWscSeries}
+                  disabled={wscGenerating}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {wscGenerating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create WSC Series'
+                  )}
+                </Button>
+                <Button
+                  onClick={() => setShowWscDialog(false)}
+                  variant="outline"
+                  disabled={wscGenerating}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
 
