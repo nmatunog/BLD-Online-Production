@@ -27,6 +27,7 @@ import DashboardHeader from '@/components/layout/DashboardHeader';
 import EventChatbot from '@/components/events/EventChatbot';
 import EventCard from '@/components/events/EventCard';
 import ClassShepherdAssignment from '@/components/events/ClassShepherdAssignment';
+import EventUpdateScopeDialog from '@/components/events/EventUpdateScopeDialog';
 import { eventChatbotService } from '@/services/event-chatbot-service';
 import { MINISTRIES_BY_APOSTOLATE } from '@/lib/member-constants';
 import { attendanceService } from '@/services/attendance.service';
@@ -137,6 +138,46 @@ export default function EventsPage() {
   const [duplicatesLoadError, setDuplicatesLoadError] = useState<string | null>(null);
   const [duplicateDeletingId, setDuplicateDeletingId] = useState<string | null>(null);
   const [correctAllLoading, setCorrectAllLoading] = useState(false);
+  /** Super User / Admin: Community Worship series generator */
+  const [cwGenerating, setCwGenerating] = useState(false);
+  /** WSC series generator dialog (Admin, DCS, Ministry Coordinator) */
+  const [showWscDialog, setShowWscDialog] = useState(false);
+  const [wscGenerating, setWscGenerating] = useState(false);
+  const [wscForm, setWscForm] = useState({
+    ministry: '',
+    recurrenceDays: [] as string[],
+    startTime: '19:00',
+    endTime: '21:00',
+    location: 'BLD Covenant Community Center',
+    venue: '',
+  });
+  /** Phase 4: One-off program creation dialog */
+  const [showProgramDialog, setShowProgramDialog] = useState(false);
+  const [programCreating, setProgramCreating] = useState(false);
+  const [programCatalog, setProgramCatalog] = useState<Record<string, any>>({});
+  const [programForm, setProgramForm] = useState({
+    programKey: '',
+    startDate: '',
+    endDate: '',
+    startTime: '08:00',
+    endTime: '17:00',
+    serialNumber: 1,
+    location: 'BLD Covenant Community Center',
+    venue: '',
+    classNumber: undefined as number | undefined,
+  });
+  /** Phase 4: LSS Shepherding setup dialog */
+  const [showLssDialog, setShowLssDialog] = useState(false);
+  const [lssGenerating, setLssGenerating] = useState(false);
+  const [lssForm, setLssForm] = useState({
+    lssWeekendDate: '',
+    year: new Date().getFullYear().toString(),
+    location: 'BLD Covenant Community Center',
+    venue: 'Main Hall',
+  });
+  /** Phase 5: Event Update Scope Dialog (for series-backed occurrences) */
+  const [showScopeDialog, setShowScopeDialog] = useState(false);
+  const [selectedScope, setSelectedScope] = useState<'OCCURRENCE' | 'SERIES_FUTURE' | null>(null);
   // Event categories from old system
   const eventCategories = [
     'Community Worship',
@@ -457,6 +498,183 @@ export default function EventsPage() {
       toast.error('Correct all failed', { description: e instanceof Error ? e.message : 'Unknown error' });
     } finally {
       setCorrectAllLoading(false);
+    }
+  };
+
+  const handleEnsureCommunityWorship = async () => {
+    if (!confirm('Generate Community Worship series and occurrences? Creates CW series if missing, generates 24 weeks of Tuesday 19:00-21:00 Manila occurrences.')) {
+      return;
+    }
+    setCwGenerating(true);
+    try {
+      const res = await eventsService.ensureCommunityWorshipSeries();
+      if (res?.success && res.data) {
+        toast.success(
+          res.message ??
+            `CW ${res.data.seriesCreated ? 'series created' : 'series exists'}, ${res.data.occurrencesGenerated} occurrences generated`,
+        );
+        await loadEvents();
+      } else {
+        toast.error('CW generation failed', { description: 'Please try again.' });
+      }
+    } catch (e) {
+      toast.error('CW generation failed', { description: e instanceof Error ? e.message : 'Unknown error' });
+    } finally {
+      setCwGenerating(false);
+    }
+  };
+
+  const handleEnsureWscSeries = async () => {
+    // Validate form
+    if (!wscForm.ministry.trim()) {
+      toast.error('Please select a ministry');
+      return;
+    }
+    if (wscForm.recurrenceDays.length === 0) {
+      toast.error('Please select at least one day of the week');
+      return;
+    }
+    if (!wscForm.venue.trim()) {
+      toast.error('Please enter a venue');
+      return;
+    }
+
+    setWscGenerating(true);
+    try {
+      const res = await eventsService.ensureWscSeries(wscForm);
+      if (res?.success && res.data) {
+        toast.success(
+          `WSC series for ${wscForm.ministry} created: ${res.data.occurrencesGenerated} occurrences generated`,
+        );
+        setShowWscDialog(false);
+        // Reset form
+        setWscForm({
+          ministry: '',
+          recurrenceDays: [],
+          startTime: '19:00',
+          endTime: '21:00',
+          location: 'BLD Covenant Community Center',
+          venue: '',
+        });
+        await loadEvents();
+      } else {
+        toast.error('WSC generation failed', { description: res.error || 'Please try again.' });
+      }
+    } catch (e: any) {
+      const errorMsg = e?.response?.data?.message || e?.message || 'Unknown error';
+      toast.error('WSC generation failed', { description: errorMsg });
+    } finally {
+      setWscGenerating(false);
+    }
+  };
+
+  /** Phase 4: Load program catalog */
+  const loadProgramCatalog = async () => {
+    try {
+      const res = await eventsService.getProgramsCatalog();
+      if (res?.success && res.data) {
+        setProgramCatalog(res.data);
+      }
+    } catch (e) {
+      toast.error('Failed to load program catalog');
+    }
+  };
+
+  /** Phase 4: Create one-off program */
+  const handleCreateProgram = async () => {
+    if (!programForm.programKey) {
+      toast.error('Please select a program');
+      return;
+    }
+    if (!programForm.startDate || !programForm.endDate) {
+      toast.error('Please select start and end dates');
+      return;
+    }
+    setProgramCreating(true);
+    try {
+      const res = await eventsService.createOneOffProgram(programForm);
+      if (res?.success && res.data) {
+        toast.success(`Program "${res.data.title}" created successfully`);
+        setShowProgramDialog(false);
+        // Reset form
+        setProgramForm({
+          programKey: '',
+          startDate: '',
+          endDate: '',
+          startTime: '08:00',
+          endTime: '17:00',
+          serialNumber: 1,
+          location: 'BLD Covenant Community Center',
+          venue: '',
+          classNumber: undefined,
+        });
+        await loadEvents();
+      } else {
+        toast.error('Program creation failed', { description: res.error || 'Please try again.' });
+      }
+    } catch (e: any) {
+      const errorMsg = e?.response?.data?.message || e?.message || 'Unknown error';
+      toast.error('Program creation failed', { description: errorMsg });
+    } finally {
+      setProgramCreating(false);
+    }
+  };
+
+  /** Phase 4: Ensure LSS Shepherding track */
+  const handleEnsureLssShepherding = async () => {
+    if (!lssForm.lssWeekendDate) {
+      toast.error('Please select LSS Weekend date');
+      return;
+    }
+    if (!lssForm.year) {
+      toast.error('Please enter year');
+      return;
+    }
+    setLssGenerating(true);
+    try {
+      const res = await eventsService.ensureLssShepherdingTrack(lssForm);
+      if (res?.success && res.data) {
+        toast.success(
+          `LSS Shepherding track created: ${res.data.eventsCreated} events`,
+          { description: res.data.sessionTitles.join(', ') }
+        );
+        setShowLssDialog(false);
+        // Reset form
+        setLssForm({
+          lssWeekendDate: '',
+          year: new Date().getFullYear().toString(),
+          location: 'BLD Covenant Community Center',
+          venue: 'Main Hall',
+        });
+        await loadEvents();
+      } else {
+        toast.error('LSS Shepherding setup failed', { description: res.error || 'Please try again.' });
+      }
+    } catch (e: any) {
+      const errorMsg = e?.response?.data?.message || e?.message || 'Unknown error';
+      toast.error('LSS Shepherding setup failed', { description: errorMsg });
+    } finally {
+      setLssGenerating(false);
+    }
+  };
+
+  /** Phase 4: Suggest LSS Weekend dates */
+  const handleSuggestLssWeekendDates = async () => {
+    if (!lssForm.year) {
+      toast.error('Please enter year first');
+      return;
+    }
+    try {
+      const year = parseInt(lssForm.year, 10);
+      const res = await eventsService.suggestLssWeekendDates(year);
+      if (res?.success && res.data) {
+        // Extract date part (YYYY-MM-DD) from ISO string
+        const startDate = res.data.startDate.split('T')[0];
+        setLssForm(prev => ({ ...prev, lssWeekendDate: startDate }));
+        toast.success(`Suggested LSS Weekend: 1st Saturday of March ${year}`);
+      }
+    } catch (e: any) {
+      toast.error('Failed to suggest dates', { description: e?.message || 'Unknown error' });
     }
   };
 
@@ -930,6 +1148,20 @@ export default function EventsPage() {
   const handleEditEvent = (event: Event) => {
     setEditingEvent(event);
     populateFormFromEvent(event);
+    
+    // Phase 5: Check if this is a series-backed occurrence
+    if (event.recurrenceTemplateId) {
+      // Show scope dialog first
+      setShowScopeDialog(true);
+    } else {
+      // Regular event, show edit dialog directly
+      setShowEditDialog(true);
+    }
+  };
+
+  const handleScopeSelected = (scope: 'OCCURRENCE' | 'SERIES_FUTURE') => {
+    setSelectedScope(scope);
+    setShowScopeDialog(false);
     setShowEditDialog(true);
   };
 
@@ -1087,13 +1319,25 @@ export default function EventsPage() {
 
       if (editingEvent) {
         // Update existing event
+        // Phase 5: Include overwriteScope for series-backed occurrences
+        if (editingEvent.recurrenceTemplateId && selectedScope) {
+          eventData.overwriteScope = selectedScope;
+        }
+        
         const result = await eventsService.update(editingEvent.id, eventData);
         if (result?.success) {
+          const scopeMessage = selectedScope === 'OCCURRENCE' 
+            ? 'This occurrence has been updated.' 
+            : selectedScope === 'SERIES_FUTURE'
+            ? 'The series schedule has been updated. Future occurrences will reflect these changes.'
+            : 'The event has been updated successfully.';
+          
           toast.success('Event Updated', {
-            description: 'The event has been updated successfully.',
+            description: scopeMessage,
           });
           setShowEditDialog(false);
           setEditingEvent(null);
+          setSelectedScope(null);
           resetForm();
           loadEvents();
         }
@@ -1296,8 +1540,87 @@ export default function EventsPage() {
                       <Copy className="mr-2 h-4 w-4" />
                       Find duplicates
                     </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                      BLD Event Standards v1
+                    </DropdownMenuLabel>
+                    <DropdownMenuItem
+                      onSelect={handleEnsureCommunityWorship}
+                      disabled={cwGenerating}
+                    >
+                      {cwGenerating ? (
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Calendar className="mr-2 h-4 w-4" />
+                      )}
+                      Community Worship setup
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+              )}
+              {(userRole === 'ADMINISTRATOR' || userRole === 'DCS') && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleEnsureCommunityWorship}
+                  disabled={cwGenerating}
+                  className="h-10"
+                  title="Admin: Ensure Community Worship series and generate 24 weeks"
+                >
+                  {cwGenerating ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Calendar className="mr-2 h-4 w-4" />
+                  )}
+                  CW Setup
+                </Button>
+              )}
+              {(userRole === 'ADMINISTRATOR' || userRole === 'DCS' || userRole === 'MINISTRY_COORDINATOR') && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    // Pre-fill ministry for MINISTRY_COORDINATOR
+                    if (userRole === 'MINISTRY_COORDINATOR' && userMinistry) {
+                      setWscForm(prev => ({ ...prev, ministry: userMinistry }));
+                    }
+                    setShowWscDialog(true);
+                  }}
+                  className="h-10"
+                  title="Create/ensure Word Sharing Circle series for a ministry"
+                >
+                  <Users className="mr-2 h-4 w-4" />
+                  WSC Setup
+                </Button>
+              )}
+              {/* Phase 4: One-off program creation */}
+              {(userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR' || userRole === 'DCS') && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    loadProgramCatalog();
+                    setShowProgramDialog(true);
+                  }}
+                  className="h-10"
+                  title="Create annual program (Marriage Encounter, Singles Encounter, LSS Weekend, etc.)"
+                >
+                  <Calendar className="mr-2 h-4 w-4" />
+                  Create Program
+                </Button>
+              )}
+              {/* Phase 4: LSS Shepherding setup */}
+              {(userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR') && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowLssDialog(true)}
+                  className="h-10"
+                  title="Setup LSS Shepherding track (Salubungan + Sessions 1-6)"
+                >
+                  <Users className="mr-2 h-4 w-4" />
+                  LSS Shepherding
+                </Button>
               )}
             </div>
           )}
@@ -2283,6 +2606,7 @@ export default function EventsPage() {
           setShowEditDialog(open);
           if (!open) {
             setEditingEvent(null);
+            setSelectedScope(null);
             resetForm();
           }
         }}>
@@ -2644,6 +2968,7 @@ export default function EventsPage() {
                   onClick={() => {
                     setShowEditDialog(false);
                     setEditingEvent(null);
+                    setSelectedScope(null);
                     resetForm();
                   }}
                   size="lg"
@@ -2753,6 +3078,515 @@ export default function EventsPage() {
                 </div>
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Phase 5: Event Update Scope Dialog (for series-backed occurrences) */}
+        {editingEvent && (
+          <EventUpdateScopeDialog
+            isOpen={showScopeDialog}
+            onClose={() => {
+              setShowScopeDialog(false);
+              setEditingEvent(null);
+              setSelectedScope(null);
+              resetForm();
+            }}
+            onSelectScope={handleScopeSelected}
+            eventTitle={editingEvent.title}
+          />
+        )}
+
+        {/* WSC Series Setup Dialog */}
+        <Dialog open={showWscDialog} onOpenChange={setShowWscDialog}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200 shadow-2xl">
+            <DialogHeader className="bg-white">
+              <DialogTitle className="text-2xl font-bold text-gray-900">
+                Word Sharing Circle (WSC) Setup
+              </DialogTitle>
+              <DialogDescription className="text-sm text-gray-600 mt-1">
+                Create or ensure WSC series for a ministry. Each ministry can have at most one active WSC series.
+                {userRole === 'MINISTRY_COORDINATOR' && ` You can only create WSC for your ministry: ${userMinistry}`}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 bg-white py-4">
+              <div className="space-y-2">
+                <Label htmlFor="wsc-ministry" className="text-sm font-semibold text-gray-700">
+                  Ministry <span className="text-red-500">*</span>
+                </Label>
+                <Select
+                  value={wscForm.ministry}
+                  onValueChange={(value) => setWscForm(prev => ({ ...prev, ministry: value }))}
+                  disabled={userRole === 'MINISTRY_COORDINATOR'}
+                >
+                  <SelectTrigger id="wsc-ministry" className="w-full">
+                    <SelectValue placeholder="Select ministry" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    {Object.entries(MINISTRIES_BY_APOSTOLATE).map(([apostolate, ministries]) => (
+                      <div key={apostolate}>
+                        <div className="px-2 py-1.5 text-xs font-semibold text-gray-500 bg-gray-50">
+                          {apostolate}
+                        </div>
+                        {ministries.map((ministry) => (
+                          <SelectItem key={ministry} value={ministry}>
+                            {ministry}
+                          </SelectItem>
+                        ))}
+                      </div>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {userRole === 'MINISTRY_COORDINATOR' && (
+                  <p className="text-xs text-gray-500">Ministry Coordinators can only create WSC for their assigned ministry</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-semibold text-gray-700">
+                  Day(s) of Week <span className="text-red-500">*</span>
+                </Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {weekDays.map((day) => (
+                    <label key={day.value} className="flex items-center gap-2 p-2 border rounded hover:bg-gray-50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={wscForm.recurrenceDays.includes(day.value)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setWscForm(prev => ({
+                              ...prev,
+                              recurrenceDays: [...prev.recurrenceDays, day.value]
+                            }));
+                          } else {
+                            setWscForm(prev => ({
+                              ...prev,
+                              recurrenceDays: prev.recurrenceDays.filter(d => d !== day.value)
+                            }));
+                          }
+                        }}
+                        className="w-4 h-4"
+                      />
+                      <span className="text-sm">{day.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="wsc-startTime" className="text-sm font-semibold text-gray-700">
+                    Start Time <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="wsc-startTime"
+                    type="time"
+                    value={wscForm.startTime}
+                    onChange={(e) => setWscForm(prev => ({ ...prev, startTime: e.target.value }))}
+                    className="w-full"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="wsc-endTime" className="text-sm font-semibold text-gray-700">
+                    End Time <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="wsc-endTime"
+                    type="time"
+                    value={wscForm.endTime}
+                    onChange={(e) => setWscForm(prev => ({ ...prev, endTime: e.target.value }))}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="wsc-location" className="text-sm font-semibold text-gray-700">
+                  Location <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="wsc-location"
+                  type="text"
+                  value={wscForm.location}
+                  onChange={(e) => setWscForm(prev => ({ ...prev, location: e.target.value }))}
+                  placeholder="e.g., BLD Covenant Community Center"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="wsc-venue" className="text-sm font-semibold text-gray-700">
+                  Venue <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="wsc-venue"
+                  type="text"
+                  value={wscForm.venue}
+                  onChange={(e) => setWscForm(prev => ({ ...prev, venue: e.target.value }))}
+                  placeholder="e.g., Room 201, Main Hall"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                <p className="text-xs text-blue-800">
+                  <strong>Note:</strong> This will create a weekly WSC series with title &quot;WSC - {wscForm.ministry || '[Ministry]'}&quot; 
+                  and generate 24 weeks of occurrences starting from the next selected weekday.
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4 bg-white border-t">
+                <Button
+                  onClick={handleEnsureWscSeries}
+                  disabled={wscGenerating}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {wscGenerating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create WSC Series'
+                  )}
+                </Button>
+                <Button
+                  onClick={() => setShowWscDialog(false)}
+                  variant="outline"
+                  disabled={wscGenerating}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Phase 4: Program Creation Dialog */}
+        <Dialog open={showProgramDialog} onOpenChange={setShowProgramDialog}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200 shadow-2xl">
+            <DialogHeader className="bg-white">
+              <DialogTitle className="text-2xl font-bold text-gray-900">
+                Create Annual Program
+              </DialogTitle>
+              <DialogDescription className="text-sm text-gray-600 mt-1">
+                Create one-off annual programs like Marriage Encounter, Singles Encounter, LSS Weekend, etc.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 bg-white py-4">
+              <div className="space-y-2">
+                <Label htmlFor="program-key" className="text-sm font-semibold text-gray-700">
+                  Program <span className="text-red-500">*</span>
+                </Label>
+                <Select
+                  value={programForm.programKey}
+                  onValueChange={(value) => {
+                    const program = programCatalog[value];
+                    setProgramForm(prev => ({
+                      ...prev,
+                      programKey: value,
+                      classNumber: program?.encounterType ? 1 : undefined,
+                    }));
+                  }}
+                >
+                  <SelectTrigger id="program-key" className="w-full">
+                    <SelectValue placeholder="Select program" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[300px]">
+                    {Object.entries(programCatalog).map(([key, program]: [string, any]) => (
+                      <SelectItem key={key} value={key}>
+                        {program.title} - {program.description.substring(0, 60)}...
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {programForm.programKey && programCatalog[programForm.programKey] && (
+                  <p className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
+                    {programCatalog[programForm.programKey].description}
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="program-startDate" className="text-sm font-semibold text-gray-700">
+                    Start Date <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="program-startDate"
+                    type="date"
+                    value={programForm.startDate}
+                    onChange={(e) => {
+                      const startDate = e.target.value;
+                      const program = programCatalog[programForm.programKey];
+                      const durationDays = program?.durationDays || 1;
+                      const endDate = new Date(startDate);
+                      endDate.setDate(endDate.getDate() + durationDays - 1);
+                      setProgramForm(prev => ({
+                        ...prev,
+                        startDate,
+                        endDate: endDate.toISOString().split('T')[0],
+                      }));
+                    }}
+                    className="w-full"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="program-endDate" className="text-sm font-semibold text-gray-700">
+                    End Date <span className="text-red-500">*</span>
+                  </Label>
+                  <Input
+                    id="program-endDate"
+                    type="date"
+                    value={programForm.endDate}
+                    onChange={(e) => setProgramForm(prev => ({ ...prev, endDate: e.target.value }))}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="program-startTime" className="text-sm font-semibold text-gray-700">
+                    Start Time
+                  </Label>
+                  <Input
+                    id="program-startTime"
+                    type="time"
+                    value={programForm.startTime}
+                    onChange={(e) => setProgramForm(prev => ({ ...prev, startTime: e.target.value }))}
+                    className="w-full"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="program-endTime" className="text-sm font-semibold text-gray-700">
+                    End Time
+                  </Label>
+                  <Input
+                    id="program-endTime"
+                    type="time"
+                    value={programForm.endTime}
+                    onChange={(e) => setProgramForm(prev => ({ ...prev, endTime: e.target.value }))}
+                    className="w-full"
+                  />
+                </div>
+              </div>
+
+              {programForm.programKey && programCatalog[programForm.programKey]?.maxPerYear > 1 && (
+                <div className="space-y-2">
+                  <Label htmlFor="program-serialNumber" className="text-sm font-semibold text-gray-700">
+                    Serial Number (e.g., 1, 2, 3 for multiple per year)
+                  </Label>
+                  <Input
+                    id="program-serialNumber"
+                    type="number"
+                    min="1"
+                    max="99"
+                    value={programForm.serialNumber}
+                    onChange={(e) => setProgramForm(prev => ({ ...prev, serialNumber: parseInt(e.target.value, 10) }))}
+                    className="w-full"
+                  />
+                </div>
+              )}
+
+              {programForm.programKey && programCatalog[programForm.programKey]?.encounterType && (
+                <div className="space-y-2">
+                  <Label htmlFor="program-classNumber" className="text-sm font-semibold text-gray-700">
+                    Class Number (e.g., 18 for ME Class 18)
+                  </Label>
+                  <Input
+                    id="program-classNumber"
+                    type="number"
+                    min="1"
+                    value={programForm.classNumber || ''}
+                    onChange={(e) => setProgramForm(prev => ({ ...prev, classNumber: parseInt(e.target.value, 10) || undefined }))}
+                    className="w-full"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label htmlFor="program-location" className="text-sm font-semibold text-gray-700">
+                  Location
+                </Label>
+                <Input
+                  id="program-location"
+                  type="text"
+                  value={programForm.location}
+                  onChange={(e) => setProgramForm(prev => ({ ...prev, location: e.target.value }))}
+                  placeholder="e.g., BLD Covenant Community Center"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="program-venue" className="text-sm font-semibold text-gray-700">
+                  Venue
+                </Label>
+                <Input
+                  id="program-venue"
+                  type="text"
+                  value={programForm.venue}
+                  onChange={(e) => setProgramForm(prev => ({ ...prev, venue: e.target.value }))}
+                  placeholder="e.g., Main Hall, Room 201"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                <p className="text-xs text-blue-800">
+                  <strong>Note:</strong> This will create a one-off event with the official program title. 
+                  No dates will be included in the event title.
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4 bg-white border-t">
+                <Button
+                  onClick={handleCreateProgram}
+                  disabled={programCreating}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {programCreating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create Program'
+                  )}
+                </Button>
+                <Button
+                  onClick={() => setShowProgramDialog(false)}
+                  variant="outline"
+                  disabled={programCreating}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Phase 4: LSS Shepherding Setup Dialog */}
+        <Dialog open={showLssDialog} onOpenChange={setShowLssDialog}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-white border border-gray-200 shadow-2xl">
+            <DialogHeader className="bg-white">
+              <DialogTitle className="text-2xl font-bold text-gray-900">
+                LSS Shepherding Setup
+              </DialogTitle>
+              <DialogDescription className="text-sm text-gray-600 mt-1">
+                Create LSS Shepherding track: Salubungan + Shepherding Sessions 1-6. Time: 20:00-21:00 Manila.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 bg-white py-4">
+              <div className="space-y-2">
+                <Label htmlFor="lss-year" className="text-sm font-semibold text-gray-700">
+                  Year <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="lss-year"
+                  type="number"
+                  min="2020"
+                  max="2100"
+                  value={lssForm.year}
+                  onChange={(e) => setLssForm(prev => ({ ...prev, year: e.target.value }))}
+                  placeholder="e.g., 2026"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="lss-weekendDate" className="text-sm font-semibold text-gray-700">
+                  LSS Weekend Start Date <span className="text-red-500">*</span>
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="lss-weekendDate"
+                    type="date"
+                    value={lssForm.lssWeekendDate}
+                    onChange={(e) => setLssForm(prev => ({ ...prev, lssWeekendDate: e.target.value }))}
+                    className="flex-1"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleSuggestLssWeekendDates}
+                    className="whitespace-nowrap"
+                  >
+                    Suggest Dates
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-500">
+                  LSS Weekend is typically the 1st Saturday-Sunday of March. Click &quot;Suggest Dates&quot; for the default.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="lss-location" className="text-sm font-semibold text-gray-700">
+                  Location
+                </Label>
+                <Input
+                  id="lss-location"
+                  type="text"
+                  value={lssForm.location}
+                  onChange={(e) => setLssForm(prev => ({ ...prev, location: e.target.value }))}
+                  placeholder="e.g., BLD Covenant Community Center"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="lss-venue" className="text-sm font-semibold text-gray-700">
+                  Venue
+                </Label>
+                <Input
+                  id="lss-venue"
+                  type="text"
+                  value={lssForm.venue}
+                  onChange={(e) => setLssForm(prev => ({ ...prev, venue: e.target.value }))}
+                  placeholder="e.g., Main Hall"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                <p className="text-xs text-blue-800">
+                  <strong>Note:</strong> This will create:
+                </p>
+                <ul className="text-xs text-blue-800 list-disc list-inside mt-1 space-y-1">
+                  <li>Salubungan: Last Tuesday of January</li>
+                  <li>Shepherding Sessions 1-6: Subsequent Tuesdays until 2 Tuesdays after LSS Weekend</li>
+                  <li>All sessions: 20:00-21:00 Manila time</li>
+                  <li>Community Worship on same nights will be shortened to 19:00-20:00</li>
+                </ul>
+              </div>
+
+              <div className="flex gap-3 pt-4 bg-white border-t">
+                <Button
+                  onClick={handleEnsureLssShepherding}
+                  disabled={lssGenerating}
+                  className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                >
+                  {lssGenerating ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create LSS Shepherding Track'
+                  )}
+                </Button>
+                <Button
+                  onClick={() => setShowLssDialog(false)}
+                  variant="outline"
+                  disabled={lssGenerating}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
 

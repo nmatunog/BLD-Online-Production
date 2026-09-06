@@ -97,7 +97,10 @@ export interface CreateEventRequest {
   ministry?: string;
 }
 
-export interface UpdateEventRequest extends Partial<CreateEventRequest> {}
+export interface UpdateEventRequest extends Partial<CreateEventRequest> {
+  /** BLD Event Standards v1 - Phase 5: Scope for updating series-backed occurrences */
+  overwriteScope?: 'OCCURRENCE' | 'SERIES_FUTURE';
+}
 
 class EventsService {
   async getAll(params?: EventQueryParams): Promise<ApiResponse<{ data: Event[]; pagination: unknown }>> {
@@ -187,6 +190,82 @@ class EventsService {
     >('/events/super/duplicates/correct-all', undefined, { timeout: 18000 * 1000 });
     return ensureBody(response);
   }
+
+  /** Super User / Admin only: Ensure Community Worship series exists and generate 24 weeks of occurrences */
+  async ensureCommunityWorshipSeries(): Promise<
+    ApiResponse<{ seriesId: string; seriesCreated: boolean; occurrencesGenerated: number }>
+  > {
+    const response = await apiClient.post<
+      ApiResponse<{ seriesId: string; seriesCreated: boolean; occurrencesGenerated: number }>
+    >('/events/community-worship/ensure', undefined, { timeout: 60000 });
+    return ensureBody(response);
+  }
+
+  async ensureWscSeries(request: {
+    ministry: string;
+    recurrenceDays: string[];
+    startTime: string;
+    endTime: string;
+    location: string;
+    venue: string;
+  }): Promise<
+    ApiResponse<{ seriesId: string; seriesCreated: boolean; occurrencesGenerated: number }>
+  > {
+    const response = await apiClient.post<
+      ApiResponse<{ seriesId: string; seriesCreated: boolean; occurrencesGenerated: number }>
+    >('/events/word-sharing-circle/ensure', request, { timeout: 60000 });
+    return ensureBody(response);
+  }
+
+  /** Phase 4: Get the official annual programs catalog */
+  async getProgramsCatalog(): Promise<ApiResponse<Record<string, ProgramCatalogEntry>>> {
+    const response = await apiClient.get<ApiResponse<Record<string, ProgramCatalogEntry>>>('/events/programs/catalog');
+    return ensureBody(response);
+  }
+
+  /** Phase 4: Create a one-off annual program from the catalog */
+  async createOneOffProgram(request: {
+    programKey: string;
+    startDate: string;
+    endDate: string;
+    startTime?: string;
+    endTime?: string;
+    serialNumber?: number;
+    location?: string;
+    venue?: string;
+    classNumber?: number;
+  }): Promise<ApiResponse<{ eventId: string; title: string }>> {
+    const response = await apiClient.post<ApiResponse<{ eventId: string; title: string }>>(
+      '/events/programs/create',
+      request,
+      { timeout: 60000 }
+    );
+    return ensureBody(response);
+  }
+
+  /** Phase 4: Suggest default dates for LSS Weekend */
+  async suggestLssWeekendDates(year: number): Promise<ApiResponse<{ startDate: string; endDate: string }>> {
+    const response = await apiClient.get<ApiResponse<{ startDate: string; endDate: string }>>(
+      `/events/lss/suggest-dates/${year}`
+    );
+    return ensureBody(response);
+  }
+
+  /** Phase 4: Ensure LSS Shepherding track exists */
+  async ensureLssShepherdingTrack(request: {
+    lssWeekendEventId?: string;
+    lssWeekendDate?: string;
+    year: string;
+    location?: string;
+    venue?: string;
+  }): Promise<ApiResponse<{ eventsCreated: number; sessionTitles: string[] }>> {
+    const response = await apiClient.post<ApiResponse<{ eventsCreated: number; sessionTitles: string[] }>>(
+      '/events/lss/shepherding/ensure',
+      request,
+      { timeout: 60000 }
+    );
+    return ensureBody(response);
+  }
 }
 
 export interface EventAuditLogEntry {
@@ -240,6 +319,20 @@ export interface EventWithCreator extends Event {
     phone: string | null;
     member?: { firstName: string; lastName: string; nickname: string | null } | null;
   } | null;
+}
+
+/** Phase 4: Annual program catalog entry */
+export interface ProgramCatalogEntry {
+  title: string;
+  category: string;
+  eventType: string;
+  encounterType?: string;
+  maxPerYear: number;
+  typicalMonths: number[];
+  description: string;
+  durationDays: number;
+  defaultWeekOfMonth?: number;
+  defaultDayOfWeek?: number;
 }
 
 export const eventsService = new EventsService();

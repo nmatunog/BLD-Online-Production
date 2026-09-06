@@ -8,10 +8,11 @@ import {
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
+import { UpdateEventScopeDto, OverwriteScope } from './dto/update-event-scope.dto';
 import { EventQueryDto } from './dto/event-query.dto';
 import { AssignClassShepherdDto } from './dto/assign-class-shepherd.dto';
 import { CancelEventDto } from './dto/cancel-event.dto';
-import { Prisma, EventStatus, UserRole, EventAuditAction } from '@prisma/client';
+import { Prisma, EventStatus, UserRole, EventAuditAction, EventKind } from '@prisma/client';
 import QRCode from 'qrcode';
 import { BunnyCDNService } from '../common/services/bunnycdn.service';
 import { MINISTRIES_BY_APOSTOLATE } from '../common/constants/organization.constants';
@@ -28,6 +29,37 @@ function getStartOfWeekUTC(d: Date): Date {
   date.setUTCDate(diff);
   date.setUTCHours(0, 0, 0, 0);
   return date;
+}
+
+/** Convert Date to Manila timezone string YYYY-MM-DD */
+function toManilaDateString(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d);
+}
+
+/** Check if a date (in Manila timezone) falls in the blackout period Dec 24 - Jan 1 inclusive */
+function isInBlackoutPeriod(d: Date): boolean {
+  const manilaStr = toManilaDateString(d);
+  const [year, month, day] = manilaStr.split('-').map(Number);
+  // Dec 24-31 or Jan 1
+  return (month === 12 && day >= 24) || (month === 1 && day === 1);
+}
+
+/** Get the week-of-month (1st, 2nd, 3rd, 4th, or 5th) for a date in Manila timezone */
+function getWeekOfMonth(d: Date): number {
+  const manilaStr = toManilaDateString(d);
+  const [, , day] = manilaStr.split('-').map(Number);
+  return Math.ceil(day / 7);
+}
+
+/** Check if Tuesday is 1st or 3rd of the month (Holy Mass subtype) */
+function isHolyMassTuesday(d: Date): boolean {
+  const week = getWeekOfMonth(d);
+  return week === 1 || week === 3;
 }
 
 /** Serialize event to JSON for audit snapshot (dates to ISO string, Decimal to number) */
@@ -166,11 +198,12 @@ export class EventsService implements OnModuleInit {
   }
 
   onModuleInit() {
-    // Auto-generate future recurring occurrences (Community Worship, WSC, etc.) so they show every week without manual creation
+    // Auto-generate future recurring occurrences ONLY for eventKind=SERIES (BLD Event Standards v1).
+    // No longer spam-creates for legacy isRecurring rows without proper series designation.
     setTimeout(() => {
       void this.ensureRecurringOccurrencesForAllTemplates(RECURRING_OCCURRENCE_WEEKS_AHEAD).then((r) => {
         if (r.occurrencesCreated > 0) {
-          console.log(`[EventsService] Auto-generated ${r.occurrencesCreated} recurring occurrence(s) for ${r.templatesProcessed} template(s)`);
+          console.log(`[EventsService] Auto-generated ${r.occurrencesCreated} recurring occurrence(s) for ${r.templatesProcessed} SERIES template(s)`);
         }
       }).catch((err) => {
         console.error('[EventsService] Auto ensureRecurringOccurrences failed:', err);
@@ -278,6 +311,15 @@ export class EventsService implements OnModuleInit {
       );
     }
 
+    // BLD Event Standards v1: Determine eventKind
+    // SERIES if isRecurring=true and no recurrenceTemplateId (it's the template)
+    // ONE_OFF otherwise (standalone event)
+    const eventKind = createEventDto.isRecurring && !createEventDto.recurrencePattern
+      ? EventKind.ONE_OFF
+      : createEventDto.isRecurring
+        ? EventKind.SERIES
+        : EventKind.ONE_OFF;
+
     // Create event
     const event = await this.prisma.event.create({
       data: {
@@ -308,6 +350,7 @@ export class EventsService implements OnModuleInit {
         monthlyWeekOfMonth: createEventDto.monthlyWeekOfMonth || null,
         monthlyDayOfWeek: createEventDto.monthlyDayOfWeek || null,
         ministry: createEventDto.ministry?.trim() || null,
+        eventKind: eventKind,
         createdById: createdById || null,
       },
       include: {
@@ -341,8 +384,8 @@ export class EventsService implements OnModuleInit {
       });
     }
 
-    // Auto-create future occurrence rows in background so create response returns quickly (avoids timeout)
-    if (event.isRecurring && !event.recurrenceTemplateId) {
+    // Auto-create future occurrence rows in background for SERIES (BLD Event Standards v1)
+    if (event.eventKind === EventKind.SERIES) {
       void this.generateRecurringOccurrences(event.id, RECURRING_OCCURRENCE_WEEKS_AHEAD).catch((err) => {
         console.error('[EventsService] generateRecurringOccurrences failed:', err);
       });
@@ -380,9 +423,14 @@ export class EventsService implements OnModuleInit {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${templateId}))`;
 
       const template = await tx.event.findUnique({
-        where: { id: templateId, isRecurring: true, recurrenceTemplateId: null },
+        where: { id: templateId },
       });
       if (!template) return 0;
+      
+      // BLD Event Standards v1: Only generate for SERIES, not legacy recurring events
+      if (template.eventKind !== EventKind.SERIES) {
+        return 0;
+      }
 
       const pattern = (template.recurrencePattern || '').toLowerCase();
       const recurrenceDays = (template.recurrenceDays || []).map((d) => String(d).toLowerCase());
@@ -425,6 +473,11 @@ export class EventsService implements OnModuleInit {
             );
             if (occStart < recentPastCutoff) continue;
 
+            // BLD Event Standards v1: Skip blackout period (Dec 24 - Jan 1)
+            if (isInBlackoutPeriod(occStart)) {
+              continue;
+            }
+
             const occEnd = new Date(occStart.getTime() + durationMs);
 
             // Per-template idempotency rule: one occurrence row per template/day/startTime.
@@ -445,6 +498,14 @@ export class EventsService implements OnModuleInit {
               },
             });
             if (existing) continue;
+
+            // BLD Event Standards v1: Determine occurrence subtype (e.g. Holy Mass for CW 1st/3rd Tuesday)
+            let occurrenceSubtype: string | null = null;
+            if (template.category === 'Community Worship' && dayNum === 2) { // Tuesday
+              if (isHolyMassTuesday(occStart)) {
+                occurrenceSubtype = 'Holy Mass';
+              }
+            }
 
             await tx.event.create({
               data: {
@@ -476,6 +537,9 @@ export class EventsService implements OnModuleInit {
                 monthlyWeekOfMonth: template.monthlyWeekOfMonth,
                 monthlyDayOfWeek: template.monthlyDayOfWeek,
                 recurrenceTemplateId: templateId,
+                // BLD Event Standards v1 fields
+                eventKind: EventKind.OCCURRENCE,
+                occurrenceSubtype: occurrenceSubtype,
               },
             });
             count++;
@@ -491,12 +555,15 @@ export class EventsService implements OnModuleInit {
   }
 
   /**
-   * Ensure all recurring templates have future occurrence rows. Call after deploy or periodically.
+   * Ensure all SERIES (not legacy recurring) have future occurrence rows. Call after deploy or periodically.
+   * Only processes eventKind=SERIES to avoid spam-creating from legacy data.
    * Super User only.
    */
   async ensureRecurringOccurrencesForAllTemplates(weeksAhead: number = RECURRING_OCCURRENCE_WEEKS_AHEAD): Promise<{ templatesProcessed: number; occurrencesCreated: number }> {
     const templates = await this.prisma.event.findMany({
-      where: { isRecurring: true, recurrenceTemplateId: null },
+      where: { 
+        eventKind: EventKind.SERIES,
+      },
       select: { id: true },
     });
     let totalCreated = 0;
@@ -533,9 +600,10 @@ export class EventsService implements OnModuleInit {
     // Build where clause
     const where: Prisma.EventWhereInput = {};
 
-    // Never show recurring template rows in the regular listing endpoint.
-    // The UI should display concrete occurrences only; template management is via super/all.
-    where.NOT = { isRecurring: true, recurrenceTemplateId: null };
+    // BLD Event Standards v1: Never show SERIES rows in regular listing endpoint.
+    // Members/staff see only OCCURRENCES and ONE_OFF events.
+    // SERIES template management is via super/all endpoint.
+    where.NOT = { eventKind: EventKind.SERIES };
 
     // Ministry visibility: default = general (ministry null) + user's ministry only. Admin/Super can include all.
     const canSeeAllMinistryEvents =
@@ -735,8 +803,169 @@ export class EventsService implements OnModuleInit {
     return event;
   }
 
-  async update(id: string, updateEventDto: UpdateEventDto, userId?: string) {
+  async update(
+    id: string, 
+    updateEventDto: UpdateEventScopeDto, 
+    userId?: string,
+    userRole?: string,
+    userMinistry?: string,
+  ) {
     const existingEvent = await this.findOne(id);
+
+    // BLD Event Standards v1 - Phase 5: Require overwriteScope for series-backed occurrences
+    if (existingEvent.recurrenceTemplateId && !updateEventDto.overwriteScope) {
+      throw new BadRequestException(
+        'This event is part of a recurring series. You must specify overwriteScope: OCCURRENCE (this event only) or SERIES_FUTURE (series template and future events).'
+      );
+    }
+
+    // Phase 5: Role gates for series updates (same as create gates for that series type)
+    if (updateEventDto.overwriteScope === OverwriteScope.SERIES_FUTURE) {
+      const seriesTemplate = existingEvent.recurrenceTemplateId 
+        ? await this.prisma.event.findUnique({ where: { id: existingEvent.recurrenceTemplateId } })
+        : null;
+      
+      if (seriesTemplate) {
+        // CW: admin only
+        if (seriesTemplate.category === 'Community Worship') {
+          if (userRole !== UserRole.SUPER_USER && userRole !== UserRole.ADMINISTRATOR) {
+            throw new ForbiddenException('Only Super User or Administrator can update Community Worship series.');
+          }
+        }
+        // WSC: admin/DCS or that ministry's coordinator
+        if (seriesTemplate.category === 'Word Sharing Circle' && seriesTemplate.ministry) {
+          const canUpdate = 
+            userRole === UserRole.SUPER_USER ||
+            userRole === UserRole.ADMINISTRATOR ||
+            userRole === UserRole.DCS ||
+            (userRole === UserRole.MINISTRY_COORDINATOR && userMinistry === seriesTemplate.ministry);
+          if (!canUpdate) {
+            throw new ForbiddenException(`Only Super User, Administrator, DCS, or ${seriesTemplate.ministry} Coordinator can update this WSC series.`);
+          }
+        }
+        // LSS shepherding: admin only
+        if (seriesTemplate.category === 'Formation' && (seriesTemplate.title.includes('LSS Salubungan') || seriesTemplate.title.includes('LSS Shepherding'))) {
+          if (userRole !== UserRole.SUPER_USER && userRole !== UserRole.ADMINISTRATOR) {
+            throw new ForbiddenException('Only Super User or Administrator can update LSS Shepherding series.');
+          }
+        }
+      }
+    }
+
+    // Phase 5: SERIES_FUTURE scope - update template and regenerate future occurrences
+    if (updateEventDto.overwriteScope === OverwriteScope.SERIES_FUTURE && existingEvent.recurrenceTemplateId) {
+      const seriesTemplateId = existingEvent.recurrenceTemplateId;
+      const seriesTemplate = await this.prisma.event.findUnique({ where: { id: seriesTemplateId } });
+      
+      if (!seriesTemplate) {
+        throw new NotFoundException('Series template not found');
+      }
+
+      // Update the SERIES template with the new schedule
+      const updatedFields: Prisma.EventUpdateInput = {};
+      
+      // Allow updating time, venue, location for series
+      if (updateEventDto.startTime !== undefined) {
+        updatedFields.startTime = updateEventDto.startTime || null;
+      }
+      if (updateEventDto.endTime !== undefined) {
+        updatedFields.endTime = updateEventDto.endTime || null;
+      }
+      if (updateEventDto.venue !== undefined) {
+        updatedFields.venue = updateEventDto.venue || null;
+      }
+      if (updateEventDto.location !== undefined) {
+        updatedFields.location = updateEventDto.location;
+      }
+      if (updateEventDto.recurrenceDays !== undefined) {
+        updatedFields.recurrenceDays = updateEventDto.recurrenceDays;
+      }
+      
+      // Update series template
+      await this.prisma.event.update({
+        where: { id: seriesTemplateId },
+        data: updatedFields,
+      });
+
+      // Get current date in Manila timezone
+      const now = new Date();
+      const manilaDateStr = toManilaDateString(now);
+      const [nowYear, nowMonth, nowDay] = manilaDateStr.split('-').map(Number);
+      const todayManilaStart = new Date(Date.UTC(nowYear, nowMonth - 1, nowDay, 0, 0, 0, 0));
+
+      // Update all future OCCURRENCE rows (from today forward) with new schedule
+      const futureOccurrences = await this.prisma.event.findMany({
+        where: {
+          recurrenceTemplateId: seriesTemplateId,
+          startDate: { gte: todayManilaStart },
+        },
+      });
+
+      for (const occ of futureOccurrences) {
+        const occUpdateData: Prisma.EventUpdateInput = {};
+        
+        // Update time if changed
+        if (updateEventDto.startTime !== undefined) {
+          occUpdateData.startTime = updateEventDto.startTime || null;
+          // Recalculate startDate with new time
+          const occDate = new Date(occ.startDate);
+          if (updateEventDto.startTime) {
+            const [hours, minutes] = updateEventDto.startTime.split(':').map(Number);
+            occDate.setUTCHours(hours, minutes, 0, 0);
+          }
+          occUpdateData.startDate = occDate;
+        }
+        
+        if (updateEventDto.endTime !== undefined) {
+          occUpdateData.endTime = updateEventDto.endTime || null;
+          // Recalculate endDate with new time
+          const occEndDate = new Date(occ.endDate);
+          if (updateEventDto.endTime) {
+            const [hours, minutes] = updateEventDto.endTime.split(':').map(Number);
+            occEndDate.setUTCHours(hours, minutes, 0, 0);
+          }
+          occUpdateData.endDate = occEndDate;
+        }
+        
+        if (updateEventDto.venue !== undefined) {
+          occUpdateData.venue = updateEventDto.venue || null;
+        }
+        if (updateEventDto.location !== undefined) {
+          occUpdateData.location = updateEventDto.location;
+        }
+
+        await this.prisma.event.update({
+          where: { id: occ.id },
+          data: occUpdateData,
+        });
+      }
+
+      // Return the current occurrence with updated info
+      const updatedEvent = await this.findOne(id);
+      
+      // Audit log for SERIES_FUTURE update
+      if (userId) {
+        const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true, phone: true } });
+        const userEmail = user?.email ?? user?.phone ?? null;
+        await this.prisma.eventAuditLog.create({
+          data: {
+            eventId: seriesTemplateId,
+            action: EventAuditAction.UPDATE,
+            userId,
+            userEmail: userEmail ?? undefined,
+            previousSnapshot: Prisma.JsonNull,
+            changedFields: { scope: { old: null, new: 'SERIES_FUTURE' }, ...updatedFields } as Prisma.InputJsonValue,
+            restoredAt: null,
+            restoredBy: null,
+          },
+        });
+      }
+
+      return updatedEvent;
+    }
+
+    // Phase 5: OCCURRENCE scope OR normal update (no series)
+    // Continue with existing update logic for this occurrence only
 
     // Helper function to combine date and time
     const combineDateTime = (date: Date, time?: string | null): Date => {
@@ -836,7 +1065,7 @@ export class EventsService implements OnModuleInit {
 
     const previousSnapshot = eventToSnapshot(existingEvent as Parameters<typeof eventToSnapshot>[0]);
     const changedFields: Record<string, { old: unknown; new: unknown }> = {};
-    const fieldMap: Array<[keyof UpdateEventDto, string]> = [
+    const fieldMap: Array<[keyof UpdateEventScopeDto, string]> = [
       ['title', 'title'],
       ['eventType', 'eventType'],
       ['category', 'category'],
@@ -1157,6 +1386,8 @@ export class EventsService implements OnModuleInit {
           ) AS norm_start_time
         FROM "Event" e
         WHERE e."isRecurring" = true
+          AND e."eventKind" != 'SERIES'
+          AND (e."eventKind" = 'OCCURRENCE' OR e."recurrenceTemplateId" IS NOT NULL)
       ),
       dup_keys AS (
         SELECT
@@ -1240,13 +1471,40 @@ export class EventsService implements OnModuleInit {
     let candidatesMerged = 0;
 
     for (const group of groups) {
-      const events = group.events as Array<{ id: string; createdAt: Date }>;
+      const events = group.events as Array<{ 
+        id: string; 
+        createdAt: Date;
+        recurrenceTemplateId: string | null;
+      }>;
       if (events.length < 2) continue;
 
-      // Retain the earliest-created event (original)
-      const sorted = [...events].sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-      );
+      // Safety harden: Check if any event in this group is a SERIES template.
+      // This should not happen due to findDuplicates exclusion, but if it does, skip the group.
+      const fullEvents = await this.prisma.event.findMany({
+        where: { id: { in: events.map(e => e.id) } },
+        select: { id: true, eventKind: true, createdAt: true, recurrenceTemplateId: true },
+      });
+      
+      const hasSeries = fullEvents.some(e => e.eventKind === EventKind.SERIES);
+      if (hasSeries) {
+        console.warn(`[correctAllDuplicates] Skipping group containing SERIES template: ${fullEvents.map(e => e.id).join(', ')}`);
+        continue;
+      }
+
+      // Canonical retention order:
+      // 1. Prefer OCCURRENCE with recurrenceTemplateId (proper occurrence)
+      // 2. Otherwise, prefer earliest createdAt
+      const sorted = [...fullEvents].sort((a, b) => {
+        // Prefer occurrences with recurrenceTemplateId over legacy rows
+        const aHasTemplate = a.recurrenceTemplateId ? 1 : 0;
+        const bHasTemplate = b.recurrenceTemplateId ? 1 : 0;
+        if (aHasTemplate !== bHasTemplate) {
+          return bHasTemplate - aHasTemplate; // Prefer rows with template
+        }
+        // Otherwise, prefer earliest createdAt
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      });
+      
       const retainId = sorted[0].id;
       const duplicateIds = sorted.slice(1).map((e) => e.id);
 
@@ -1323,6 +1581,28 @@ export class EventsService implements OnModuleInit {
     let attendancesMerged = 0;
     let registrationsMerged = 0;
     let candidatesMerged = 0;
+
+    // Safety harden: Never merge-away or delete a SERIES template.
+    // This is a defensive check; correctAllDuplicates should already filter these out.
+    const duplicateEvent = await tx.event.findUnique({
+      where: { id: duplicateId },
+      select: { id: true, eventKind: true, title: true },
+    });
+    
+    if (duplicateEvent?.eventKind === EventKind.SERIES) {
+      console.error(`[mergeDuplicateEventIntoCanonical] Attempted to delete SERIES template ${duplicateEvent.id} (${duplicateEvent.title}). Aborting merge.`);
+      throw new BadRequestException('Cannot delete a SERIES template as part of duplicate correction');
+    }
+    
+    const retainEvent = await tx.event.findUnique({
+      where: { id: retainId },
+      select: { id: true, eventKind: true, title: true },
+    });
+    
+    if (retainEvent?.eventKind === EventKind.SERIES) {
+      console.error(`[mergeDuplicateEventIntoCanonical] Attempted to merge into SERIES template ${retainEvent.id} (${retainEvent.title}). Aborting merge.`);
+      throw new BadRequestException('Cannot merge into a SERIES template');
+    }
 
     const insertedAttendances = await tx.$executeRaw`
       INSERT INTO "Attendance" ("id", "memberId", "eventId", "sessionSlot", "checkInTime", "method", "createdAt")
@@ -1932,6 +2212,470 @@ export class EventsService implements OnModuleInit {
     });
 
     return updatedEvent;
+  }
+
+  /**
+   * BLD Event Standards v1: Ensure Community Worship SERIES exists and generate 24 weeks of occurrences.
+   * Super User / Administrator only.
+   * Creates the CW series template if missing, then generates future occurrences with:
+   * - Every Tuesday 19:00-21:00 Manila time
+   * - 1st & 3rd Tuesday: occurrenceSubtype "Holy Mass"
+   * - Skip Dec 24 - Jan 1 blackout period
+   */
+  async ensureCommunityWorshipSeries(createdById?: string): Promise<{ 
+    seriesId: string; 
+    seriesCreated: boolean; 
+    occurrencesGenerated: number 
+  }> {
+    // Check if Community Worship SERIES already exists
+    let cwSeries = await this.prisma.event.findFirst({
+      where: {
+        eventKind: EventKind.SERIES,
+        category: 'Community Worship',
+        title: 'Community Worship',
+      },
+    });
+
+    let seriesCreated = false;
+    if (!cwSeries) {
+      // Create Community Worship SERIES template
+      // Use next Tuesday 19:00 Manila as anchor date
+      const now = new Date();
+      const nowManila = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+      const dayOfWeek = nowManila.getDay();
+      const daysUntilTuesday = (2 - dayOfWeek + 7) % 7 || 7; // Next Tuesday
+      const nextTuesday = new Date(nowManila);
+      nextTuesday.setDate(nowManila.getDate() + daysUntilTuesday);
+      nextTuesday.setHours(19, 0, 0, 0);
+      
+      const endTime = new Date(nextTuesday);
+      endTime.setHours(21, 0, 0, 0);
+
+      cwSeries = await this.prisma.event.create({
+        data: {
+          title: 'Community Worship',
+          eventType: 'Worship',
+          category: 'Community Worship',
+          description: 'Weekly Community Worship gathering. 1st & 3rd Tuesday includes Holy Mass.',
+          startDate: nextTuesday,
+          endDate: endTime,
+          startTime: '19:00',
+          endTime: '21:00',
+          location: 'BLD Covenant Community Center',
+          venue: 'Main Hall',
+          status: EventStatus.UPCOMING,
+          hasRegistration: false,
+          ministry: null, // General / all ministries
+          isRecurring: true,
+          recurrencePattern: 'weekly',
+          recurrenceDays: ['tuesday'],
+          recurrenceInterval: 1,
+          eventKind: EventKind.SERIES,
+          createdById: createdById || null,
+        },
+      });
+      seriesCreated = true;
+    }
+
+    // Generate 24 weeks of occurrences
+    const occurrencesGenerated = await this.generateRecurringOccurrences(
+      cwSeries.id,
+      RECURRING_OCCURRENCE_WEEKS_AHEAD,
+    );
+
+    return {
+      seriesId: cwSeries.id,
+      seriesCreated,
+      occurrencesGenerated,
+    };
+  }
+
+  /**
+   * BLD Event Standards v1 - Phase 3: Ensure Word Sharing Circle (WSC) SERIES exists for a ministry.
+   * Creates WSC series with title "WSC - {Official Ministry Name}" if missing.
+   * Validates ministry against MINISTRIES_BY_APOSTOLATE.
+   * Rejects if a second active WSC series exists for the same ministry.
+   * Generates 24 weeks of occurrences.
+   * 
+   * Role gates:
+   * - SUPER_USER, ADMINISTRATOR, DCS: can create for any ministry
+   * - MINISTRY_COORDINATOR: can only create for their own ministry
+   */
+  async ensureWscSeries(
+    ministry: string,
+    schedule: {
+      recurrenceDays: string[];
+      startTime: string;
+      endTime: string;
+      location: string;
+      venue: string;
+    },
+    createdById: string,
+    userMinistry?: string,
+    userRole?: string,
+  ): Promise<{ 
+    seriesId: string; 
+    seriesCreated: boolean; 
+    occurrencesGenerated: number 
+  }> {
+    // Validate ministry against official roster
+    const allMinistries = Object.values(MINISTRIES_BY_APOSTOLATE).flat();
+    const normalizedMinistry = ministry.trim();
+    const officialMinistry = allMinistries.find(m => m === normalizedMinistry);
+    
+    if (!officialMinistry) {
+      throw new BadRequestException(
+        `Invalid ministry. Must be one of the 30 official ministries from MINISTRIES_BY_APOSTOLATE.`
+      );
+    }
+
+    // Check if user has permission for this ministry (MINISTRY_COORDINATOR check)
+    if (userRole === UserRole.MINISTRY_COORDINATOR) {
+      if (userMinistry !== officialMinistry) {
+        throw new ForbiddenException(
+          `Ministry Coordinators can only create WSC series for their own ministry (${userMinistry})`
+        );
+      }
+    }
+
+    // Check if active WSC SERIES already exists for this ministry
+    const existingWscSeries = await this.prisma.event.findMany({
+      where: {
+        eventKind: EventKind.SERIES,
+        category: 'Word Sharing Circle',
+        ministry: officialMinistry,
+        status: { in: [EventStatus.UPCOMING, EventStatus.ONGOING] },
+      },
+    });
+
+    if (existingWscSeries.length > 0) {
+      throw new BadRequestException(
+        `A WSC series already exists for ${officialMinistry}. Each ministry can have at most one active WSC series.`
+      );
+    }
+
+    // Compute title: "WSC - {Official Ministry Name}"
+    const title = `WSC - ${officialMinistry}`;
+
+    // Calculate next occurrence date based on first recurrence day
+    const now = new Date();
+    const nowManila = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+    const dayOfWeek = nowManila.getDay();
+    
+    // Map day names to numbers (0 = Sunday, 6 = Saturday)
+    const dayMap: Record<string, number> = {
+      sunday: 0,
+      monday: 1,
+      tuesday: 2,
+      wednesday: 3,
+      thursday: 4,
+      friday: 5,
+      saturday: 6,
+    };
+    
+    const firstDayName = schedule.recurrenceDays[0].toLowerCase();
+    const targetDay = dayMap[firstDayName];
+    
+    if (targetDay === undefined) {
+      throw new BadRequestException(`Invalid day: ${schedule.recurrenceDays[0]}`);
+    }
+    
+    // Calculate days until next occurrence of target day
+    const daysUntilTarget = (targetDay - dayOfWeek + 7) % 7 || 7;
+    const nextOccurrence = new Date(nowManila);
+    nextOccurrence.setDate(nowManila.getDate() + daysUntilTarget);
+    
+    // Parse start and end times
+    const [startHour, startMinute] = schedule.startTime.split(':').map(Number);
+    const [endHour, endMinute] = schedule.endTime.split(':').map(Number);
+    
+    nextOccurrence.setHours(startHour, startMinute, 0, 0);
+    const endTime = new Date(nextOccurrence);
+    endTime.setHours(endHour, endMinute, 0, 0);
+
+    // Create WSC SERIES template
+    const wscSeries = await this.prisma.event.create({
+      data: {
+        title,
+        eventType: 'Worship',
+        category: 'Word Sharing Circle',
+        description: `Weekly Word Sharing Circle for ${officialMinistry}.`,
+        startDate: nextOccurrence,
+        endDate: endTime,
+        startTime: schedule.startTime,
+        endTime: schedule.endTime,
+        location: schedule.location,
+        venue: schedule.venue,
+        status: EventStatus.UPCOMING,
+        hasRegistration: false,
+        ministry: officialMinistry,
+        isRecurring: true,
+        recurrencePattern: 'weekly',
+        recurrenceDays: schedule.recurrenceDays,
+        recurrenceInterval: 1,
+        eventKind: EventKind.SERIES,
+        createdById,
+      },
+    });
+
+    // Generate 24 weeks of occurrences
+    const occurrencesGenerated = await this.generateRecurringOccurrences(
+      wscSeries.id,
+      RECURRING_OCCURRENCE_WEEKS_AHEAD,
+    );
+
+    return {
+      seriesId: wscSeries.id,
+      seriesCreated: true,
+      occurrencesGenerated,
+    };
+  }
+
+  /**
+   * BLD Event Standards v1 - Phase 4: Create a one-off annual program from the catalog.
+   * Programs: Marriage Encounter, Singles Encounter, Solo Parents Encounter, Youth Encounter, Family Enrichment, LSS Weekend.
+   * Uses official titles with optional serialNumber (no dates in title).
+   * 
+   * Role gates: SUPER_USER, ADMINISTRATOR, DCS
+   */
+  async createOneOffProgram(
+    programKey: string,
+    data: {
+      startDate: string;
+      endDate: string;
+      startTime?: string;
+      endTime?: string;
+      serialNumber?: number;
+      location?: string;
+      venue?: string;
+      classNumber?: number;
+    },
+    createdById?: string,
+  ): Promise<{ eventId: string; title: string }> {
+    const { ANNUAL_PROGRAMS_CATALOG } = await import('./event-standards-v1-phase4.helpers');
+    
+    // Validate program key
+    const program = ANNUAL_PROGRAMS_CATALOG[programKey as keyof typeof ANNUAL_PROGRAMS_CATALOG];
+    if (!program) {
+      throw new BadRequestException(
+        `Invalid program key. Must be one of: ${Object.keys(ANNUAL_PROGRAMS_CATALOG).join(', ')}`
+      );
+    }
+
+    // Compute title: official title + optional serialNumber
+    let title = program.title;
+    if (data.serialNumber) {
+      title = `${program.title} ${data.serialNumber}`;
+    }
+
+    // Check for duplicates (same title, year)
+    const startDate = new Date(data.startDate);
+    const year = startDate.getUTCFullYear();
+    const yearStart = new Date(Date.UTC(year, 0, 1));
+    const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59));
+
+    const existingEvent = await this.prisma.event.findFirst({
+      where: {
+        title,
+        startDate: { gte: yearStart, lte: yearEnd },
+        status: { in: [EventStatus.UPCOMING, EventStatus.ONGOING] },
+      },
+    });
+
+    if (existingEvent) {
+      throw new BadRequestException(
+        `Event "${title}" already exists for ${year}. Please use a different serial number or date.`
+      );
+    }
+
+    // Create the event
+    const event = await this.prisma.event.create({
+      data: {
+        title,
+        eventType: program.eventType || 'Program',
+        category: program.category,
+        description: program.description,
+        startDate: new Date(data.startDate),
+        endDate: new Date(data.endDate),
+        startTime: data.startTime || null,
+        endTime: data.endTime || null,
+        location: data.location || 'BLD Covenant Community Center',
+        venue: data.venue || null,
+        status: EventStatus.UPCOMING,
+        hasRegistration: true, // Annual programs typically require registration
+        encounterType: program.encounterType || null,
+        classNumber: data.classNumber || null,
+        serialNumber: data.serialNumber || null,
+        eventKind: EventKind.ONE_OFF,
+        isRecurring: false,
+        ministry: null, // General / community-wide
+        createdById: createdById || null,
+      },
+    });
+
+    // Generate QR code
+    if (event.id) {
+      await this.generateQRCode(event.id);
+    }
+
+    // Audit log
+    if (createdById) {
+      const user = await this.prisma.user.findUnique({ where: { id: createdById }, select: { email: true, phone: true } });
+      const userEmail = user?.email ?? user?.phone ?? null;
+      await this.prisma.eventAuditLog.create({
+        data: {
+          eventId: event.id,
+          action: EventAuditAction.CREATE,
+          userId: createdById,
+          userEmail: userEmail ?? undefined,
+          previousSnapshot: Prisma.JsonNull,
+          changedFields: Prisma.JsonNull,
+        },
+      });
+    }
+
+    return { eventId: event.id, title: event.title };
+  }
+
+  /**
+   * BLD Event Standards v1 - Phase 4: Ensure LSS Shepherding track exists.
+   * Creates Salubungan + Shepherding Sessions 1-6.
+   * Time: 20:00-21:00 Manila (right after CW, which is shortened to 19:00-20:00 if CW exists same night).
+   * Idempotent: does not duplicate if already generated for that LSS year.
+   * 
+   * Role gates: SUPER_USER, ADMINISTRATOR
+   */
+  async ensureLssShepherdingTrack(
+    lssWeekendDate: Date,
+    year: number,
+    location: string = 'BLD Covenant Community Center',
+    venue: string = 'Main Hall',
+    createdById?: string,
+  ): Promise<{ eventsCreated: number; sessionTitles: string[] }> {
+    const {
+      calculateLssShepherdingDates,
+      getLastTuesdayOfJanuary,
+      toManilaDateString,
+    } = await import('./event-standards-v1-phase4.helpers');
+
+    // Calculate all shepherding dates (Salubungan + 6 sessions)
+    const shepherdingDates = calculateLssShepherdingDates(lssWeekendDate, year);
+    
+    const sessionTitles: string[] = [];
+    let eventsCreated = 0;
+
+    // Check if LSS Shepherding for this year already exists
+    const yearStart = new Date(Date.UTC(year, 0, 1));
+    const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59));
+    
+    const existingSalubungan = await this.prisma.event.findFirst({
+      where: {
+        title: 'LSS Salubungan',
+        startDate: { gte: yearStart, lte: yearEnd },
+        status: { in: [EventStatus.UPCOMING, EventStatus.ONGOING, EventStatus.COMPLETED] },
+      },
+    });
+
+    if (existingSalubungan) {
+      // Already exists, don't duplicate
+      return { eventsCreated: 0, sessionTitles: [] };
+    }
+
+    // Create Salubungan
+    const salubunganDate = shepherdingDates[0];
+    const salubunganStart = new Date(salubunganDate);
+    salubunganStart.setUTCHours(20, 0, 0, 0);
+    const salubunganEnd = new Date(salubunganDate);
+    salubunganEnd.setUTCHours(21, 0, 0, 0);
+
+    await this.prisma.event.create({
+      data: {
+        title: 'LSS Salubungan',
+        eventType: 'LSS',
+        category: 'Formation',
+        description: 'LSS Salubungan - welcoming session for LSS participants.',
+        startDate: salubunganStart,
+        endDate: salubunganEnd,
+        startTime: '20:00',
+        endTime: '21:00',
+        location,
+        venue,
+        status: EventStatus.UPCOMING,
+        hasRegistration: false,
+        eventKind: EventKind.ONE_OFF,
+        isRecurring: false,
+        ministry: null,
+        createdById: createdById || null,
+      },
+    });
+    sessionTitles.push('LSS Salubungan');
+    eventsCreated++;
+
+    // Create Shepherding Sessions 1-6
+    for (let i = 1; i <= 6; i++) {
+      const sessionDate = shepherdingDates[i];
+      const sessionStart = new Date(sessionDate);
+      sessionStart.setUTCHours(20, 0, 0, 0);
+      const sessionEnd = new Date(sessionDate);
+      sessionEnd.setUTCHours(21, 0, 0, 0);
+
+      const title = `LSS Shepherding Session ${i}`;
+
+      await this.prisma.event.create({
+        data: {
+          title,
+          eventType: 'LSS',
+          category: 'Formation',
+          description: `LSS Shepherding Session ${i} - ongoing formation for LSS participants.`,
+          startDate: sessionStart,
+          endDate: sessionEnd,
+          startTime: '20:00',
+          endTime: '21:00',
+          location,
+          venue,
+          status: EventStatus.UPCOMING,
+          hasRegistration: false,
+          eventKind: EventKind.ONE_OFF,
+          isRecurring: false,
+          ministry: null,
+          createdById: createdById || null,
+        },
+      });
+      sessionTitles.push(title);
+      eventsCreated++;
+    }
+
+    // Shorten CW on same Tuesday nights if CW occurrences exist
+    // Find all CW occurrences on the same dates and update endTime to 20:00
+    for (const date of shepherdingDates) {
+      const dayStart = new Date(date);
+      dayStart.setUTCHours(0, 0, 0, 0);
+      const dayEnd = new Date(date);
+      dayEnd.setUTCHours(23, 59, 59, 999);
+
+      const cwOccurrences = await this.prisma.event.findMany({
+        where: {
+          category: 'Community Worship',
+          startDate: { gte: dayStart, lte: dayEnd },
+          eventKind: EventKind.OCCURRENCE,
+        },
+      });
+
+      for (const cw of cwOccurrences) {
+        // Update CW endTime to 20:00 (shortened)
+        await this.prisma.event.update({
+          where: { id: cw.id },
+          data: {
+            endTime: '20:00',
+            description: cw.description
+              ? `${cw.description}\n\nNote: CW shortened to 19:00-20:00 for LSS Shepherding session.`
+              : 'Note: CW shortened to 19:00-20:00 for LSS Shepherding session.',
+          },
+        });
+      }
+    }
+
+    return { eventsCreated, sessionTitles };
   }
 }
 
