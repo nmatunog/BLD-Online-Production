@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
+import { UpdateEventScopeDto, OverwriteScope } from './dto/update-event-scope.dto';
 import { EventQueryDto } from './dto/event-query.dto';
 import { AssignClassShepherdDto } from './dto/assign-class-shepherd.dto';
 import { CancelEventDto } from './dto/cancel-event.dto';
@@ -802,8 +803,169 @@ export class EventsService implements OnModuleInit {
     return event;
   }
 
-  async update(id: string, updateEventDto: UpdateEventDto, userId?: string) {
+  async update(
+    id: string, 
+    updateEventDto: UpdateEventScopeDto, 
+    userId?: string,
+    userRole?: string,
+    userMinistry?: string,
+  ) {
     const existingEvent = await this.findOne(id);
+
+    // BLD Event Standards v1 - Phase 5: Require overwriteScope for series-backed occurrences
+    if (existingEvent.recurrenceTemplateId && !updateEventDto.overwriteScope) {
+      throw new BadRequestException(
+        'This event is part of a recurring series. You must specify overwriteScope: OCCURRENCE (this event only) or SERIES_FUTURE (series template and future events).'
+      );
+    }
+
+    // Phase 5: Role gates for series updates (same as create gates for that series type)
+    if (updateEventDto.overwriteScope === OverwriteScope.SERIES_FUTURE) {
+      const seriesTemplate = existingEvent.recurrenceTemplateId 
+        ? await this.prisma.event.findUnique({ where: { id: existingEvent.recurrenceTemplateId } })
+        : null;
+      
+      if (seriesTemplate) {
+        // CW: admin only
+        if (seriesTemplate.category === 'Community Worship') {
+          if (userRole !== UserRole.SUPER_USER && userRole !== UserRole.ADMINISTRATOR) {
+            throw new ForbiddenException('Only Super User or Administrator can update Community Worship series.');
+          }
+        }
+        // WSC: admin/DCS or that ministry's coordinator
+        if (seriesTemplate.category === 'Word Sharing Circle' && seriesTemplate.ministry) {
+          const canUpdate = 
+            userRole === UserRole.SUPER_USER ||
+            userRole === UserRole.ADMINISTRATOR ||
+            userRole === UserRole.DCS ||
+            (userRole === UserRole.MINISTRY_COORDINATOR && userMinistry === seriesTemplate.ministry);
+          if (!canUpdate) {
+            throw new ForbiddenException(`Only Super User, Administrator, DCS, or ${seriesTemplate.ministry} Coordinator can update this WSC series.`);
+          }
+        }
+        // LSS shepherding: admin only
+        if (seriesTemplate.category === 'Formation' && (seriesTemplate.title.includes('LSS Salubungan') || seriesTemplate.title.includes('LSS Shepherding'))) {
+          if (userRole !== UserRole.SUPER_USER && userRole !== UserRole.ADMINISTRATOR) {
+            throw new ForbiddenException('Only Super User or Administrator can update LSS Shepherding series.');
+          }
+        }
+      }
+    }
+
+    // Phase 5: SERIES_FUTURE scope - update template and regenerate future occurrences
+    if (updateEventDto.overwriteScope === OverwriteScope.SERIES_FUTURE && existingEvent.recurrenceTemplateId) {
+      const seriesTemplateId = existingEvent.recurrenceTemplateId;
+      const seriesTemplate = await this.prisma.event.findUnique({ where: { id: seriesTemplateId } });
+      
+      if (!seriesTemplate) {
+        throw new NotFoundException('Series template not found');
+      }
+
+      // Update the SERIES template with the new schedule
+      const updatedFields: Prisma.EventUpdateInput = {};
+      
+      // Allow updating time, venue, location for series
+      if (updateEventDto.startTime !== undefined) {
+        updatedFields.startTime = updateEventDto.startTime || null;
+      }
+      if (updateEventDto.endTime !== undefined) {
+        updatedFields.endTime = updateEventDto.endTime || null;
+      }
+      if (updateEventDto.venue !== undefined) {
+        updatedFields.venue = updateEventDto.venue || null;
+      }
+      if (updateEventDto.location !== undefined) {
+        updatedFields.location = updateEventDto.location;
+      }
+      if (updateEventDto.recurrenceDays !== undefined) {
+        updatedFields.recurrenceDays = updateEventDto.recurrenceDays;
+      }
+      
+      // Update series template
+      await this.prisma.event.update({
+        where: { id: seriesTemplateId },
+        data: updatedFields,
+      });
+
+      // Get current date in Manila timezone
+      const now = new Date();
+      const manilaDateStr = toManilaDateString(now);
+      const [nowYear, nowMonth, nowDay] = manilaDateStr.split('-').map(Number);
+      const todayManilaStart = new Date(Date.UTC(nowYear, nowMonth - 1, nowDay, 0, 0, 0, 0));
+
+      // Update all future OCCURRENCE rows (from today forward) with new schedule
+      const futureOccurrences = await this.prisma.event.findMany({
+        where: {
+          recurrenceTemplateId: seriesTemplateId,
+          startDate: { gte: todayManilaStart },
+        },
+      });
+
+      for (const occ of futureOccurrences) {
+        const occUpdateData: Prisma.EventUpdateInput = {};
+        
+        // Update time if changed
+        if (updateEventDto.startTime !== undefined) {
+          occUpdateData.startTime = updateEventDto.startTime || null;
+          // Recalculate startDate with new time
+          const occDate = new Date(occ.startDate);
+          if (updateEventDto.startTime) {
+            const [hours, minutes] = updateEventDto.startTime.split(':').map(Number);
+            occDate.setUTCHours(hours, minutes, 0, 0);
+          }
+          occUpdateData.startDate = occDate;
+        }
+        
+        if (updateEventDto.endTime !== undefined) {
+          occUpdateData.endTime = updateEventDto.endTime || null;
+          // Recalculate endDate with new time
+          const occEndDate = new Date(occ.endDate);
+          if (updateEventDto.endTime) {
+            const [hours, minutes] = updateEventDto.endTime.split(':').map(Number);
+            occEndDate.setUTCHours(hours, minutes, 0, 0);
+          }
+          occUpdateData.endDate = occEndDate;
+        }
+        
+        if (updateEventDto.venue !== undefined) {
+          occUpdateData.venue = updateEventDto.venue || null;
+        }
+        if (updateEventDto.location !== undefined) {
+          occUpdateData.location = updateEventDto.location;
+        }
+
+        await this.prisma.event.update({
+          where: { id: occ.id },
+          data: occUpdateData,
+        });
+      }
+
+      // Return the current occurrence with updated info
+      const updatedEvent = await this.findOne(id);
+      
+      // Audit log for SERIES_FUTURE update
+      if (userId) {
+        const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true, phone: true } });
+        const userEmail = user?.email ?? user?.phone ?? null;
+        await this.prisma.eventAuditLog.create({
+          data: {
+            eventId: seriesTemplateId,
+            action: EventAuditAction.UPDATE,
+            userId,
+            userEmail: userEmail ?? undefined,
+            previousSnapshot: Prisma.JsonNull,
+            changedFields: { scope: { old: null, new: 'SERIES_FUTURE' }, ...updatedFields } as Prisma.InputJsonValue,
+            restoredAt: null,
+            restoredBy: null,
+          },
+        });
+      }
+
+      return updatedEvent;
+    }
+
+    // Phase 5: OCCURRENCE scope OR normal update (no series)
+    // Continue with existing update logic for this occurrence only
 
     // Helper function to combine date and time
     const combineDateTime = (date: Date, time?: string | null): Date => {
@@ -903,7 +1065,7 @@ export class EventsService implements OnModuleInit {
 
     const previousSnapshot = eventToSnapshot(existingEvent as Parameters<typeof eventToSnapshot>[0]);
     const changedFields: Record<string, { old: unknown; new: unknown }> = {};
-    const fieldMap: Array<[keyof UpdateEventDto, string]> = [
+    const fieldMap: Array<[keyof UpdateEventScopeDto, string]> = [
       ['title', 'title'],
       ['eventType', 'eventType'],
       ['category', 'category'],

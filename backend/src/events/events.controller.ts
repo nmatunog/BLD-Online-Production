@@ -17,6 +17,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { EventsService } from './events.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
+import { UpdateEventScopeDto } from './dto/update-event-scope.dto';
 import { EventQueryDto } from './dto/event-query.dto';
 import { AssignClassShepherdDto } from './dto/assign-class-shepherd.dto';
 import { CancelEventDto } from './dto/cancel-event.dto';
@@ -411,15 +412,19 @@ export class EventsController {
   @Put(':id')
   @UseGuards(RolesGuard)
   @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS, UserRole.MINISTRY_COORDINATOR)
-  @ApiOperation({ summary: 'Update an event' })
+  @ApiOperation({ 
+    summary: 'Update an event (Phase 5: requires overwriteScope for series-backed occurrences)',
+    description: 'BLD Event Standards v1 - Phase 5: When updating an occurrence that belongs to a series, overwriteScope is REQUIRED (OCCURRENCE | SERIES_FUTURE)',
+  })
   @ApiResponse({ status: 200, description: 'Event updated successfully' })
+  @ApiResponse({ status: 400, description: 'Missing overwriteScope for series-backed occurrence' })
   @ApiResponse({ status: 404, description: 'Event not found' })
   async update(
     @Param('id') id: string,
-    @Body() updateEventDto: UpdateEventDto,
-    @CurrentUser() user: { id: string },
+    @Body() updateEventDto: UpdateEventScopeDto,
+    @CurrentUser() user: { id: string; role: string; ministry?: string },
   ): Promise<ApiResponseDto<unknown>> {
-    const event = await this.eventsService.update(id, updateEventDto, user.id);
+    const event = await this.eventsService.update(id, updateEventDto, user.id, user.role, user.ministry);
     return {
       success: true,
       data: event,

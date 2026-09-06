@@ -27,6 +27,7 @@ import DashboardHeader from '@/components/layout/DashboardHeader';
 import EventChatbot from '@/components/events/EventChatbot';
 import EventCard from '@/components/events/EventCard';
 import ClassShepherdAssignment from '@/components/events/ClassShepherdAssignment';
+import EventUpdateScopeDialog from '@/components/events/EventUpdateScopeDialog';
 import { eventChatbotService } from '@/services/event-chatbot-service';
 import { MINISTRIES_BY_APOSTOLATE } from '@/lib/member-constants';
 import { attendanceService } from '@/services/attendance.service';
@@ -174,6 +175,9 @@ export default function EventsPage() {
     location: 'BLD Covenant Community Center',
     venue: 'Main Hall',
   });
+  /** Phase 5: Event Update Scope Dialog (for series-backed occurrences) */
+  const [showScopeDialog, setShowScopeDialog] = useState(false);
+  const [selectedScope, setSelectedScope] = useState<'OCCURRENCE' | 'SERIES_FUTURE' | null>(null);
   // Event categories from old system
   const eventCategories = [
     'Community Worship',
@@ -1144,6 +1148,20 @@ export default function EventsPage() {
   const handleEditEvent = (event: Event) => {
     setEditingEvent(event);
     populateFormFromEvent(event);
+    
+    // Phase 5: Check if this is a series-backed occurrence
+    if (event.recurrenceTemplateId) {
+      // Show scope dialog first
+      setShowScopeDialog(true);
+    } else {
+      // Regular event, show edit dialog directly
+      setShowEditDialog(true);
+    }
+  };
+
+  const handleScopeSelected = (scope: 'OCCURRENCE' | 'SERIES_FUTURE') => {
+    setSelectedScope(scope);
+    setShowScopeDialog(false);
     setShowEditDialog(true);
   };
 
@@ -1301,13 +1319,25 @@ export default function EventsPage() {
 
       if (editingEvent) {
         // Update existing event
+        // Phase 5: Include overwriteScope for series-backed occurrences
+        if (editingEvent.recurrenceTemplateId && selectedScope) {
+          eventData.overwriteScope = selectedScope;
+        }
+        
         const result = await eventsService.update(editingEvent.id, eventData);
         if (result?.success) {
+          const scopeMessage = selectedScope === 'OCCURRENCE' 
+            ? 'This occurrence has been updated.' 
+            : selectedScope === 'SERIES_FUTURE'
+            ? 'The series schedule has been updated. Future occurrences will reflect these changes.'
+            : 'The event has been updated successfully.';
+          
           toast.success('Event Updated', {
-            description: 'The event has been updated successfully.',
+            description: scopeMessage,
           });
           setShowEditDialog(false);
           setEditingEvent(null);
+          setSelectedScope(null);
           resetForm();
           loadEvents();
         }
@@ -2576,6 +2606,7 @@ export default function EventsPage() {
           setShowEditDialog(open);
           if (!open) {
             setEditingEvent(null);
+            setSelectedScope(null);
             resetForm();
           }
         }}>
@@ -2937,6 +2968,7 @@ export default function EventsPage() {
                   onClick={() => {
                     setShowEditDialog(false);
                     setEditingEvent(null);
+                    setSelectedScope(null);
                     resetForm();
                   }}
                   size="lg"
@@ -3048,6 +3080,21 @@ export default function EventsPage() {
             )}
           </DialogContent>
         </Dialog>
+
+        {/* Phase 5: Event Update Scope Dialog (for series-backed occurrences) */}
+        {editingEvent && (
+          <EventUpdateScopeDialog
+            isOpen={showScopeDialog}
+            onClose={() => {
+              setShowScopeDialog(false);
+              setEditingEvent(null);
+              setSelectedScope(null);
+              resetForm();
+            }}
+            onSelectScope={handleScopeSelected}
+            eventTitle={editingEvent.title}
+          />
+        )}
 
         {/* WSC Series Setup Dialog */}
         <Dialog open={showWscDialog} onOpenChange={setShowWscDialog}>

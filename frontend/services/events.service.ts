@@ -97,7 +97,10 @@ export interface CreateEventRequest {
   ministry?: string;
 }
 
-export interface UpdateEventRequest extends Partial<CreateEventRequest> {}
+export interface UpdateEventRequest extends Partial<CreateEventRequest> {
+  /** BLD Event Standards v1 - Phase 5: Scope for updating series-backed occurrences */
+  overwriteScope?: 'OCCURRENCE' | 'SERIES_FUTURE';
+}
 
 class EventsService {
   async getAll(params?: EventQueryParams): Promise<ApiResponse<{ data: Event[]; pagination: unknown }>> {
