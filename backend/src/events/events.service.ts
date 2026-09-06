@@ -1386,6 +1386,8 @@ export class EventsService implements OnModuleInit {
           ) AS norm_start_time
         FROM "Event" e
         WHERE e."isRecurring" = true
+          AND e."eventKind" != 'SERIES'
+          AND (e."eventKind" = 'OCCURRENCE' OR e."recurrenceTemplateId" IS NOT NULL)
       ),
       dup_keys AS (
         SELECT
@@ -1469,13 +1471,40 @@ export class EventsService implements OnModuleInit {
     let candidatesMerged = 0;
 
     for (const group of groups) {
-      const events = group.events as Array<{ id: string; createdAt: Date }>;
+      const events = group.events as Array<{ 
+        id: string; 
+        createdAt: Date;
+        recurrenceTemplateId: string | null;
+      }>;
       if (events.length < 2) continue;
 
-      // Retain the earliest-created event (original)
-      const sorted = [...events].sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-      );
+      // Safety harden: Check if any event in this group is a SERIES template.
+      // This should not happen due to findDuplicates exclusion, but if it does, skip the group.
+      const fullEvents = await this.prisma.event.findMany({
+        where: { id: { in: events.map(e => e.id) } },
+        select: { id: true, eventKind: true, createdAt: true, recurrenceTemplateId: true },
+      });
+      
+      const hasSeries = fullEvents.some(e => e.eventKind === EventKind.SERIES);
+      if (hasSeries) {
+        console.warn(`[correctAllDuplicates] Skipping group containing SERIES template: ${fullEvents.map(e => e.id).join(', ')}`);
+        continue;
+      }
+
+      // Canonical retention order:
+      // 1. Prefer OCCURRENCE with recurrenceTemplateId (proper occurrence)
+      // 2. Otherwise, prefer earliest createdAt
+      const sorted = [...fullEvents].sort((a, b) => {
+        // Prefer occurrences with recurrenceTemplateId over legacy rows
+        const aHasTemplate = a.recurrenceTemplateId ? 1 : 0;
+        const bHasTemplate = b.recurrenceTemplateId ? 1 : 0;
+        if (aHasTemplate !== bHasTemplate) {
+          return bHasTemplate - aHasTemplate; // Prefer rows with template
+        }
+        // Otherwise, prefer earliest createdAt
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      });
+      
       const retainId = sorted[0].id;
       const duplicateIds = sorted.slice(1).map((e) => e.id);
 
@@ -1552,6 +1581,28 @@ export class EventsService implements OnModuleInit {
     let attendancesMerged = 0;
     let registrationsMerged = 0;
     let candidatesMerged = 0;
+
+    // Safety harden: Never merge-away or delete a SERIES template.
+    // This is a defensive check; correctAllDuplicates should already filter these out.
+    const duplicateEvent = await tx.event.findUnique({
+      where: { id: duplicateId },
+      select: { id: true, eventKind: true, title: true },
+    });
+    
+    if (duplicateEvent?.eventKind === EventKind.SERIES) {
+      console.error(`[mergeDuplicateEventIntoCanonical] Attempted to delete SERIES template ${duplicateEvent.id} (${duplicateEvent.title}). Aborting merge.`);
+      throw new BadRequestException('Cannot delete a SERIES template as part of duplicate correction');
+    }
+    
+    const retainEvent = await tx.event.findUnique({
+      where: { id: retainId },
+      select: { id: true, eventKind: true, title: true },
+    });
+    
+    if (retainEvent?.eventKind === EventKind.SERIES) {
+      console.error(`[mergeDuplicateEventIntoCanonical] Attempted to merge into SERIES template ${retainEvent.id} (${retainEvent.title}). Aborting merge.`);
+      throw new BadRequestException('Cannot merge into a SERIES template');
+    }
 
     const insertedAttendances = await tx.$executeRaw`
       INSERT INTO "Attendance" ("id", "memberId", "eventId", "sessionSlot", "checkInTime", "method", "createdAt")
