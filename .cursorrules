@@ -20,14 +20,14 @@
 **Roles:**
 - **Nilo** — Requirements, merges to `main`
 - **BLD Bot** — AI Dev Manager, task decomposition, Architecture enforcement
-- **Cursor A/B/C** — Implement on `cursor/<name>-a457` branches
+- **Cursor A/B/C** — Implement on `cursor/<descriptive-kebab>` branches
 - **Cursor QA D** — Independent QA gate before PR
 
 **Workflow:** Nilo → BLD Bot → A/B/C implement → QA D → PR → Nilo approval → Nilo merge → CI/CD
 
 **Timezone:** Asia/Manila (source of truth for all dates/times)
 
-**Branch Naming:** `cursor/<descriptive-name>-a457`
+**Branch Naming:** `cursor/<descriptive-kebab>` (lowercase, hyphens, no agent ID suffix)
 
 **Security:** Mandatory testing for auth/member/tenant changes
 

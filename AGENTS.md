@@ -59,7 +59,7 @@ Before implementing ANY change:
 - Raises ACRs when Architecture conflicts arise
 
 ### Cursor Backend A / Frontend B / Integration C (Implementers)
-- Implement on feature branches following `cursor/<descriptive-name>-a457` pattern
+- Implement on feature branches following `cursor/<descriptive-kebab>` pattern
 - Follow Architecture documents strictly
 - Write lint-clean, type-safe code
 - Create descriptive commits
@@ -144,18 +144,18 @@ If code conflicts with Architecture:
 
 ## Feature Branch Naming
 
-**Pattern:** `cursor/<descriptive-name>-a457`
+**Pattern:** `cursor/<descriptive-kebab>`
 
 **Examples:**
-- `cursor/add-lss-shepherding-schedule-a457`
-- `cursor/fix-community-worship-blackout-a457`
-- `cursor/implement-wsc-ministry-routing-a457`
+- `cursor/add-lss-shepherding-schedule`
+- `cursor/fix-community-worship-blackout`
+- `cursor/implement-wsc-ministry-routing`
 
 **Rules:**
 - Always use `cursor/` prefix
-- Always use `-a457` suffix
-- Use lowercase with hyphens
+- Use lowercase with hyphens (kebab-case)
 - Be descriptive and concise
+- No agent ID suffix required
 
 ---
 
@@ -251,11 +251,11 @@ npm run lint             # ESLint check
 ### Backend (Railway)
 - `DATABASE_URL` — PostgreSQL connection
 - `JWT_SECRET` — Auth token signing
-- `BUNNY_STORAGE_API_KEY` — BunnyCDN upload
-- `BUNNY_STORAGE_ZONE` — `bld-idphotos`
-- `BUNNY_HOSTNAME` — `storage.bunnycdn.com`
-- `BUNNY_CDN_URL` — `https://bld-idphotos.b-cdn.net`
+- `BUNNYCDN_ACCESS_KEY` — BunnyCDN upload key
+- `BUNNYCDN_STORAGE_ZONE` — `bld-idphotos`
+- `BUNNYCDN_CDN_URL` — `https://bld-idphotos.b-cdn.net`
 - `PORT` — Railway assigns dynamically
+- See Railway service BLD-Online-Production for complete `BUNNYCDN_*` variable names
 
 ### Frontend (Vercel)
 - `NEXT_PUBLIC_BACKEND_URL` — Railway backend URL

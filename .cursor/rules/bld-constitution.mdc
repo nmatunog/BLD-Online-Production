@@ -42,7 +42,7 @@ if (eventType === 'CW' && dayOfWeek !== 'Tuesday') {
 **Rule:** Only **Nilo** merges to `main`. Agents NEVER merge.
 
 **Workflow:**
-1. Agent implements on `cursor/<name>-a457` branch
+1. Agent implements on `cursor/<descriptive-kebab>` branch
 2. Agent pushes to origin
 3. QA D validates
 4. Agent creates PR
@@ -183,18 +183,18 @@ const displayString = format(manilaDate, 'yyyy-MM-dd HH:mm zzz', { timeZone: MAN
 
 ## 7. Feature Branch Naming (Enforced)
 
-**Rule:** All feature branches follow `cursor/<descriptive-name>-a457`.
+**Rule:** All feature branches follow `cursor/<descriptive-kebab>`.
 
 **Pattern:**
 - Prefix: `cursor/`
-- Name: lowercase, hyphens, descriptive
-- Suffix: `-a457`
+- Name: lowercase, hyphens (kebab-case), descriptive
+- No agent ID suffix required
 
 **Examples:**
-- ✅ `cursor/add-lss-schedule-a457`
-- ✅ `cursor/fix-cw-blackout-dates-a457`
-- ❌ `fix-bug` (missing prefix/suffix)
-- ❌ `cursor/Fix-Bug-a457` (uppercase)
+- ✅ `cursor/add-lss-schedule`
+- ✅ `cursor/fix-cw-blackout-dates`
+- ❌ `fix-bug` (missing prefix)
+- ❌ `cursor/Fix-Bug` (uppercase)
 
 **Enforcement:**
 - Git hook rejects branches without proper naming (future)
@@ -456,7 +456,7 @@ Implements LSS Shepherding schedule automation per Event Standards v1.
 4. Role boundaries (strict)
 5. Security rigor (for auth/member/tenant)
 6. Asia/Manila timezone (source of truth)
-7. Branch naming (`cursor/<name>-a457`)
+7. Branch naming (`cursor/<descriptive-kebab>`)
 8. Commit quality (atomic, descriptive)
 9. Docs vs code separation (clear)
 10. ACR for Architecture conflicts (required)

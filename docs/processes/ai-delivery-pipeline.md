@@ -90,7 +90,7 @@ The BLD Online AI Delivery Pipeline is a **locked, mandatory process** for all A
 ### 3. Cursor Backend A (Backend Implementer)
 
 **Responsibilities:**
-- Implement backend features on `cursor/<name>-a457` feature branches
+- Implement backend features on `cursor/<descriptive-kebab>` feature branches
 - Follow frozen Architecture documents (e.g., Event Standards v1)
 - Write lint-clean, type-safe NestJS + Prisma code
 - Create descriptive, atomic commits
@@ -117,7 +117,7 @@ The BLD Online AI Delivery Pipeline is a **locked, mandatory process** for all A
 ### 4. Cursor Frontend B (Frontend Implementer)
 
 **Responsibilities:**
-- Implement frontend features on `cursor/<name>-a457` feature branches
+- Implement frontend features on `cursor/<descriptive-kebab>` feature branches
 - Follow frozen Architecture documents
 - Write lint-clean, type-safe Next.js + React code
 - Ensure responsive design (mobile-first)
@@ -144,7 +144,7 @@ The BLD Online AI Delivery Pipeline is a **locked, mandatory process** for all A
 ### 5. Cursor Integration C (Full-Stack Implementer)
 
 **Responsibilities:**
-- Implement full-stack features (frontend + backend) on `cursor/<name>-a457` branches
+- Implement full-stack features (frontend + backend) on `cursor/<descriptive-kebab>` branches
 - Coordinate changes across backend and frontend
 - Follow frozen Architecture documents
 - Ensure API contracts match between services
@@ -221,7 +221,7 @@ The BLD Online AI Delivery Pipeline is a **locked, mandatory process** for all A
                        ↓
 ┌─────────────────────────────────────────────────────────────┐
 │ 4. Cursor A/B/C: Implement on Feature Branch                │
-│    - Create/checkout cursor/<name>-a457 branch              │
+│    - Create/checkout cursor/<descriptive-kebab> branch      │
 │    - Implement per frozen Architecture                      │
 │    - Write atomic commits                                   │
 │    - Push to origin regularly                               │
@@ -411,7 +411,7 @@ export class CommunityWorshipService {
 - [ ] **Architecture:** Code matches frozen Architecture docs
 - [ ] **Manual:** Feature works as expected (tested locally)
 - [ ] **Commits:** Atomic, descriptive, follow conventions
-- [ ] **Branch:** Follows `cursor/<name>-a457` naming
+- [ ] **Branch:** Follows `cursor/<descriptive-kebab>` naming
 - [ ] **No conflicts:** Merges cleanly with `main`
 
 **Outcome:**
@@ -453,9 +453,9 @@ export class CommunityWorshipService {
 - **Always deployable:** CI/CD auto-deploys to production
 - **Source of truth:** All features eventually land here
 
-### Feature Branches (`cursor/<name>-a457`)
+### Feature Branches (`cursor/<descriptive-kebab>`)
 
-- **Pattern:** `cursor/<descriptive-name>-a457`
+- **Pattern:** `cursor/<descriptive-kebab>`
 - **Lifecycle:**
   1. Created by Cursor A/B/C from `main`
   2. Commits pushed regularly
@@ -465,15 +465,15 @@ export class CommunityWorshipService {
   6. Branch deleted after merge
 
 **Examples:**
-- `cursor/add-lss-shepherding-schedule-a457`
-- `cursor/fix-cw-blackout-dates-a457`
-- `cursor/implement-wsc-ministry-filtering-a457`
+- `cursor/add-lss-shepherding-schedule`
+- `cursor/fix-cw-blackout-dates`
+- `cursor/implement-wsc-ministry-filtering`
 
 **Rules:**
-- ✅ Lowercase, hyphen-separated
+- ✅ Lowercase, hyphen-separated (kebab-case)
 - ✅ Descriptive (conveys feature/fix)
-- ✅ Includes `-a457` suffix
-- ❌ No uppercase, underscores, or generic names
+- ✅ Always use `cursor/` prefix
+- ❌ No uppercase, underscores, agent ID suffixes, or generic names
 
 ---
 
@@ -929,7 +929,7 @@ Three ministries (Evangelization, Formation, Pastoral) all requested Tuesday 19:
 **Scenario:** Production bug affecting users; immediate fix needed.
 
 **Process:**
-1. Implementer creates hotfix branch `cursor/hotfix-<description>-a457`
+1. Implementer creates hotfix branch `cursor/hotfix-<description>`
 2. Implements minimal fix
 3. QA D fast-tracks validation (focus on regression only)
 4. PR created with "HOTFIX" label
@@ -950,7 +950,7 @@ Three ministries (Evangelization, Formation, Pastoral) all requested Tuesday 19:
 
 **Process:**
 1. Nilo explicitly requests experiment
-2. Implementer creates branch `cursor/experiment-<description>-a457`
+2. Implementer creates branch `cursor/experiment-<description>`
 3. Implements experimental code (may violate frozen Architecture)
 4. **PR marked as "EXPERIMENT"** (not for merge)
 5. Nilo reviews experiment → decides → may trigger ACR
@@ -974,7 +974,7 @@ Three ministries (Evangelization, Formation, Pastoral) all requested Tuesday 19:
 5. **ACR for conflicts** — never modify frozen Architecture without approval
 6. **Security rigor** — test auth/member/tenant changes
 7. **Timezone: Asia/Manila** — all dates/times
-8. **Branch naming:** `cursor/<name>-a457`
+8. **Branch naming:** `cursor/<descriptive-kebab>` (no agent ID suffix)
 9. **Commit quality** — atomic, descriptive
 10. **No exceptions** — even hotfixes need Nilo merge
 
