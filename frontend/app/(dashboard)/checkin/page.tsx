@@ -6,6 +6,7 @@ import {
   Users,
   Loader2,
   Calendar,
+  CheckCircle,
 } from 'lucide-react';
 import { attendanceService, type Attendance } from '@/services/attendance.service';
 import { eventsService, type Event } from '@/services/events.service';
@@ -340,11 +341,12 @@ function CheckInContent() {
           duration: 3000,
         });
 
-        loadRecentCheckIns();
-        loadStats();
-      }
-    } catch (error: any) {
-      const conflictPayload = error?.response?.data;
+      loadRecentCheckIns();
+      loadStats();
+    }
+  } catch (error: unknown) {
+    const err = error as { response?: { data?: { code?: string; canonicalEvent?: Event; message?: string | string[] } } };
+    const conflictPayload = err?.response?.data;
       const conflictCode = conflictPayload?.code;
       const canonical = conflictPayload?.canonicalEvent;
       
@@ -357,19 +359,19 @@ function CheckInContent() {
           await performCheckIn(normalizedCommunityId);
           return;
         }
-      }
+    }
 
-      let errorMessage = 'Failed to check in';
-      if (error?.response?.data) {
-        const errorData = error.response.data;
-        if (Array.isArray(errorData.message)) {
-          errorMessage = errorData.message.join(', ');
-        } else if (errorData.message) {
-          errorMessage = errorData.message;
-        }
-      } else if (error instanceof Error) {
-        errorMessage = error.message;
+    let errorMessage = 'Failed to check in';
+    if (err?.response?.data) {
+      const errorData = err.response.data;
+      if (Array.isArray(errorData.message)) {
+        errorMessage = errorData.message.join(', ');
+      } else if (errorData.message) {
+        errorMessage = errorData.message;
       }
+    } else if (error instanceof Error) {
+      errorMessage = error.message;
+    }
 
       toast.error('Check-in Failed', {
         description: errorMessage,
@@ -609,271 +611,6 @@ function CheckInContent() {
               onSearch={handleSearchMembers}
               loading={loading}
             />
-          </div>
-        )}
-
-        {/* Stats and Recent Check-ins using shared components below */}
-              <div className="space-y-4">
-                {!isScanning ? (
-                  <>
-                    <Button
-                      onClick={startQRScanner}
-                      disabled={!cameraAvailable || loading}
-                      className="w-full h-14 text-base font-semibold bg-white border-2 border-purple-500 text-purple-700 hover:border-purple-600 hover:bg-purple-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow"
-                    >
-                      <Camera className="w-5 h-5 mr-2" />
-                      Start QR Scanner
-                    </Button>
-                    {!cameraAvailable && (
-                      <div className="text-center p-4 bg-yellow-50 rounded-lg border-2 border-yellow-200">
-                        <AlertCircle className="w-5 h-5 mx-auto mb-2 text-yellow-600" />
-                        <div className="text-sm font-medium text-yellow-900 mb-1">Camera Not Available</div>
-                        <div className="text-xs text-yellow-700">
-                          Please enable camera access or use manual check-in instead.
-                        </div>
-                      </div>
-                    )}
-                    <div className="text-xs text-gray-500 mt-3 text-center">
-                      Point camera at member's QR code to scan
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="relative bg-white rounded-xl border-2 border-purple-300 overflow-hidden shadow-md">
-                      <div id={qrCodeRegionId} className="w-full" style={{ aspectRatio: '1/1', maxWidth: '400px', margin: '0 auto' }}></div>
-                      <div className="absolute top-2 right-2 bg-purple-600 text-white text-xs font-semibold px-2 py-1 rounded">
-                        Scanning...
-                      </div>
-                    </div>
-                    
-                    {/* Scanner Controls */}
-                    <div className="flex items-center justify-center gap-3 flex-wrap">
-                      {/* Torch/Flashlight Button */}
-                      <Button
-                        onClick={async () => {
-                          if (scannerRef.current) {
-                            const toggled = await scannerRef.current.toggleTorch();
-                            setTorchEnabled(toggled);
-                          }
-                        }}
-                        variant="outline"
-                        className="flex items-center justify-center px-4 py-2 bg-gray-700 hover:bg-gray-800 text-white border-gray-700"
-                        title="Toggle Flashlight"
-                      >
-                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                        </svg>
-                        <span className="text-sm">{torchEnabled ? 'ON' : 'OFF'}</span>
-                      </Button>
-
-                      {/* Camera Switch Button */}
-                      {availableCameras.length > 1 && (
-                        <Button
-                          onClick={async () => {
-                            if (scannerRef.current) {
-                              await scannerRef.current.switchCamera();
-                            }
-                          }}
-                          variant="outline"
-                          className="flex items-center justify-center px-4 py-2 bg-gray-700 hover:bg-gray-800 text-white border-gray-700"
-                          title="Switch Camera"
-                        >
-                          <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                          </svg>
-                          <span className="text-sm">Switch</span>
-                        </Button>
-                      )}
-
-                      {/* Continuous Mode Toggle */}
-                      <Button
-                        onClick={() => {
-                          setContinuousMode(!continuousMode);
-                          toast.info(continuousMode ? 'Single scan mode: Scanner will stop after each scan' : 'Continuous mode: Scanner will keep running');
-                        }}
-                        variant="outline"
-                        className={`flex items-center justify-center px-4 py-2 transition-colors ${
-                          continuousMode 
-                            ? 'bg-green-600 hover:bg-green-700 text-white border-green-600' 
-                            : 'bg-gray-200 hover:bg-gray-300 text-gray-700 border-gray-300'
-                        }`}
-                        title={continuousMode ? 'Continuous scanning enabled' : 'Single scan mode'}
-                      >
-                        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          {continuousMode ? (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                          ) : (
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                          )}
-                        </svg>
-                        <span className="text-sm">{continuousMode ? 'Continuous' : 'Single'}</span>
-                      </Button>
-                    </div>
-
-                    {/* Status Info */}
-                    <div className="text-center p-4 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg">
-                      <div className="flex items-center justify-center mb-2">
-                        <Camera className="w-5 h-5 text-purple-600 animate-pulse mr-2" />
-                        <p className="text-purple-700 font-semibold">Scanning QR Code</p>
-                      </div>
-                      <p className="text-sm text-purple-600 mb-1">Point camera at member QR code</p>
-                      <p className="text-xs text-gray-500">Scan member QR codes for quick check-in</p>
-                    </div>
-
-                    <Button
-                      onClick={stopQRScanner}
-                      variant="outline"
-                      className="w-full h-12 text-base font-semibold border-2 border-purple-400 text-purple-700 hover:bg-purple-50 hover:border-purple-500 transition-all"
-                    >
-                      <X className="w-4 h-4 mr-2" />
-                      Stop Scanner
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Manual Check-in */}
-            <div className="bg-white p-5 md:p-6 rounded-lg shadow-sm border border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-5 flex items-center">
-                <Search className="w-5 h-5 mr-2.5 text-green-600" />
-                Manual Check-In
-              </h3>
-              <div className="space-y-5">
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-gray-900">
-                    Community ID
-                  </label>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="CEB-ME1801"
-                      value={manualCheckIn}
-                      onChange={(e) => setManualCheckIn(e.target.value.toUpperCase())}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          handleManualCheckIn();
-                        }
-                      }}
-                      className="h-14 text-base font-mono border-2 border-gray-300 bg-white focus:border-green-500 focus:ring-2 focus:ring-green-200 transition-colors"
-                      disabled={loading}
-                    />
-                    <Button
-                      onClick={handleManualCheckIn}
-                      disabled={loading || !manualCheckIn.trim()}
-                      className="h-14 px-6 text-base font-semibold bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow transition-all min-w-[60px]"
-                    >
-                      {loading ? (
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                      ) : (
-                        <CheckCircle className="w-5 h-5" />
-                      )}
-                    </Button>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Enter Community ID and press Enter or click check button
-                  </p>
-                </div>
-
-                {/* Name Search */}
-                <div className="space-y-2 pt-5 border-t-2 border-gray-200">
-                  <label className="block text-sm font-semibold text-gray-900">
-                    Search by Name
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <Input
-                        placeholder="First Name"
-                        value={searchFirstName}
-                        onChange={(e) => setSearchFirstName(e.target.value)}
-                        className="h-12 text-base border-2 border-gray-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-colors"
-                        disabled={loading || searching}
-                      />
-                    </div>
-                    <div>
-                      <Input
-                        placeholder="Last Name"
-                        value={searchLastName}
-                        onChange={(e) => setSearchLastName(e.target.value)}
-                        onKeyPress={(e) => {
-                          if (e.key === 'Enter') {
-                            handleSearchMembers();
-                          }
-                        }}
-                        className="h-12 text-base border-2 border-gray-300 bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-colors"
-                        disabled={loading || searching}
-                      />
-                    </div>
-                  </div>
-                  <Button
-                    onClick={handleSearchMembers}
-                    disabled={loading || searching || (!searchFirstName.trim() && !searchLastName.trim())}
-                    className="w-full h-12 text-base font-semibold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm hover:shadow transition-all"
-                  >
-                    {searching ? (
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                    ) : (
-                      <Search className="w-4 h-4 mr-2" />
-                    )}
-                    Search Members
-                  </Button>
-
-                  {showSearchResults && searchResults.length > 0 && (
-                    <div className="space-y-2 mt-4">
-                      <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Search Results ({searchResults.length}):</div>
-                      <div className="max-h-48 overflow-y-auto space-y-2 border border-gray-200 rounded-lg p-2 bg-gray-50">
-                        {searchResults.map((member) => (
-                          <button
-                            key={member.id}
-                            onClick={async () => {
-                              setManualCheckIn(member.communityId);
-                              setShowSearchResults(false);
-                              setLoading(true);
-                              try {
-                                const result = await attendanceService.checkIn({
-                                  memberId: member.id,
-                                  eventId: selectedEvent,
-                                  method: 'MANUAL',
-                                });
-                                if (result.success && result.data) {
-                                  const m = result.data.member;
-                                  const displayName = m.nickname
-                                    ? `${m.nickname} ${m.lastName}`
-                                    : `${m.firstName} ${m.lastName}`;
-                                  toast.success('✅ Check-in Successful!', {
-                                    description: `${displayName} (${m.communityId}) has been checked in`,
-                                    duration: 5000,
-                                  });
-                                  setManualCheckIn('');
-                                  setSearchResults([]);
-                                  loadRecentCheckIns();
-                                  loadStats();
-                                }
-                              } catch (error: unknown) {
-                                const err = error as { response?: { data?: { message?: string | string[] } } };
-                                const msg = Array.isArray(err.response?.data?.message)
-                                  ? err.response.data.message.join(', ')
-                                  : err.response?.data?.message || 'Failed to check in';
-                                toast.error('Check-in Failed', { description: msg, duration: 5000 });
-                              } finally {
-                                setLoading(false);
-                              }
-                            }}
-                            className="w-full text-left p-3 rounded-lg border-2 border-gray-200 bg-white hover:bg-blue-50 hover:border-blue-300 transition-all shadow-sm hover:shadow"
-                          >
-                            <div className="flex flex-col">
-                              <span className="text-sm font-semibold text-gray-900">{member.name}</span>
-                              <span className="text-xs text-gray-600 font-mono mt-1">
-                                {member.communityId}
-                              </span>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
           </div>
         )}
 
