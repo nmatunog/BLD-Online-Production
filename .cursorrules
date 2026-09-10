@@ -1,0 +1,36 @@
+# BLD Online - Cursor Rules
+
+**Read these files BEFORE implementing any change:**
+
+1. **`AGENTS.md`** — Agent instructions, roles, workflow, tech stack
+2. **`.cursor/rules/bld-constitution.mdc`** — Always-on guardrails (Architecture supremacy, merge authority, QA gate)
+3. **`docs/processes/ai-delivery-pipeline.md`** — Full AI delivery workflow with roles and gates
+4. **`docs/architecture/BLD_Event_Standards_v1_Build_Brief.md`** — Frozen events Architecture
+
+---
+
+## Quick Reference
+
+**Architecture Supremacy:** Architecture docs override code. If conflict exists, fix code OR raise ACR to Nilo via BLD Bot.
+
+**Merge Authority:** Only Nilo merges to `main`. Agents create PRs, never merge.
+
+**QA Gate:** No PR until Cursor QA D passes (lint, typecheck, tests, security).
+
+**Roles:**
+- **Nilo** — Requirements, merges to `main`
+- **BLD Bot** — AI Dev Manager, task decomposition, Architecture enforcement
+- **Cursor A/B/C** — Implement on `cursor/<descriptive-kebab>` branches
+- **Cursor QA D** — Independent QA gate before PR
+
+**Workflow:** Nilo → BLD Bot → A/B/C implement → QA D → PR → Nilo approval → Nilo merge → CI/CD
+
+**Timezone:** Asia/Manila (source of truth for all dates/times)
+
+**Branch Naming:** `cursor/<descriptive-kebab>` (lowercase, hyphens, no agent ID suffix)
+
+**Security:** Mandatory testing for auth/member/tenant changes
+
+---
+
+**If in doubt, read the full docs above. Never skip Architecture review.**
