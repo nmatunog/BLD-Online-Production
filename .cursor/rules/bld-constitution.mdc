@@ -1,0 +1,483 @@
+# BLD Online Constitution
+
+**Always-On Guardrails for BLD Online Development**
+
+---
+
+## 1. Architecture Supremacy (Non-Negotiable)
+
+**Rule:** Architecture documents in `docs/architecture/` are frozen by default and override all code.
+
+**When code conflicts with Architecture:**
+1. ❌ **DO NOT** modify Architecture to fit code
+2. ✅ **DO** fix code to match Architecture
+3. ✅ **OR** raise a controlled Architecture Change Request (ACR) to Nilo via BLD Bot
+
+**Examples of Architecture Supremacy:**
+- Event Standards v1 defines Series/Occurrence/One-off → code MUST implement exactly as specified
+- Event Standards v1 mandates Asia/Manila timezone → code MUST use Manila time, never local/UTC without conversion
+- Event Standards v1 locks CW schedule (Tue 19:00–21:00) → code CANNOT allow other days/times without ACR
+
+**Anti-Pattern:**
+```typescript
+// ❌ WRONG: Changing Architecture in code without ACR
+// Event Standards says "Tue 19:00–21:00" but code allows Wed
+if (eventType === 'CW' && dayOfWeek === 'Wednesday') {
+  // This violates frozen Architecture
+}
+```
+
+**Correct Pattern:**
+```typescript
+// ✅ CORRECT: Enforcing frozen Architecture in code
+if (eventType === 'CW' && dayOfWeek !== 'Tuesday') {
+  throw new Error('Community Worship must be on Tuesday per Event Standards v1');
+}
+```
+
+---
+
+## 2. Merge Authority (Absolute)
+
+**Rule:** Only **Nilo** merges to `main`. Agents NEVER merge.
+
+**Workflow:**
+1. Agent implements on `cursor/<name>-a457` branch
+2. Agent pushes to origin
+3. QA D validates
+4. Agent creates PR
+5. **Nilo reviews and merges** (human-only step)
+
+**Never:**
+- ❌ Auto-merge
+- ❌ Agent self-merge
+- ❌ BLD Bot merge without explicit Nilo authorization for THAT PR
+- ❌ Merge via CLI/API (`git merge`, `gh pr merge`, etc.)
+
+---
+
+## 3. QA Gate (Mandatory)
+
+**Rule:** No PR until **Cursor QA D** passes (or Nilo accepts explicit blockers).
+
+**QA D Checklist:**
+- [ ] Lint clean (`npm run lint`)
+- [ ] TypeScript compiles (`npm run build`)
+- [ ] Tests pass (`npm test`)
+- [ ] Security verified (if touching auth/member/tenant data)
+- [ ] Manual testing complete
+- [ ] Architecture compliance verified
+
+**If QA fails:**
+1. Fix the issues
+2. Re-run QA
+3. Only create PR when QA passes
+
+**Exception:** Nilo may accept a PR with documented blockers (rare).
+
+---
+
+## 4. Role Boundaries (Strict)
+
+**Nilo:**
+- Product requirements
+- Merges to `main`
+- Approves ACRs
+
+**BLD Bot (AI Dev Manager):**
+- Task decomposition
+- Acceptance criteria
+- Delegation to Cursor agents
+- Architecture enforcement
+- ACR facilitation
+- **Does NOT write app code as primary implementer**
+
+**Cursor A/B/C (Implementers):**
+- Write code on feature branches
+- Follow Architecture strictly
+- Push to origin regularly
+- **Do NOT merge to `main`**
+
+**Cursor QA D (Quality Gate):**
+- Independent validation
+- Lint, typecheck, tests, security
+- Gate before PR creation
+
+**Never:**
+- ❌ Single agent doing implementation + QA + PR + merge
+- ❌ BLD Bot writing backend/frontend code directly (delegates instead)
+- ❌ Skipping QA D because "it works on my machine"
+
+---
+
+## 5. Security Rigor (Mandatory for Auth/Member/Tenant)
+
+**Rule:** Any change touching authentication, member data, or tenant isolation MUST pass security tests.
+
+**Security Test Categories:**
+- **Unauthorized access:** Verify JWT validation, role checks
+- **Data isolation:** Ensure members cannot access other members' data
+- **Endpoint protection:** Verify guards on sensitive routes
+- **Input validation:** Check for injection, XSS, CSRF protections
+- **Token handling:** Verify JWT expiry, refresh, revocation
+
+**If security tests not written:**
+1. Write them
+2. Run them
+3. Document results
+4. Only then create PR
+
+**Anti-Pattern:**
+```typescript
+// ❌ WRONG: No auth guard on member profile endpoint
+@Get('member/:id')
+async getMember(@Param('id') id: string) {
+  return this.memberService.findOne(id); // Anyone can access any member!
+}
+```
+
+**Correct Pattern:**
+```typescript
+// ✅ CORRECT: Auth guard + ownership check
+@UseGuards(JwtAuthGuard)
+@Get('member/:id')
+async getMember(@Param('id') id: string, @Request() req) {
+  if (req.user.id !== id && req.user.role !== 'admin') {
+    throw new ForbiddenException('Cannot access other member data');
+  }
+  return this.memberService.findOne(id);
+}
+```
+
+---
+
+## 6. Timezone Source of Truth (Asia/Manila)
+
+**Rule:** All event dates/times are in **Asia/Manila** timezone.
+
+**Implementation:**
+- Store timestamps as UTC in database (best practice)
+- **Always display in Asia/Manila** to users
+- **Always interpret user input as Asia/Manila**
+- Use `date-fns-tz` or equivalent for conversions
+- Never assume server timezone = Manila timezone
+
+**Example:**
+```typescript
+// ✅ CORRECT: Explicitly use Manila timezone
+import { zonedTimeToUtc, utcToZonedTime, format } from 'date-fns-tz';
+
+const MANILA_TZ = 'Asia/Manila';
+
+// User selects "2026-09-10 19:00" (Manila time)
+const userInput = '2026-09-10 19:00';
+const utcDate = zonedTimeToUtc(userInput, MANILA_TZ); // Store in DB as UTC
+
+// Display to user (convert UTC back to Manila)
+const manilaDate = utcToZonedTime(dbDate, MANILA_TZ);
+const displayString = format(manilaDate, 'yyyy-MM-dd HH:mm zzz', { timeZone: MANILA_TZ });
+// Shows: "2026-09-10 19:00 GMT+8"
+```
+
+---
+
+## 7. Feature Branch Naming (Enforced)
+
+**Rule:** All feature branches follow `cursor/<descriptive-name>-a457`.
+
+**Pattern:**
+- Prefix: `cursor/`
+- Name: lowercase, hyphens, descriptive
+- Suffix: `-a457`
+
+**Examples:**
+- ✅ `cursor/add-lss-schedule-a457`
+- ✅ `cursor/fix-cw-blackout-dates-a457`
+- ❌ `fix-bug` (missing prefix/suffix)
+- ❌ `cursor/Fix-Bug-a457` (uppercase)
+
+**Enforcement:**
+- Git hook rejects branches without proper naming (future)
+- PR tool checks branch name before creation (current)
+
+---
+
+## 8. Commit Quality (High Standards)
+
+**Rule:** Commits are descriptive, atomic, and follow conventions.
+
+**Format:**
+```
+<type>: <short summary>
+
+<optional detailed description>
+```
+
+**Types:**
+- `feat:` New feature
+- `fix:` Bug fix
+- `docs:` Documentation only
+- `refactor:` Code restructure (no behavior change)
+- `test:` Add/update tests
+- `chore:` Tooling, deps, config
+
+**Examples:**
+- ✅ `feat: add LSS Shepherding schedule automation`
+- ✅ `fix: enforce CW Tuesday-only rule per Event Standards v1`
+- ✅ `docs: update AGENTS.md with QA D checklist`
+- ❌ `wip` (not descriptive)
+- ❌ `fixed stuff` (vague)
+
+**Atomic Commits:**
+- One logical change per commit
+- Each commit should build/pass tests
+- Easy to review, revert, cherry-pick
+
+---
+
+## 9. No Docs-Only Code Changes (Separation)
+
+**Rule:** Documentation PRs should NOT include application code changes (and vice versa).
+
+**Docs-Only PR:**
+- Updates `AGENTS.md`, `.cursorrules`, `docs/**/*.md`
+- Title: `docs: <description>`
+- Body: Lists files, no code changes mentioned
+
+**Code PR:**
+- Updates `backend/**`, `frontend/**`, configs
+- Title: `feat:` or `fix:` etc.
+- May include minimal inline code comments
+
+**Why:** Easier review, cleaner history, faster merges.
+
+**Exception:** Inline code comments in a feature PR are OK (they're part of the code change).
+
+---
+
+## 10. Anti-Pattern Awareness (Learn from Others)
+
+**Common mistakes to avoid:**
+
+### ❌ Self-Merging Agent
+Single agent implements → self-validates → merges to `main` without QA D or Nilo.
+
+**Why wrong:** Skips independent QA, bypasses Nilo's merge authority.
+
+### ❌ "Fixing" Frozen Architecture
+Code conflicts with Event Standards v1 → agent changes Architecture doc to match code.
+
+**Why wrong:** Architecture is frozen; requires ACR from Nilo.
+
+### ❌ Skipping Security Tests
+"It's just a small change to member profile" → no security tests.
+
+**Why wrong:** Member data is sensitive; unauthorized access risk.
+
+### ❌ Assuming Timezone
+Code uses `new Date()` without timezone conversion → shows wrong times to Manila users.
+
+**Why wrong:** Server may be UTC; users expect Manila time.
+
+### ❌ Vague Commits
+`git commit -m "wip"` → merges to PR.
+
+**Why wrong:** Impossible to review, breaks atomic commit principle.
+
+---
+
+## 11. Architecture Change Request (ACR) Process
+
+**When to raise ACR:**
+- Code implementation discovers Architecture conflict
+- New requirement contradicts frozen Architecture
+- Performance/security issue requires Architecture adjustment
+
+**ACR Steps:**
+1. **STOP implementation** (don't proceed with conflicting code)
+2. **Document conflict:**
+   - Current Architecture requirement (quote frozen doc)
+   - Conflicting code or requirement
+   - Why conflict exists
+   - Proposed resolution (option A vs B)
+   - Impact analysis (what changes if approved)
+3. **Raise to BLD Bot** with full context
+4. **BLD Bot presents to Nilo** for decision
+5. **Wait for Nilo approval** (do not assume approval)
+6. **Update Architecture doc** only after approval
+7. **Proceed with implementation** using new Architecture
+
+**Example ACR:**
+```markdown
+## ACR-001: Allow WSC on Wednesdays
+
+**Current Architecture (Event Standards v1):**
+> "WSC: One active series per ministry, category 'Word Sharing Circle'"
+
+**Conflict:**
+Three ministries (A, B, C) all requested Tuesday 19:00 slot (same as CW).
+Venue capacity: 50 people. CW needs full venue (100+ expected).
+
+**Proposed Resolution:**
+Allow WSC on Wednesday 19:00 as alternative slot.
+
+**Impact:**
+- Update Event Standards v1 to allow Tue OR Wed for WSC
+- Update backend validation to accept both days
+- Notify ministry leaders of new option
+
+**Approval:** [Pending Nilo]
+```
+
+---
+
+## 12. Stack-Specific Rules
+
+### Backend (NestJS + Prisma)
+
+**Rules:**
+- All DB queries via Prisma (no raw SQL without review)
+- DTOs for validation (`class-validator`, `class-transformer`)
+- Guards for auth (`@UseGuards(JwtAuthGuard)`)
+- Swagger docs for all endpoints (`@ApiOperation`, `@ApiResponse`)
+- Graceful error handling (try-catch, HttpException)
+
+### Frontend (Next.js + React)
+
+**Rules:**
+- Server Components by default (use `'use client'` sparingly)
+- API calls via centralized client (`axios` instance with auth headers)
+- Form validation with `react-hook-form` + `zod`
+- Responsive design (mobile-first)
+- Loading states for async operations
+- Error boundaries for runtime errors
+
+### Database (PostgreSQL)
+
+**Rules:**
+- Migrations via Prisma (`npx prisma migrate dev`)
+- No direct schema edits (always via migration)
+- Indexes on foreign keys and frequently queried columns
+- `createdAt`, `updatedAt` on all tables (Prisma `@default(now())`, `@updatedAt`)
+
+---
+
+## 13. Deployment Awareness
+
+**Rule:** Code must work in production environment (Vercel + Railway).
+
+**Checks before PR:**
+- [ ] No hardcoded `localhost` URLs (use env vars)
+- [ ] Environment variables documented in PR
+- [ ] Build succeeds (`npm run build`)
+- [ ] No dev-only dependencies in production code
+- [ ] Secrets never committed (`.env` in `.gitignore`)
+
+**Vercel Frontend:**
+- Build command: `npm run build`
+- Output: `.next`
+- Root: `frontend/`
+- Auto-deploy on `main` merge
+
+**Railway Backend:**
+- Start command: `npm run start:prod` (includes `prisma migrate deploy`)
+- Auto-deploy on `main` merge
+- Health check: `GET /health` (must exist and return 200)
+
+---
+
+## 14. Communication Discipline
+
+**Rule:** Agents communicate progress, blockers, and decisions clearly.
+
+**In PR Body:**
+- Summary of changes (what and why)
+- Architecture compliance statement (which docs followed)
+- Testing performed (QA D checklist results)
+- Known limitations or follow-up tasks
+- Deployment notes (env vars, migrations, etc.)
+
+**When Blocked:**
+- Document blocker with context
+- Suggest resolution options
+- Escalate to BLD Bot if Architecture conflict
+- Do NOT proceed with conflicting code
+
+**Example PR Body:**
+```markdown
+## Summary
+Implements LSS Shepherding schedule automation per Event Standards v1.
+
+## Architecture Compliance
+- Follows Event Standards v1 § LSS section
+- Uses Asia/Manila timezone per § Principles
+- Enforces first Sat–Sun of March (Feb flex) per § LSS cadences
+
+## Testing (QA D)
+- [x] Lint clean
+- [x] TypeScript compiles
+- [x] Unit tests pass (12 new tests)
+- [x] Manual testing: created LSS series, verified 6 Tue sessions generated
+- [x] Security: N/A (no auth/member data changes)
+
+## Deployment Notes
+- No new env vars
+- No migrations (uses existing `events` table)
+
+## Known Limitations
+- LSS Team report deferred (out of v1 scope per Event Standards)
+```
+
+---
+
+## 15. Final Checklist (Before Every PR)
+
+**Agent Self-Check:**
+- [ ] Read frozen Architecture docs relevant to this change
+- [ ] Code matches Architecture (no conflicts)
+- [ ] QA D passed (lint, typecheck, tests, security)
+- [ ] Commits are atomic and descriptive
+- [ ] Feature branch follows naming convention
+- [ ] PR body is complete and clear
+- [ ] No merge to `main` attempted (PR only)
+- [ ] Nilo is the designated merger (not me)
+
+**If ANY item fails:** Fix it before creating PR.
+
+---
+
+## Summary
+
+**These rules are non-negotiable:**
+
+1. Architecture > Code (always)
+2. Nilo merges (only)
+3. QA D gate (mandatory)
+4. Role boundaries (strict)
+5. Security rigor (for auth/member/tenant)
+6. Asia/Manila timezone (source of truth)
+7. Branch naming (`cursor/<name>-a457`)
+8. Commit quality (atomic, descriptive)
+9. Docs vs code separation (clear)
+10. ACR for Architecture conflicts (required)
+
+**When in doubt:**
+- Check `AGENTS.md`
+- Check `docs/processes/ai-delivery-pipeline.md`
+- Check `docs/architecture/<relevant>.md`
+- Ask BLD Bot
+
+**Never:**
+- Merge to `main` as an agent
+- Skip QA D
+- Change frozen Architecture without ACR
+- Assume security is fine without testing
+- Use vague commits or branch names
+
+---
+
+**This constitution is always active. All Cursor agents must comply.**
+
+**Last Updated:** 2026-09-10  
+**Approved By:** Nilo  
+**Enforcement:** Automated checks (future) + human review (current)
