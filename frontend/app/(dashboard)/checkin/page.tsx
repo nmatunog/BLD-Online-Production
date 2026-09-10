@@ -2,37 +2,28 @@
 
 import { useEffect, useState, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import { 
-  QrCode, 
-  Search, 
-  ArrowLeft, 
-  CheckCircle, 
-  X, 
-  Camera, 
-  Calendar, 
-  Clock, 
-  MapPin,
   Users,
-  AlertCircle,
   Loader2,
-  Trash2,
-  RefreshCw,
-  TrendingUp,
-  BarChart3
+  Calendar,
 } from 'lucide-react';
 import { attendanceService, type Attendance } from '@/services/attendance.service';
 import { eventsService, type Event } from '@/services/events.service';
 import { membersService } from '@/services/members.service';
 import { sortEventsNearestFirst, isRelevantForCheckIn } from '@/lib/event-checkin-window';
-import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import DashboardHeader from '@/components/layout/DashboardHeader';
-import { QRScanner, qrUtils } from '@/lib/qr-scanner-service';
+import { qrUtils } from '@/lib/qr-scanner-service';
+import {
+  QRScannerCard,
+  ManualCheckInCard,
+  CheckInStats,
+  RecentCheckIns,
+  type CheckIn
+} from '@/components/checkin';
 
 function normalizeCheckInToken(value?: string | null): string {
   return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -121,35 +112,20 @@ function dedupeCheckInEventsBySlot(list: Event[]): Event[] {
 function CheckInContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [isScanning, setIsScanning] = useState(false);
-  const [manualCheckIn, setManualCheckIn] = useState('');
   const [loading, setLoading] = useState(false);
   const [events, setEvents] = useState<Event[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<string>('');
-  const [recentCheckIns, setRecentCheckIns] = useState<Attendance[]>([]);
-  const [cameraAvailable, setCameraAvailable] = useState(false);
-  const [searchLastName, setSearchLastName] = useState('');
-  const [searchFirstName, setSearchFirstName] = useState('');
-  const [searchResults, setSearchResults] = useState<Array<{ id: string; name: string; communityId: string }>>([]);
-  const [searching, setSearching] = useState(false);
-  const [showSearchResults, setShowSearchResults] = useState(false);
+  const [recentCheckIns, setRecentCheckIns] = useState<CheckIn[]>([]);
   const [userRole, setUserRole] = useState<string>('');
   const [memberMinistry, setMemberMinistry] = useState<string | null>(null);
   const [stats, setStats] = useState<{ total: number; qrCodeCount: number; manualCount: number } | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const scannerRef = useRef<QRScanner | null>(null);
-  const qrCodeRegionId = 'qr-reader';
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const [continuousMode, setContinuousMode] = useState(true);
-  const [torchEnabled, setTorchEnabled] = useState(false);
-  const [availableCameras, setAvailableCameras] = useState<Array<{ deviceId: string; label: string; kind: string }>>([]);
-  /** Admin/Super User: include all ministry-specific events (e.g. all WSC). Default: general + my ministry only. */
   const [includeAllMinistryEvents, setIncludeAllMinistryEvents] = useState(false);
 
   // Check authentication and restrict to staff/admins only (members use Self Check-In)
   useEffect(() => {
-
     const authData = localStorage.getItem('authData');
     let role = '';
     let memberMinistry: string | null = null;
@@ -180,32 +156,14 @@ function CheckInContent() {
     }
 
     loadEvents(includeAllMinistryEvents, role);
-    checkCameraAvailability();
     loadRecentCheckIns();
 
-    // Check for eventId in URL parameters
     const eventId = searchParams.get('eventId');
     if (eventId) {
       setSelectedEvent(eventId);
-      toast.info('Event pre-selected from QR code scan');
+      toast.info('Event pre-selected');
     }
   }, [router, searchParams]);
-
-  const checkCameraAvailability = async () => {
-    try {
-      const available = await QRScanner.isCameraAvailable();
-      setCameraAvailable(available);
-      
-      // Load available cameras
-      if (available) {
-        const cameras = await QRScanner.getAvailableCameras();
-        setAvailableCameras(cameras);
-      }
-    } catch (error) {
-      console.error('Error checking camera:', error);
-      setCameraAvailable(false);
-    }
-  };
 
   const loadEvents = async (includeAllOverride?: boolean, roleOverride?: string) => {
     setLoading(true);
@@ -322,160 +280,48 @@ function CheckInContent() {
     }
   };
 
-  const startQRScanner = async () => {
-    if (!cameraAvailable) {
-      toast.error('Camera Not Available', {
-        description: 'Please enable camera access or use manual check-in',
-      });
-      return;
-    }
-
-    if (!selectedEvent) {
-      toast.error('Please Select an Event', {
-        description: 'Select an event before starting QR scanner',
-      });
-      return;
-    }
-
-    setIsScanning(true);
-
-    // Clean up any existing scanner
-    if (scannerRef.current) {
-      await scannerRef.current.stop();
-    }
-
-    // Wait for the element to be rendered
-    setTimeout(async () => {
-      const qrElement = document.getElementById(qrCodeRegionId);
-      if (!qrElement) {
-        toast.error('QR scanner element not found. Please try again.');
-        setIsScanning(false);
-        return;
-      }
-
-      try {
-        const scanner = new QRScanner(
-          qrCodeRegionId,
-          handleQRScanSuccess,
-          handleQRScanError,
-          {
-            fps: 20, // Higher FPS for faster scanning
-            continuousMode: continuousMode, // Continue scanning after success
-            facingMode: 'environment', // Prefer back camera
-            showTorchButtonIfSupported: true,
-          }
-        );
-
-        scannerRef.current = scanner;
-        await scanner.start();
-
-        // Load available cameras
-        const cameras = await QRScanner.getAvailableCameras();
-        setAvailableCameras(cameras);
-      } catch (error) {
-        console.error('Error starting QR scanner:', error);
-        toast.error('Failed to Start Scanner', {
-          description: 'Please try again or use manual check-in',
-        });
-        setIsScanning(false);
-      }
-    }, 100);
-  };
-
-  const stopQRScanner = async () => {
-    if (scannerRef.current) {
-      await scannerRef.current.stop();
-      scannerRef.current = null;
-    }
-    setIsScanning(false);
-    setTorchEnabled(false);
-  };
-
   const handleQRScanSuccess = async (decodedText: string) => {
     try {
-      // First, check if it's an event QR code (JSON or URL format)
+      // Check if it's an event QR code
       const eventData = qrUtils.extractEventData(decodedText);
       if (eventData && eventData.eventId) {
-        // Verify event exists
         const event = events.find(e => e.id === eventData.eventId);
-        if (!event) {
-          toast.error('Event Not Found', {
-            description: 'The scanned event QR code is not valid or the event no longer exists.',
-          });
-          return;
-        }
-
-        setSelectedEvent(eventData.eventId);
-        toast.success('Event Selected', {
-          description: `${event.title} - You can now scan member QR codes to check them in.`,
-          duration: 4000,
-        });
-        
-        // Only stop scanning if not in continuous mode
-        if (!continuousMode) {
-          await stopQRScanner();
+        if (event) {
+          setSelectedEvent(eventData.eventId);
+          toast.success(`Event selected: ${event.title}`);
         }
         return;
       }
 
-      // If not an event QR code, try to extract member data
+      // Extract member data
       const memberData = qrUtils.extractMemberData(decodedText);
-
-      if (!memberData || !memberData.communityId) {
-        toast.error('Invalid QR Code', {
-          description: 'Please scan a valid member QR code or event QR code',
-        });
+      if (memberData && memberData.communityId) {
+        await performCheckIn(memberData.communityId);
         return;
       }
 
-      // Only stop scanning if not in continuous mode
-      if (!continuousMode) {
-        await stopQRScanner();
-      }
-
-      // Auto-check in the member
-      await performCheckIn(memberData.communityId);
+      toast.error('Invalid QR Code');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to process QR code';
-      toast.error('Check-in Failed', {
-        description: errorMessage,
+      toast.error('Scan failed', {
+        description: error instanceof Error ? error.message : 'Try again',
       });
-    }
-  };
-
-  const handleQRScanError = (errorMessage: string) => {
-    // Only log errors that are not related to continuous scanning
-    if (
-      !errorMessage.includes('No barcode or QR code detected') &&
-      !errorMessage.includes('No MultiFormat Readers were able to detect the code') &&
-      !errorMessage.includes('Permission') &&
-      !errorMessage.includes('NotAllowedError')
-    ) {
-      console.error('QR scan error:', errorMessage);
-      // Don't show toast for continuous scanning errors
     }
   };
 
   const performCheckIn = async (communityId: string) => {
-    // Validate inputs before sending request
     if (!selectedEvent) {
-      toast.error('Please Select an Event', {
-        description: 'Select an event before checking in',
-      });
+      toast.error('Please select an event first');
       return;
     }
 
     if (!communityId || !communityId.trim()) {
-      toast.error('Invalid Community ID', {
-        description: 'Please scan a valid member QR code or enter a Community ID',
-      });
+      toast.error('Invalid Community ID');
       return;
     }
 
-    // Normalize community ID (uppercase, trim)
     const normalizedCommunityId = communityId.trim().toUpperCase();
-
     setLoading(true);
+
     try {
       const result = await attendanceService.checkIn({
         communityId: normalizedCommunityId,
@@ -490,16 +336,10 @@ function CheckInContent() {
           : `${member.firstName} ${member.lastName}`;
 
         toast.success('✅ Check-in Successful!', {
-          description: `${displayName} (${member.communityId}) has been checked in`,
-          duration: 5000,
+          description: `${displayName} (${member.communityId})`,
+          duration: 3000,
         });
 
-        // Clear manual input
-        setManualCheckIn('');
-        setSearchResults([]);
-        setShowSearchResults(false);
-
-        // Reload recent check-ins and stats
         loadRecentCheckIns();
         loadStats();
       }
@@ -507,127 +347,64 @@ function CheckInContent() {
       const conflictPayload = error?.response?.data;
       const conflictCode = conflictPayload?.code;
       const canonical = conflictPayload?.canonicalEvent;
+      
       if (conflictCode === 'DUPLICATE_EVENT_CANONICAL' && canonical?.id) {
         const proceed = window.confirm(
-          `This event card is a duplicate slot.\n\nCheck in to canonical event instead?\n\n${canonical.title}\n${canonical.startTime || ''} ${canonical.venue ? `@ ${canonical.venue}` : ''}`
+          `This is a duplicate event slot. Check in to canonical event instead?\n\n${canonical.title}`
         );
         if (proceed) {
           setSelectedEvent(canonical.id);
-          toast.info('Switching to canonical event for check-in...');
-          const retry = await attendanceService.checkIn({
-            communityId: normalizedCommunityId,
-            eventId: canonical.id,
-            method: 'QR_CODE',
-          });
-          if (retry.success && retry.data) {
-            const member = retry.data.member;
-            const displayName = member.nickname
-              ? `${member.nickname} ${member.lastName}`
-              : `${member.firstName} ${member.lastName}`;
-            toast.success('✅ Check-in Successful!', {
-              description: `${displayName} (${member.communityId}) has been checked in`,
-              duration: 5000,
-            });
-            setManualCheckIn('');
-            setSearchResults([]);
-            setShowSearchResults(false);
-            loadRecentCheckIns();
-            loadStats();
-            return;
-          }
+          await performCheckIn(normalizedCommunityId);
+          return;
         }
       }
-      // Extract validation errors from backend response (e.g. "check-in only 2 hours before event")
+
       let errorMessage = 'Failed to check in';
-      
       if (error?.response?.data) {
         const errorData = error.response.data;
         if (Array.isArray(errorData.message)) {
           errorMessage = errorData.message.join(', ');
         } else if (errorData.message) {
           errorMessage = errorData.message;
-        } else if (errorData.error) {
-          errorMessage = errorData.error;
         }
       } else if (error instanceof Error) {
         errorMessage = error.message;
       }
-      
-      // Show backend message clearly; use longer duration for business-rule messages (e.g. check-in window)
-      const isBusinessRule = error?.response?.status === 400 && errorMessage !== 'Failed to check in';
-      toast.error(isBusinessRule ? 'Check-in not available yet' : 'Check-in Failed', {
+
+      toast.error('Check-in Failed', {
         description: errorMessage,
-        duration: isBusinessRule ? 8000 : 5000,
+        duration: 5000,
       });
-      
-      console.error('Check-in error:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleManualCheckIn = async () => {
-    const input = manualCheckIn.trim().toUpperCase();
-    
-    if (!input) {
-      toast.error('Please Enter Community ID', {
-        description: 'Enter a Community ID to check in',
-      });
-      return;
-    }
-
-    // Validate format
-    if (!/^[A-Z]{3}-[A-Z]{2,3}\d{2,3}\d{2}$/.test(input)) {
-      toast.error('Invalid Community ID Format', {
-        description: 'Format should be like: CEB-ME1801',
-      });
-      return;
-    }
-
-    await performCheckIn(input);
-  };
-
-  const handleSearchMembers = async () => {
-    if (!searchLastName.trim() && !searchFirstName.trim()) {
-      toast.error('Please Enter Name', {
-        description: 'Enter at least a first or last name to search',
-      });
-      return;
-    }
-
-    setSearching(true);
+  const handleSearchMembers = async (firstName: string, lastName: string): Promise<Array<{ id: string; name: string; communityId: string }>> => {
     try {
       const result = await membersService.getAll({
-        firstName: searchFirstName.trim() || undefined,
-        lastName: searchLastName.trim() || undefined,
+        firstName: firstName.trim() || undefined,
+        lastName: lastName.trim() || undefined,
         limit: 10,
       });
 
       if (result.data && result.data.length > 0) {
-        setSearchResults(
-          result.data.map(m => ({
-            id: m.id,
-            name: m.nickname
-              ? `${m.nickname} ${m.lastName}`
-              : `${m.firstName} ${m.lastName}`,
-            communityId: m.communityId,
-          })),
-        );
-        setShowSearchResults(true);
-      } else {
-        toast.info('No Members Found', {
-          description: 'Try a different search term',
-        });
-        setSearchResults([]);
-        setShowSearchResults(false);
+        return result.data.map(m => ({
+          id: m.id,
+          name: m.nickname
+            ? `${m.nickname} ${m.lastName}`
+            : `${m.firstName} ${m.lastName}`,
+          communityId: m.communityId,
+        }));
       }
+
+      toast.info('No members found');
+      return [];
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to search members';
-      toast.error('Search Failed', {
-        description: errorMessage,
+      toast.error('Search failed', {
+        description: error instanceof Error ? error.message : 'Try again',
       });
-    } finally {
-      setSearching(false);
+      return [];
     }
   };
 
@@ -759,85 +536,83 @@ function CheckInContent() {
             )}
           </div>
 
-        {/* Event Selection - Highlighted */}
-        <div className="bg-gradient-to-br from-red-50 via-white to-red-50 p-6 md:p-7 rounded-xl shadow-lg border-2 border-red-300 ring-4 ring-red-100/50">
-          <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-            <label className="block text-lg font-bold text-gray-900 flex items-center">
-              <div className="p-2 bg-red-100 rounded-lg mr-3">
-                <Calendar className="w-6 h-6 text-red-600" />
+        {/* Event Selection: Tonight's events first as large cards */}
+        <Card className="bg-white border-2 border-gray-200 shadow-md">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <Calendar className="w-6 h-6 text-purple-600" />
+                Select Event
+              </h2>
+              {(userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR' || userRole === 'DCS') && (
+                <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={includeAllMinistryEvents}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setIncludeAllMinistryEvents(checked);
+                      loadEvents(checked);
+                    }}
+                    className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                  />
+                  <span>View all ministry events</span>
+                </label>
+              )}
+            </div>
+            {loading && events.length === 0 ? (
+              <div className="text-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-purple-600" />
+                <p className="text-sm text-gray-600">Loading events...</p>
               </div>
-              Select Event
-            </label>
-            {(userRole === 'SUPER_USER' || userRole === 'ADMINISTRATOR' || userRole === 'DCS') && (
-              <label className="inline-flex items-center gap-2 cursor-pointer text-sm text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={includeAllMinistryEvents}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setIncludeAllMinistryEvents(checked);
-                    loadEvents(checked);
-                  }}
-                  className="w-4 h-4 rounded border-gray-300 text-red-600 focus:ring-red-500"
-                />
-                <span>View ministry-specific events (e.g. all WSC)</span>
-              </label>
+            ) : events.length === 0 ? (
+              <div className="text-center py-8 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50">
+                <p className="text-base font-medium text-gray-700">No events available</p>
+                <p className="text-sm text-gray-500">No upcoming or ongoing events found</p>
+              </div>
+            ) : (
+              <Select value={selectedEvent} onValueChange={setSelectedEvent}>
+                <SelectTrigger className="w-full min-h-[56px] border-2 bg-white text-base font-semibold">
+                  <SelectValue placeholder="Choose an event to begin check-in..." />
+                </SelectTrigger>
+                <SelectContent className="bg-white z-[100]">
+                  {events.map((event) => (
+                    <SelectItem key={event.id} value={event.id} className="text-base py-3">
+                      <div>
+                        <p className="font-semibold">{event.title}</p>
+                        <p className="text-xs text-gray-600">
+                          {formatDate(event.startDate)} {event.startTime && formatTime(event.startTime)}
+                          {event.location && ` • ${event.location}`}
+                        </p>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
-          </div>
-          {loading && events.length === 0 ? (
-            <div className="text-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin mx-auto mb-3 text-red-500" />
-              <div className="text-sm font-medium text-gray-700">Loading events...</div>
-            </div>
-          ) : events.length === 0 ? (
-            <div className="text-center py-12 border-2 border-dashed border-red-300 rounded-lg bg-red-50/50">
-              <AlertCircle className="w-10 h-10 mx-auto mb-3 text-red-400" />
-              <div className="text-base font-semibold text-gray-900 mb-1">No Events Available</div>
-              <div className="text-sm text-gray-600">
-                No upcoming or ongoing events found for check-in
-              </div>
-            </div>
-          ) : (
-            <Select value={selectedEvent} onValueChange={setSelectedEvent}>
-              <SelectTrigger className="w-full h-16 border-2 border-red-500 bg-white text-lg font-bold hover:border-red-600 focus:border-red-600 focus:ring-4 focus:ring-red-300 transition-all shadow-md">
-                <SelectValue placeholder="Choose an event to begin check-in..." />
-              </SelectTrigger>
-              <SelectContent className="bg-white border-2 border-red-300 z-[100] shadow-xl">
-                {events.map((event) => (
-                  <SelectItem key={event.id} value={event.id} className="text-base py-3 cursor-pointer hover:bg-red-50 transition-colors">
-                    <div className="flex flex-col">
-                      <span className="font-bold text-gray-900">{event.title}</span>
-                      <span className="text-xs text-gray-600 mt-0.5">
-                        {formatDate(event.startDate)} {event.startTime && formatTime(event.startTime)}
-                        {event.location && ` • ${event.location}`}
-                      </span>
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          {selectedEvent && (
-            <div className="mt-4 p-4 bg-red-100 border-2 border-red-300 rounded-lg shadow-sm">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-5 h-5 text-red-600" />
-                <span className="text-sm font-semibold text-red-900">
-                  Event selected: {events.find(e => e.id === selectedEvent)?.title}
-                </span>
-              </div>
-            </div>
-          )}
-        </div>
+          </CardContent>
+        </Card>
 
-        {/* Check-in Methods */}
+        {/* Check-in Methods: Simplified with shared components */}
         {selectedEvent && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* QR Scanner */}
-            <div className="bg-white p-5 md:p-6 rounded-lg shadow-sm border border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-5 flex items-center">
-                <QrCode className="w-5 h-5 mr-2.5 text-purple-600" />
-                QR Code Scanner
-              </h3>
+            {/* QR Scanner: Continuous mode default ON */}
+            <QRScannerCard
+              onScanSuccess={handleQRScanSuccess}
+              disabled={loading}
+              qrCodeRegionId="qr-reader-dashboard"
+            />
+
+            {/* Manual Check-in: Secondary */}
+            <ManualCheckInCard
+              onCheckIn={performCheckIn}
+              onSearch={handleSearchMembers}
+              loading={loading}
+            />
+          </div>
+        )}
+
+        {/* Stats and Recent Check-ins using shared components below */}
               <div className="space-y-4">
                 {!isScanning ? (
                   <>
@@ -1102,150 +877,30 @@ function CheckInContent() {
           </div>
         )}
 
-        {/* Statistics Cards */}
+        {/* Statistics: Live count with shared component */}
         {selectedEvent && stats && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white p-5 rounded-lg shadow-sm border-2 border-gray-200 hover:border-gray-300 transition-colors">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Total Check-ins</p>
-                  <p className="text-3xl font-bold text-gray-900">{stats.total}</p>
-                </div>
-                <div className="p-3 bg-gray-100 rounded-lg">
-                  <BarChart3 className="w-6 h-6 text-gray-600" />
-                </div>
-              </div>
-            </div>
-            <div className="bg-white p-5 rounded-lg shadow-sm border-2 border-purple-200 hover:border-purple-300 transition-colors">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide mb-2">QR Code</p>
-                  <p className="text-3xl font-bold text-purple-700">{stats.qrCodeCount}</p>
-                </div>
-                <div className="p-3 bg-purple-50 rounded-lg">
-                  <QrCode className="w-6 h-6 text-purple-600" />
-                </div>
-              </div>
-            </div>
-            <div className="bg-white p-5 rounded-lg shadow-sm border-2 border-green-200 hover:border-green-300 transition-colors">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Manual</p>
-                  <p className="text-3xl font-bold text-green-700">{stats.manualCount}</p>
-                </div>
-                <div className="p-3 bg-green-50 rounded-lg">
-                  <Search className="w-6 h-6 text-green-600" />
-                </div>
-              </div>
-            </div>
-          </div>
+          <CheckInStats
+            total={stats.total}
+            qrCodeCount={stats.qrCodeCount}
+            manualCount={stats.manualCount}
+            loading={loadingStats}
+          />
         )}
 
-        {/* Recent Check-ins */}
+        {/* Recent Check-ins: With shared component */}
         {selectedEvent && (
-          <div className="bg-white rounded-lg shadow-sm border-2 border-gray-200">
-            <div className="p-5 border-b-2 border-gray-200 bg-gray-50">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <h3 className="text-lg font-bold text-gray-900 flex items-center">
-                  <Users className="w-5 h-5 mr-2.5 text-gray-700" />
-                  Recent Check-ins 
-                  {recentCheckIns.length > 0 && (
-                    <span className="ml-2 px-2.5 py-0.5 bg-gray-200 text-gray-700 text-sm font-semibold rounded-full">
-                      {recentCheckIns.length}
-                    </span>
-                  )}
-                </h3>
-                <div className="flex items-center gap-2">
-                  <Button
-                    onClick={() => {
-                      loadRecentCheckIns();
-                      loadStats();
-                    }}
-                    variant="outline"
-                    size="sm"
-                    className="h-9 text-xs font-semibold border-gray-300 text-gray-700 hover:bg-gray-100 hover:border-gray-400"
-                    disabled={loading}
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
-                    Refresh
-                  </Button>
-                  <Button
-                    onClick={() => setAutoRefresh(!autoRefresh)}
-                    variant="outline"
-                    size="sm"
-                    className={`h-9 text-xs font-semibold ${
-                      autoRefresh 
-                        ? 'border-green-400 text-green-700 bg-green-50 hover:bg-green-100' 
-                        : 'border-gray-300 text-gray-700 hover:bg-gray-100'
-                    }`}
-                  >
-                    <TrendingUp className="w-3.5 h-3.5 mr-1.5" />
-                    {autoRefresh ? 'Auto ON' : 'Auto OFF'}
-                  </Button>
-                </div>
-              </div>
-            </div>
-            <div className="p-5">
-              {recentCheckIns.length === 0 ? (
-                <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-lg bg-gray-50">
-                  <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                  <p className="text-base font-semibold text-gray-700 mb-1">No check-ins yet</p>
-                  <p className="text-sm text-gray-500">Start checking in members using QR scanner or manual entry above</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {recentCheckIns.map((checkIn) => {
-                    const member = checkIn.member;
-                    const displayName = member.nickname
-                      ? `${member.nickname} ${member.lastName}`
-                      : `${member.firstName} ${member.lastName}`;
-                    
-                    return (
-                      <div
-                        key={checkIn.id}
-                        className="flex items-center justify-between p-4 rounded-lg border-2 border-gray-200 bg-white hover:bg-gray-50 hover:border-gray-300 transition-all shadow-sm"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <div className="text-base font-semibold text-gray-900 mb-1">
-                            {displayName}
-                          </div>
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <span className="text-xs text-gray-600 font-mono bg-gray-100 px-2 py-1 rounded">
-                              {member.communityId}
-                            </span>
-                            <span className="text-xs text-gray-500">
-                              {formatCheckInTime(checkIn.checkInTime)}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-3 ml-4">
-                          <Badge 
-                            className={`text-xs px-3 py-1 font-semibold ${
-                              checkIn.method === 'QR_CODE' 
-                                ? 'bg-red-100 text-red-800 border-2 border-red-200' 
-                                : 'bg-green-100 text-green-800 border-2 border-green-200'
-                            }`}
-                          >
-                            {checkIn.method === 'QR_CODE' ? 'QR Code' : 'Manual'}
-                          </Badge>
-                          {(isAdmin || userRole === 'MEMBER') && (
-                            <button
-                              onClick={() => handleRemoveCheckIn(checkIn.id, displayName)}
-                              className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg border-2 border-transparent hover:border-red-200 transition-all"
-                              disabled={loading}
-                              title={isAdmin ? "Remove check-in" : "Remove my check-in"}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
+          <RecentCheckIns
+            checkIns={recentCheckIns}
+            onRemove={handleRemoveCheckIn}
+            onRefresh={() => {
+              loadRecentCheckIns();
+              loadStats();
+            }}
+            autoRefresh={autoRefresh}
+            onToggleAutoRefresh={() => setAutoRefresh(!autoRefresh)}
+            loading={loading}
+            canRemove={isAdmin || userRole === 'MEMBER'}
+          />
         )}
         </div>
       </div>
