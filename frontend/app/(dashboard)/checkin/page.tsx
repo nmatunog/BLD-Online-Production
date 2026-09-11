@@ -12,6 +12,7 @@ import { attendanceService, type Attendance } from '@/services/attendance.servic
 import { eventsService, type Event } from '@/services/events.service';
 import { membersService } from '@/services/members.service';
 import { sortEventsNearestFirst, isRelevantForCheckIn } from '@/lib/event-checkin-window';
+import { isCandidateCheckInEvent } from '@/lib/event-utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -478,9 +479,14 @@ function CheckInContent() {
   const adminRoles = ['SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR'];
   const isAdmin = adminRoles.includes(userRole);
   const isMemberMinistryStaff = userRole === 'MEMBER' && !!memberMinistry;
+  
+  // Candidate Quick Check-In: show only for staff + candidate-relevant events (hide for CW/WSC)
+  const selectedEventData = events.find(e => e.id === selectedEvent);
   const showCandidateQuickCTA =
     !!userRole &&
-    (userRole !== 'MEMBER' || isMemberMinistryStaff);
+    (userRole !== 'MEMBER' || isMemberMinistryStaff) &&
+    !!selectedEventData &&
+    isCandidateCheckInEvent(selectedEventData);
 
   return (
     <div className="min-h-screen bg-gray-50">
