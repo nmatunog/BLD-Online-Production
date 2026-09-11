@@ -44,32 +44,39 @@ export function isMarriageEncounter(event: EventLike | null | undefined): boolea
 
 /**
  * Determines if an event is eligible for Candidate Quick Check-In.
- * Shows banner for encounter-like events (encounters, LSS, seminars, retreats).
- * Hides banner for Community Worship (CW) and Word Sharing Circle (WSC).
+ * Shows banner for encounter-like events (encounters, LSS Weekend, seminars, retreats).
+ * Hides banner for Community Worship (CW), Word Sharing Circle (WSC), and LSS Shepherding.
  */
 export function isCandidateCheckInEvent(event: EventLike | null | undefined): boolean {
   if (!event) return false;
 
-  const category = (event.category ?? '').toLowerCase();
-  const title = (event.title ?? '').toLowerCase();
+  const category = (event.category ?? '').trim().toLowerCase();
+  const title = (event.title ?? '').trim().toLowerCase();
 
-  // Hide for Community Worship (CW)
+  // Hide for Community Worship (CW) - exact category or word-boundary title match
   if (
-    category.includes('community worship') ||
-    category.includes('cw') ||
+    category === 'community worship' ||
     title.includes('community worship') ||
-    /\bcw\b/.test(title)
+    /\bcw\b/i.test(title)
   ) {
     return false;
   }
 
-  // Hide for Word Sharing Circle (WSC)
+  // Hide for Word Sharing Circle (WSC) - exact category or word-boundary title match
   if (
-    category.includes('word sharing circle') ||
-    category.includes('wsc') ||
+    category === 'word sharing circle' ||
     title.includes('word sharing circle') ||
     title.startsWith('wsc -') ||
-    /\bwsc\b/.test(title)
+    /\bwsc\b/i.test(title)
+  ) {
+    return false;
+  }
+
+  // Hide for LSS Shepherding - not for first-time candidates
+  if (
+    title.includes('lss shepherding') ||
+    title.includes('shepherding session') ||
+    (category.includes('shepherding') && /\blss\b/i.test(title))
   ) {
     return false;
   }
@@ -79,25 +86,23 @@ export function isCandidateCheckInEvent(event: EventLike | null | undefined): bo
     return true;
   }
 
-  // Show for LSS (Life in the Spirit Seminar, LSS Weekend, LSS Shepherding)
+  // Show for LSS Weekend / Life in the Spirit Seminar Weekend
   if (
-    category.includes('life in the spirit') ||
-    category.includes('lss') ||
-    title.includes('life in the spirit') ||
+    category === 'life in the spirit seminar weekend' ||
+    title.includes('life in the spirit seminar weekend') ||
     title.includes('lss weekend') ||
-    title.includes('lss shepherding') ||
-    /\blss\b/.test(title)
+    /\blss weekend\b/i.test(title)
   ) {
     return true;
   }
 
-  // Show for seminars and retreats
+  // Show for seminars and retreats (Growth Seminar, etc.)
   if (
-    category.includes('seminar') ||
-    category.includes('retreat') ||
-    title.includes('seminar') ||
-    title.includes('retreat') ||
-    title.includes('growth seminar')
+    /\bseminar\b/i.test(category) ||
+    /\bretreat\b/i.test(category) ||
+    title.includes('growth seminar') ||
+    /\bseminar\b/i.test(title) ||
+    /\bretreat\b/i.test(title)
   ) {
     return true;
   }
