@@ -1,9 +1,16 @@
 'use client';
 
-import { Calendar, Clock, MapPin, Globe, FolderOpen, Edit, Trash2, QrCode, CheckCircle, RotateCcw, Users, UserPlus, XCircle, DollarSign } from 'lucide-react';
+import { Calendar, Clock, MapPin, Globe, FolderOpen, Edit, Trash2, QrCode, CheckCircle, RotateCcw, Users, UserPlus, XCircle, DollarSign, MoreVertical } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import type { Event } from '@/services/events.service';
 import { isEncounterEvent as checkEncounterEvent } from '@/lib/event-utils';
 
@@ -158,6 +165,7 @@ export default function EventCard({
         <div className="flex flex-wrap gap-2 pt-4 border-t border-gray-200">
           {showMemberOnlyActions ? (
             <>
+              {/* Member view: QR + Check In */}
               {event.qrCodeUrl && (
                 <button
                   onClick={onViewQR}
@@ -183,112 +191,110 @@ export default function EventCard({
             </>
           ) : (
             <>
-              <button
-                onClick={onToggleStatus}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md ${
-                  event.status === 'UPCOMING' 
-                    ? 'text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 border border-green-200 hover:border-green-300' 
-                    : 'text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 border border-red-200 hover:border-red-300'
-                }`}
-                title={`Click to toggle status. Current: ${event.status}`}
-              >
-                {event.status === 'UPCOMING' ? (
-                  <>✅ Mark Complete</>
-                ) : (
-                  <>🔄 Reactivate</>
-                )}
-              </button>
-              {canEdit && (
+              {/* Primary actions: Open, Check In */}
+              <Link href={`/events/${event.id}`}>
                 <button
-                  onClick={onEdit}
-                  className="text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md border border-red-200 hover:border-red-300"
+                  className="text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md border border-blue-200 hover:border-blue-300"
                 >
-                  ✏️ Edit
+                  Open
                 </button>
-              )}
-              {event.qrCodeUrl ? (
+              </Link>
+              <Link href={`/checkin/self-checkin?eventId=${event.id}`}>
                 <button
-                  onClick={onViewQR}
-                  className="text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md border border-green-200 hover:border-green-300"
+                  disabled={isCheckedIn}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm border ${
+                    isCheckedIn
+                      ? 'text-gray-500 bg-gray-100 border-gray-200 cursor-not-allowed'
+                      : 'text-green-700 hover:text-green-900 bg-green-50 hover:bg-green-100 border-green-200 hover:border-green-300'
+                  }`}
+                  title={isCheckedIn ? 'You are already checked in' : 'Go to Self Check-In'}
                 >
-                  📱 View QR Code
+                  <CheckCircle className="w-3 h-3 inline mr-1" />
+                  {isCheckedIn ? 'Checked In' : 'Check In'}
                 </button>
-              ) : (
-                canEdit && (
+              </Link>
+
+              {/* Overflow menu for secondary actions */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                   <button
-                    onClick={onGenerateQR}
-                    className="text-gray-600 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md border border-gray-200 hover:border-gray-300"
-                    title="Generate QR Code"
+                    className="text-gray-700 hover:text-gray-900 bg-gray-50 hover:bg-gray-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md border border-gray-200 hover:border-gray-300"
+                    title="More actions"
                   >
-                    📱 Generate QR
+                    <MoreVertical className="w-3 h-3" />
                   </button>
-                )
-              )}
-              {isRecurring && (
-                <span 
-                  className="text-gray-400 text-xs px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-200"
-                  title="Registration not available for recurring events"
-                >
-                  N/A (Recurring)
-                </span>
-              )}
-              {showRegistrationButton && (
-                <button
-                  onClick={onCreateRegistration}
-                  className="text-cyan-700 hover:text-cyan-900 bg-cyan-50 hover:bg-cyan-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md border border-cyan-200 hover:border-cyan-300"
-                  title="Create Event Registration"
-                >
-                  <UserPlus className="w-3 h-3 inline mr-1" />
-                  Create Registration
-                </button>
-              )}
-              {!isRecurring && event.hasRegistration && hasRegistrations && (
-                <button
-                  onClick={onCreateRegistration}
-                  className="text-cyan-700 hover:text-cyan-900 bg-cyan-50 hover:bg-cyan-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md border border-cyan-200 hover:border-cyan-300"
-                  title="View Event Registrations"
-                >
-                  👥 Registrations ({event._count?.registrations || 0})
-                </button>
-              )}
-              {isEncounterEvent && canEdit && onAssignShepherds && (
-                <button
-                  onClick={onAssignShepherds}
-                  className="text-red-700 hover:text-red-900 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md border border-red-200 hover:border-red-300"
-                  title="Assign Class Shepherds"
-                >
-                  👥 Shepherds
-                </button>
-              )}
-              {onViewAccounting && (
-                <Link href={`/accounting/${event.id}`}>
-                  <button
-                    className="text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md border border-emerald-200 hover:border-emerald-300"
-                    title="View Accounting"
-                  >
-                    <DollarSign className="w-3 h-3 inline mr-1" />
-                    Accounting
-                  </button>
-                </Link>
-              )}
-              {canEdit && onCancel && event.status !== 'CANCELLED' && event.status !== 'COMPLETED' && (
-                <button
-                  onClick={onCancel}
-                  className="text-orange-600 hover:text-orange-900 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md border border-orange-200 hover:border-orange-300"
-                  title="Cancel Event"
-                >
-                  <XCircle className="w-3 h-3 inline mr-1" />
-                  Cancel
-                </button>
-              )}
-              {canDelete && (
-                <button
-                  onClick={onDelete}
-                  className="text-red-600 hover:text-red-900 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-200 shadow-sm hover:shadow-md border border-red-200 hover:border-red-300"
-                >
-                  🗑️ Delete
-                </button>
-              )}
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  {canEdit && (
+                    <DropdownMenuItem onClick={onEdit}>
+                      <Edit className="w-4 h-4 mr-2" />
+                      Edit
+                    </DropdownMenuItem>
+                  )}
+                  {event.qrCodeUrl ? (
+                    <DropdownMenuItem onClick={onViewQR}>
+                      <QrCode className="w-4 h-4 mr-2" />
+                      View QR Code
+                    </DropdownMenuItem>
+                  ) : (
+                    canEdit && (
+                      <DropdownMenuItem onClick={onGenerateQR}>
+                        <QrCode className="w-4 h-4 mr-2" />
+                        Generate QR
+                      </DropdownMenuItem>
+                    )
+                  )}
+                  {!isRecurring && event.hasRegistration && hasRegistrations && onCreateRegistration && (
+                    <DropdownMenuItem onClick={onCreateRegistration}>
+                      <Users className="w-4 h-4 mr-2" />
+                      Registrations ({event._count?.registrations || 0})
+                    </DropdownMenuItem>
+                  )}
+                  {showRegistrationButton && onCreateRegistration && (
+                    <DropdownMenuItem onClick={onCreateRegistration}>
+                      <UserPlus className="w-4 h-4 mr-2" />
+                      Create Registration
+                    </DropdownMenuItem>
+                  )}
+                  {isEncounterEvent && canEdit && onAssignShepherds && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={onAssignShepherds}>
+                        <Users className="w-4 h-4 mr-2" />
+                        Assign Shepherds
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  {onViewAccounting && (
+                    <DropdownMenuItem asChild>
+                      <Link href={`/accounting/${event.id}`} className="flex items-center">
+                        <DollarSign className="w-4 h-4 mr-2" />
+                        Accounting
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={onToggleStatus}>
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    {event.status === 'UPCOMING' ? 'Mark Complete' : 'Reactivate'}
+                  </DropdownMenuItem>
+                  {canEdit && onCancel && event.status !== 'CANCELLED' && event.status !== 'COMPLETED' && (
+                    <DropdownMenuItem onClick={onCancel} className="text-orange-600">
+                      <XCircle className="w-4 h-4 mr-2" />
+                      Cancel Event
+                    </DropdownMenuItem>
+                  )}
+                  {canDelete && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={onDelete} className="text-red-600">
+                        <Trash2 className="w-4 h-4 mr-2" />
+                        Delete
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           )}
         </div>
