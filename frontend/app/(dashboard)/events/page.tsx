@@ -128,7 +128,7 @@ export default function EventsPage() {
       }
 
       // Load my check-ins
-      const checkInsRes = await attendanceService.getMyCheckins();
+      const checkInsRes = await attendanceService.getMe();
       if (checkInsRes?.success && checkInsRes.data) {
         const ids = new Set(checkInsRes.data.map((c: any) => c.eventId));
         setMyCheckInEventIds(ids);
