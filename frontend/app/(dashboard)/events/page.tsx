@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
+import type { ReactElement } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Search, Filter, Plus, Shield, List, History, Copy, Loader2, Calendar, Users, ChevronDown, ChevronUp } from 'lucide-react';
@@ -208,8 +209,8 @@ export default function EventsPage() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    const badges: Record<string, JSX.Element> = {
+  const getStatusBadge = (status: string): ReactElement => {
+    const badges: Record<string, ReactElement> = {
       UPCOMING: <span className="px-2.5 py-1 text-xs font-semibold bg-blue-100 text-blue-800 rounded-full border border-blue-200">Upcoming</span>,
       ONGOING: <span className="px-2.5 py-1 text-xs font-semibold bg-green-100 text-green-800 rounded-full border border-green-200">Ongoing</span>,
       COMPLETED: <span className="px-2.5 py-1 text-xs font-semibold bg-gray-100 text-gray-800 rounded-full border border-gray-200">Completed</span>,
