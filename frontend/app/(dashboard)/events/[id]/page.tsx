@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import type { ReactElement } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Calendar, MapPin, Globe, Edit, Trash2, QrCode, XCircle, Users, DollarSign, CheckCircle, MoreVertical } from 'lucide-react';
@@ -52,7 +53,7 @@ export default function EventDetailPage() {
 
   const checkAuth = async () => {
     try {
-      const res = await attendanceService.getMyCheckins();
+      const res = await attendanceService.getMe();
       if (res?.success && res.data) {
         setIsCheckedIn(res.data.some((c: any) => c.eventId === eventId));
       }
@@ -81,7 +82,7 @@ export default function EventDetailPage() {
         router.push('/events');
       }
     } catch (e) {
-      toast.error('Failed to load event', { description: getErrorMessage(e) });
+      toast.error('Failed to load event', { description: getErrorMessage(e, 'Could not load event') });
       router.push('/events');
     } finally {
       setLoading(false);
@@ -116,8 +117,8 @@ export default function EventDetailPage() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    const badges: Record<string, JSX.Element> = {
+  const getStatusBadge = (status: string): ReactElement => {
+    const badges: Record<string, ReactElement> = {
       UPCOMING: <Badge className="bg-blue-100 text-blue-800 border-blue-200">Upcoming</Badge>,
       ONGOING: <Badge className="bg-green-100 text-green-800 border-green-200">Ongoing</Badge>,
       COMPLETED: <Badge className="bg-gray-100 text-gray-800 border-gray-200">Completed</Badge>,
@@ -153,7 +154,7 @@ export default function EventDetailPage() {
         toast.error('Failed to delete event', { description: res.error });
       }
     } catch (e) {
-      toast.error('Failed to delete event', { description: getErrorMessage(e) });
+      toast.error('Failed to delete event', { description: getErrorMessage(e, 'Delete operation failed') });
     }
   };
 
@@ -173,7 +174,7 @@ export default function EventDetailPage() {
         toast.error('Failed to cancel event', { description: res.error });
       }
     } catch (e) {
-      toast.error('Failed to cancel event', { description: getErrorMessage(e) });
+      toast.error('Failed to cancel event', { description: getErrorMessage(e, 'Cancel operation failed') });
     }
   };
 
@@ -187,7 +188,7 @@ export default function EventDetailPage() {
         toast.error('Failed to generate QR Code', { description: res.error });
       }
     } catch (e) {
-      toast.error('Failed to generate QR Code', { description: getErrorMessage(e) });
+      toast.error('Failed to generate QR Code', { description: getErrorMessage(e, 'QR generation failed') });
     }
   };
 
@@ -206,8 +207,8 @@ export default function EventDetailPage() {
     return null;
   }
 
-  const canEdit = ['ADMIN', 'DCS'].includes(userRole) || (userMinistry && event.ministry === userMinistry);
-  const canDelete = ['ADMIN'].includes(userRole);
+  const canEdit = ['SUPER_USER', 'ADMINISTRATOR', 'DCS'].includes(userRole) || (userMinistry && event.ministry === userMinistry);
+  const canDelete = ['SUPER_USER', 'ADMINISTRATOR'].includes(userRole);
   const isEncounterEvent = checkEncounterEvent(event);
 
   return (
@@ -450,7 +451,8 @@ export default function EventDetailPage() {
         {isEncounterEvent && (
           <ClassShepherdAssignment
             eventId={eventId}
-            classNumber={event.classNumber || 1}
+            eventCategory={event.category}
+            eventType={event.eventType}
             isOpen={showShepherdDialog}
             onClose={() => setShowShepherdDialog(false)}
           />
