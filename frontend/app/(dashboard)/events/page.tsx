@@ -232,7 +232,7 @@ export default function EventsPage() {
       toast.success('Event deleted successfully');
       loadEvents();
     } catch (error) {
-      toast.error('Failed to delete event', { description: getErrorMessage(error) });
+      toast.error('Failed to delete event', { description: getErrorMessage(error, 'Delete operation failed') });
     }
   };
 
@@ -247,7 +247,7 @@ export default function EventsPage() {
       toast.success('QR Code generated successfully');
       loadEvents();
     } catch (error) {
-      toast.error('Failed to generate QR Code', { description: getErrorMessage(error) });
+      toast.error('Failed to generate QR Code', { description: getErrorMessage(error, 'QR generation failed') });
     }
   };
 
@@ -260,7 +260,7 @@ export default function EventsPage() {
       toast.success(`Event status updated to ${newStatus}`);
       loadEvents();
     } catch (error) {
-      toast.error('Failed to update event status', { description: getErrorMessage(error) });
+      toast.error('Failed to update event status', { description: getErrorMessage(error, 'Status update failed') });
     }
   };
 
@@ -278,7 +278,7 @@ export default function EventsPage() {
         setSuperAllEvents(res.data.data || []);
       }
     } catch (e) {
-      toast.error('Failed to load all events', { description: getErrorMessage(e) });
+      toast.error('Failed to load all events', { description: getErrorMessage(e, 'Could not load events list') });
     } finally {
       setSuperAllLoading(false);
     }
@@ -293,7 +293,7 @@ export default function EventsPage() {
       loadSuperAllEvents();
       loadEvents();
     } catch (e) {
-      toast.error('Delete failed', { description: getErrorMessage(e) });
+      toast.error('Delete failed', { description: getErrorMessage(e, 'Could not delete event') });
     } finally {
       setSuperAllDeletingId(null);
     }
@@ -308,7 +308,7 @@ export default function EventsPage() {
         setAuditLogTotal(res.data.total || 0);
       }
     } catch (e) {
-      toast.error('Failed to load audit log', { description: getErrorMessage(e) });
+      toast.error('Failed to load audit log', { description: getErrorMessage(e, 'Could not load audit log') });
       setAuditLogEntries([]);
     } finally {
       setAuditLogLoading(false);
@@ -322,7 +322,7 @@ export default function EventsPage() {
       toast.success('Reverted successfully');
       await loadAuditLog();
     } catch (e) {
-      toast.error('Revert failed', { description: getErrorMessage(e) });
+      toast.error('Revert failed', { description: getErrorMessage(e, 'Could not revert change') });
     } finally {
       setRevertingId(null);
     }
@@ -358,7 +358,7 @@ export default function EventsPage() {
       await loadDuplicates();
       loadEvents();
     } catch (e) {
-      toast.error('Delete failed', { description: getErrorMessage(e) });
+      toast.error('Delete failed', { description: getErrorMessage(e, 'Could not delete duplicate') });
     } finally {
       setDuplicateDeletingId(null);
     }
@@ -384,7 +384,7 @@ export default function EventsPage() {
         loadEvents();
       }
     } catch (e) {
-      toast.error('Correct all failed', { description: getErrorMessage(e) });
+      toast.error('Correct all failed', { description: getErrorMessage(e, 'Could not correct duplicates') });
     } finally {
       setCorrectAllLoading(false);
     }
@@ -407,7 +407,7 @@ export default function EventsPage() {
         toast.error('CW generation failed', { description: 'Please try again.' });
       }
     } catch (e) {
-      toast.error('CW generation failed', { description: getErrorMessage(e) });
+      toast.error('CW generation failed', { description: getErrorMessage(e, 'Could not generate CW series') });
     } finally {
       setCwGenerating(false);
     }
@@ -739,7 +739,8 @@ export default function EventsPage() {
         {selectedEventForShepherds && (
           <ClassShepherdAssignment
             eventId={selectedEventForShepherds.id}
-            classNumber={selectedEventForShepherds.classNumber || 1}
+            eventCategory={selectedEventForShepherds.category}
+            eventType={selectedEventForShepherds.eventType}
             isOpen={showShepherdDialog}
             onClose={() => {
               setShowShepherdDialog(false);
