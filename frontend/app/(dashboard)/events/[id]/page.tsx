@@ -57,14 +57,20 @@ export default function EventDetailPage() {
       if (res?.success && res.data) {
         setIsCheckedIn(res.data.some((c: any) => c.eventId === eventId));
       }
-      // Get user profile for role/ministry
-      const profileRes = await fetch('/api/users/profile', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      });
-      if (profileRes.ok) {
-        const profile = await profileRes.json();
-        setUserRole(profile.data?.role || '');
-        setUserMinistry(profile.data?.member?.ministry || null);
+      
+      // Load role and ministry from localStorage authData (same pattern as Check-in page)
+      const authData = localStorage.getItem('authData');
+      if (authData) {
+        try {
+          const parsed = JSON.parse(authData);
+          const role = parsed.user?.role || '';
+          const mm = parsed.member?.ministry;
+          const ministry = typeof mm === 'string' && mm.trim() ? mm.trim() : null;
+          setUserRole(role);
+          setUserMinistry(ministry);
+        } catch (error) {
+          console.error('Error parsing auth data:', error);
+        }
       }
     } catch (e) {
       // Silent fail

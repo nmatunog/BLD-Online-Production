@@ -114,17 +114,18 @@ export default function EventsPage() {
   const checkAuth = async () => {
     setAuthLoading(true);
     try {
-      const response = await fetch('/api/users/profile', {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        if (result.success) {
-          setUserRole(result.data.role);
-          setUserMinistry(result.data.member?.ministry || null);
+      // Load role and ministry from localStorage authData (same pattern as Check-in page)
+      const authData = localStorage.getItem('authData');
+      if (authData) {
+        try {
+          const parsed = JSON.parse(authData);
+          const role = parsed.user?.role || '';
+          const mm = parsed.member?.ministry;
+          const ministry = typeof mm === 'string' && mm.trim() ? mm.trim() : null;
+          setUserRole(role);
+          setUserMinistry(ministry);
+        } catch (error) {
+          console.error('Error parsing auth data:', error);
         }
       }
 
