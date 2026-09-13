@@ -250,17 +250,66 @@ All components live in `frontend/components/checkin/`:
 
 ---
 
-### Phase 3: Events Mega-Page Polish (Not Covered)
+### Phase 2: Events UX Simplify (Implemented)
 
-**Out of scope:** Event creation/management UI redesign.
+**Goal:** Replace the Events kitchen-sink mega-page with calm, task-first IA without removing power.
 
-**Current state:** Functional but not optimized for mobile/speed.
+**Status:** Implemented (Phase 2 complete)
 
-**Future:** Progressive disclosure, role-aware defaults, large tap targets.
+**Route Structure:**
+
+1. **`/events` — List/Home Page**
+   - Shows upcoming/ongoing occurrences + one-offs (not a wall of admin generators)
+   - Primary CTA: "Set up an event" → `/events/new`
+   - Filters/status sections present but calmer
+   - Role-gated "Admin tools" accordion for: Ensure CW, LSS Shepherding, Super-user audit/duplicates, and other power tools
+
+2. **`/events/new` — Event Setup Picker**
+   - Three large cards (≥72px tap target):
+     - **Weekly gathering** → Community Worship ensure / CW setup flow
+     - **Ministry circle** → WSC Setup dialog/flow
+     - **Special program** → Create Program one-off catalog flow (includes LSS)
+   - Each card: icon, title, description, "Set up" CTA
+
+3. **`/events/[id]` — Event Detail Page**
+   - Header with Manila-friendly datetime, venue, location
+   - Actions: Edit (with `EventUpdateScopeDialog` for series: "Just this night" / "This and future nights"), QR, Registrations link, role-gated Cancel/Delete
+   - Shepherds/Accounting via overflow if present
+   - Calm single-event focus (not mixed with list)
+
+**EventCard Simplification:**
+- Collapsed dense emoji/action row into: primary actions visible (Open / Check-in link) + `⋯` overflow menu for the rest
+- Preserves all functionality (Edit, QR, Registrations, Shepherds, Accounting, Cancel, Delete) with role gates
+
+**Technical Constraints:**
+- No backend changes (Event Standards v1 APIs stay frozen)
+- Reuses existing `frontend/services/events.service.ts` methods
+- Preserves auth/role checks from mega-page
+- shadcn/Tailwind/lucide/sonner stack unchanged
+
+**Components Extracted:**
+- `frontend/components/events/EventsList.tsx` (list view for `/events`)
+- `frontend/components/events/EventSetupPicker.tsx` (picker for `/events/new`)
+- `frontend/components/events/EventDetail.tsx` (detail for `/events/[id]`)
+- Admin tools extracted to separate components
+
+**Files Changed:**
+- `frontend/app/(dashboard)/events/page.tsx` → simplified to list only
+- `frontend/app/(dashboard)/events/new/page.tsx` → picker page (new)
+- `frontend/app/(dashboard)/events/[id]/page.tsx` → detail page (new)
+- `frontend/components/events/EventCard.tsx` → overflow menu pattern
+- `docs/architecture/BLD_Portal_UX_Simplify_v1.md` → Phase 2 section added
+
+**Definition of Done:**
+- Routes above work; mega-page replaced with task-first surfaces
+- Coordinator path: `/events/new` → "Ministry circle" → WSC wizard without LSS/Encounter on that screen
+- Admin can still reach CW ensure, LSS shepherding, audit, duplicates (via "Admin tools" on `/events`)
+- `cd frontend && npm run lint && npm run build` pass
+- PR created but NOT merged (Nilo-only merge)
 
 ---
 
-### Phase 4: Candidate Check-In Redesign (Not Covered)
+### Phase 3: Candidate Check-In Redesign (Not Covered)
 
 **Out of scope:** Candidate check-in flow simplification.
 
