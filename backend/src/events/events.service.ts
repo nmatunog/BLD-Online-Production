@@ -15,12 +15,20 @@ import { Prisma, EventStatus, UserRole, EventAuditAction, EventKind } from '@pri
 import QRCode from 'qrcode';
 import { BunnyCDNService } from '../common/services/bunnycdn.service';
 import { MINISTRIES_BY_APOSTOLATE } from '../common/constants/organization.constants';
+import {
+  toManilaDateString,
+  getManilaDayOfWeek,
+  buildManilaDateTime,
+  getNextWeekdayManila,
+  isInBlackoutPeriod,
+  isHolyMassTuesday,
+} from '../common/utils/manila-date.helper';
 
 /** Number of weeks ahead to auto-create recurring occurrence rows */
 const RECURRING_OCCURRENCE_WEEKS_AHEAD = 24;
 const RECURRING_BACKFILL_DAYS = 7;
 
-/** Monday 00:00:00 UTC for the week containing d */
+/** Monday 00:00:00 UTC for the week containing d (kept for visibility clause logic) */
 function getStartOfWeekUTC(d: Date): Date {
   const date = new Date(d);
   const day = date.getUTCDay();
@@ -28,37 +36,6 @@ function getStartOfWeekUTC(d: Date): Date {
   date.setUTCDate(diff);
   date.setUTCHours(0, 0, 0, 0);
   return date;
-}
-
-/** Convert Date to Manila timezone string YYYY-MM-DD */
-function toManilaDateString(d: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Manila',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(d);
-}
-
-/** Check if a date (in Manila timezone) falls in the blackout period Dec 24 - Jan 1 inclusive */
-function isInBlackoutPeriod(d: Date): boolean {
-  const manilaStr = toManilaDateString(d);
-  const [, month, day] = manilaStr.split('-').map(Number);
-  // Dec 24-31 or Jan 1
-  return (month === 12 && day >= 24) || (month === 1 && day === 1);
-}
-
-/** Get the week-of-month (1st, 2nd, 3rd, 4th, or 5th) for a date in Manila timezone */
-function getWeekOfMonth(d: Date): number {
-  const manilaStr = toManilaDateString(d);
-  const [, , day] = manilaStr.split('-').map(Number);
-  return Math.ceil(day / 7);
-}
-
-/** Check if Tuesday is 1st or 3rd of the month (Holy Mass subtype) */
-function isHolyMassTuesday(d: Date): boolean {
-  const week = getWeekOfMonth(d);
-  return week === 1 || week === 3;
 }
 
 /** Serialize event to JSON for audit snapshot (dates to ISO string, Decimal to number) */
@@ -436,8 +413,6 @@ export class EventsService implements OnModuleInit {
       const interval = template.recurrenceInterval ?? 1;
 
       const templateStart = new Date(template.startDate);
-      const templateEnd = new Date(template.endDate);
-      const durationMs = templateEnd.getTime() - templateStart.getTime();
 
       const now = new Date();
       const recentPastCutoff = new Date(now.getTime() - RECURRING_BACKFILL_DAYS * 24 * 60 * 60 * 1000);
@@ -452,32 +427,51 @@ export class EventsService implements OnModuleInit {
           return map[d] ?? 1;
         });
 
-        // Also backfill recent past occurrences so completed recurring events (last 7 days)
-        // remain visible if rows were previously cleaned or missed by earlier runs.
+        // Get Manila time components (HH:mm)
+        const startTimeStr = template.startTime || '00:00';
+        const endTimeStr = template.endTime || '00:00';
+        const [startHour, startMinute] = startTimeStr.split(':').map(Number);
+        const [endHour, endMinute] = endTimeStr.split(':').map(Number);
+
+        // Start from template date or recent past for backfill
         const generationAnchor = templateStart > now ? templateStart : recentPastCutoff;
-        const weekStart = getStartOfWeekUTC(generationAnchor);
+        const anchorManilaDate = toManilaDateString(generationAnchor);
+        const [anchorYear, anchorMonth, anchorDay] = anchorManilaDate.split('-').map(Number);
 
         for (let w = 0; w < weeksAhead; w++) {
-          const baseWeek = new Date(weekStart);
-          baseWeek.setUTCDate(baseWeek.getUTCDate() + w * 7 * interval);
-
           for (const dayNum of dayNumbers) {
-            const occStart = new Date(baseWeek);
-            occStart.setUTCDate(baseWeek.getUTCDate() + (dayNum === 0 ? 6 : dayNum - 1));
-            occStart.setUTCHours(
-              templateStart.getUTCHours(),
-              templateStart.getUTCMinutes(),
-              0,
-              0,
-            );
+            // Build occurrence date in Manila timezone
+            // Calculate the target Manila date by finding the right weekday
+            const weeksOffset = w * interval;
+            
+            // Start from template date, add weeks, then adjust to target weekday if needed
+            let targetDate = new Date(Date.UTC(anchorYear, anchorMonth - 1, anchorDay, 0, 0, 0, 0));
+            targetDate.setUTCDate(targetDate.getUTCDate() + weeksOffset * 7);
+            
+            // Get the weekday of this date in Manila
+            const currentDayOfWeek = getManilaDayOfWeek(new Date(targetDate));
+            
+            // Adjust to target weekday
+            let dayDiff = dayNum - currentDayOfWeek;
+            if (dayDiff < 0) dayDiff += 7;
+            if (dayDiff > 0) {
+              targetDate.setUTCDate(targetDate.getUTCDate() + dayDiff);
+            }
+            
+            // Now build the Manila date-time from the calendar date
+            const finalYear = targetDate.getUTCFullYear();
+            const finalMonth = targetDate.getUTCMonth() + 1;
+            const finalDay = targetDate.getUTCDate();
+            
+            const occStart = buildManilaDateTime(finalYear, finalMonth, finalDay, startHour, startMinute);
+            const occEnd = buildManilaDateTime(finalYear, finalMonth, finalDay, endHour, endMinute);
+            
             if (occStart < recentPastCutoff) continue;
 
             // BLD Event Standards v1: Skip blackout period (Dec 24 - Jan 1)
             if (isInBlackoutPeriod(occStart)) {
               continue;
             }
-
-            const occEnd = new Date(occStart.getTime() + durationMs);
 
             // Per-template idempotency rule: one occurrence row per template/day/startTime.
             const dayStart = new Date(Date.UTC(
@@ -500,7 +494,7 @@ export class EventsService implements OnModuleInit {
 
             // BLD Event Standards v1: Determine occurrence subtype (e.g. Holy Mass for CW 1st/3rd Tuesday)
             let occurrenceSubtype: string | null = null;
-            if (template.category === 'Community Worship' && dayNum === 2) { // Tuesday
+            if (template.category === 'Community Worship') {
               if (isHolyMassTuesday(occStart)) {
                 occurrenceSubtype = 'Holy Mass';
               }
@@ -2240,15 +2234,8 @@ export class EventsService implements OnModuleInit {
       // Create Community Worship SERIES template
       // Use next Tuesday 19:00 Manila as anchor date
       const now = new Date();
-      const nowManila = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
-      const dayOfWeek = nowManila.getDay();
-      const daysUntilTuesday = (2 - dayOfWeek + 7) % 7 || 7; // Next Tuesday
-      const nextTuesday = new Date(nowManila);
-      nextTuesday.setDate(nowManila.getDate() + daysUntilTuesday);
-      nextTuesday.setHours(19, 0, 0, 0);
-      
-      const endTime = new Date(nextTuesday);
-      endTime.setHours(21, 0, 0, 0);
+      const nextTuesday = getNextWeekdayManila(now, 2, 19, 0); // Tuesday = 2, 19:00
+      const endTime = getNextWeekdayManila(now, 2, 21, 0); // Same Tuesday, 21:00
 
       cwSeries = await this.prisma.event.create({
         data: {
