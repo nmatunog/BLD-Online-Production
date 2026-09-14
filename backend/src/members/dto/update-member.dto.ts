@@ -82,6 +82,10 @@ export class UpdateMemberDto {
 
   @IsString()
   @IsOptional()
+  bloodType?: string;
+
+  @IsString()
+  @IsOptional()
   profession?: string;
 
   @IsString()

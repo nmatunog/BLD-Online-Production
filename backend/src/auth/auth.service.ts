@@ -250,6 +250,7 @@ export class AuthService {
           city: cityCode,
           encounterType,
           classNumber: classNum,
+          bloodType: signupDto.bloodType?.trim() || null,
         },
       });
     });
@@ -397,6 +398,7 @@ export class AuthService {
         nickname,
         encounterType,
         classNumber: classNum,
+        ...(dto.bloodType !== undefined && { bloodType: dto.bloodType?.trim() || null }),
       },
     });
 
