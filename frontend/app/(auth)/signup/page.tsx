@@ -43,7 +43,9 @@ const BLD = {
   ink: '#1A1A1A',
 } as const;
 
-const STEPS = ['Your name', 'Encounter', 'ID Photo'] as const;
+const STEPS = ['Your name', 'Encounter', 'ID Photo', 'Blood Type'] as const;
+
+const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'] as const;
 
 const fieldClass =
   'mt-2 h-14 w-full text-xl md:text-2xl px-4 rounded-xl border-2 border-gray-300 focus-visible:border-[#D00008] focus-visible:ring-[#D00008]';
@@ -201,6 +203,7 @@ function SignupForm() {
   const [classNumber, setClassNumber] = useState('');
   const [signupPhone, setSignupPhone] = useState('');
   const [idPhoto, setIdPhoto] = useState<string | null>(null);
+  const [bloodType, setBloodType] = useState<string>('');
   const [qrCode, setQrCode] = useState<string>('');
   const [originalPhotoUrl, setOriginalPhotoUrl] = useState<string | null>(null);
   const [profileGaps, setProfileGaps] = useState<string[]>([]);
@@ -254,6 +257,7 @@ function SignupForm() {
     setClassNumber('');
     setSignupPhone('');
     setIdPhoto(null);
+    setBloodType('');
     setOriginalPhotoUrl(null);
     setLoginPhone('');
     setLoginPassword('');
@@ -536,6 +540,7 @@ function SignupForm() {
         city: 'Cebu',
         phone: signupPhone.trim(),
         idPhoto,
+        bloodType: bloodType.trim() || undefined,
       });
       setResult(data);
       setIsExisting(false);
@@ -1311,6 +1316,16 @@ function SignupForm() {
             className={`ml-auto ${primaryBtn}`}
             disabled={!canSubmitNew}
             onClick={() => setStep(2)}
+          >
+            Next
+            <ArrowRight className="w-5 h-5 ml-1" />
+          </Button>
+        ) : step === 2 ? (
+          <Button
+            type="button"
+            className={`ml-auto ${primaryBtn}`}
+            disabled={!canSubmitNew || !hasIdPhoto}
+            onClick={() => setStep(3)}
           >
             Next
             <ArrowRight className="w-5 h-5 ml-1" />

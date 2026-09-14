@@ -10,6 +10,7 @@ interface MemberIdCardProps {
   lastName: string;
   nickname?: string;
   photoUrl?: string | null;
+  bloodType?: string | null;
   showFront?: boolean;
   showBack?: boolean;
 }
