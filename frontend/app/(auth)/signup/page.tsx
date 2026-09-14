@@ -1332,14 +1332,28 @@ function SignupForm() {
             <ArrowRight className="w-5 h-5 ml-1" />
           </Button>
         ) : (
-          <Button
-            type="button"
-            className={`ml-auto ${primaryBtn}`}
-            disabled={isLoading || !canSubmitNew || !hasIdPhoto}
-            onClick={handleSubmit}
-          >
-            {isLoading ? 'Saving…' : 'Get Community ID'}
-          </Button>
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              className={`flex-1 ${outlineBtn}`}
+              onClick={() => {
+                setBloodType('');
+                handleSubmit();
+              }}
+              disabled={isLoading || !canSubmitNew || !hasIdPhoto}
+            >
+              Skip / Don&apos;t know
+            </Button>
+            <Button
+              type="button"
+              className={`flex-1 ${primaryBtn}`}
+              disabled={isLoading || !canSubmitNew || !hasIdPhoto}
+              onClick={handleSubmit}
+            >
+              {isLoading ? 'Saving…' : 'Get Community ID'}
+            </Button>
+          </>
         )}
       </div>
 
