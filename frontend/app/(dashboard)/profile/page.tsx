@@ -537,20 +537,32 @@ export default function ProfilePage() {
                   <div>
                     <Label className="text-base font-semibold text-gray-700">Blood Type</Label>
                     {isEditing ? (
-                      <Select
-                        value={editForm.bloodType || undefined}
-                        onValueChange={(value) => setEditForm({ ...editForm, bloodType: value })}
-                      >
-                        <SelectTrigger className="mt-2 h-12 text-lg">
-                          <SelectValue placeholder="Select blood type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="">Skip / Don&apos;t know</SelectItem>
-                          {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((type) => (
-                            <SelectItem key={type} value={type}>{type}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <div className="space-y-2">
+                        <Select
+                          value={editForm.bloodType || undefined}
+                          onValueChange={(value) => setEditForm({ ...editForm, bloodType: value })}
+                        >
+                          <SelectTrigger className="mt-2 h-12 text-lg">
+                            <SelectValue placeholder="Select blood type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((type) => (
+                              <SelectItem key={type} value={type}>{type}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {editForm.bloodType && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setEditForm({ ...editForm, bloodType: '' })}
+                            className="text-xs"
+                          >
+                            Clear / Don&apos;t know
+                          </Button>
+                        )}
+                      </div>
                     ) : (
                       <p className="mt-2 text-lg text-gray-800">{member.bloodType || '-'}</p>
                     )}

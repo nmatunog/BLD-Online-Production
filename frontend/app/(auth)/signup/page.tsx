@@ -1287,6 +1287,35 @@ function SignupForm() {
         </div>
       )}
 
+      {step === 3 && (
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="bloodType" className={labelClass}>
+              Blood Type{' '}
+              <span className="text-gray-500 font-normal">(optional)</span>
+            </Label>
+            <p className="text-sm text-gray-600 mt-1 mb-3">
+              Shown on the back of your Community ID with the QR code. Skip if you don&apos;t know.
+            </p>
+            <Select
+              value={bloodType || undefined}
+              onValueChange={(value) => setBloodType(value)}
+            >
+              <SelectTrigger id="bloodType" className={fieldClass}>
+                <SelectValue placeholder="Select blood type" />
+              </SelectTrigger>
+              <SelectContent>
+                {BLOOD_TYPES.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-3 mt-8">
         {step > 0 ? (
           <Button

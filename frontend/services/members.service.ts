@@ -99,6 +99,7 @@ export interface UpdateMemberRequest {
   serviceArea?: string;
   photoUrl?: string;
   gender?: string;
+  bloodType?: string | null;
   profession?: string;
   civilStatus?: string;
   dateOfBirth?: string;
