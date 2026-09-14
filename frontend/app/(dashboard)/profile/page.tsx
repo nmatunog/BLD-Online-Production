@@ -56,6 +56,7 @@ export default function ProfilePage() {
     classNumber: '',
     serviceArea: '',
     gender: '',
+    bloodType: '',
     profession: '',
     civilStatus: '',
     dateOfBirth: '',
@@ -106,6 +107,7 @@ export default function ProfilePage() {
           classNumber: profile.classNumber.toString(),
           serviceArea: profile.serviceArea || '',
           gender: profile.gender ?? '',
+          bloodType: profile.bloodType ?? '',
           profession: profile.profession ?? '',
           civilStatus: profile.civilStatus ?? '',
           dateOfBirth: profile.dateOfBirth ?? '',
@@ -167,6 +169,7 @@ export default function ProfilePage() {
         ministry: editForm.ministry?.trim() || null,
         serviceArea: editForm.serviceArea || null,
         gender: editForm.gender?.trim() || null,
+        bloodType: editForm.bloodType?.trim() || null,
         profession: editForm.profession?.trim() || null,
         civilStatus: editForm.civilStatus?.trim() || null,
         dateOfBirth: editForm.dateOfBirth?.trim() || null,
@@ -337,6 +340,7 @@ export default function ProfilePage() {
                         classNumber: member.classNumber.toString(),
                         serviceArea: member.serviceArea || '',
                         gender: member.gender ?? '',
+                        bloodType: member.bloodType ?? '',
                         profession: member.profession ?? '',
                         civilStatus: member.civilStatus ?? '',
                         dateOfBirth: member.dateOfBirth ?? '',
@@ -528,6 +532,27 @@ export default function ProfilePage() {
                       </Select>
                     ) : (
                       <p className="mt-2 text-lg text-gray-800">{member.gender || '-'}</p>
+                    )}
+                  </div>
+                  <div>
+                    <Label className="text-base font-semibold text-gray-700">Blood Type</Label>
+                    {isEditing ? (
+                      <Select
+                        value={editForm.bloodType || undefined}
+                        onValueChange={(value) => setEditForm({ ...editForm, bloodType: value })}
+                      >
+                        <SelectTrigger className="mt-2 h-12 text-lg">
+                          <SelectValue placeholder="Select blood type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">Skip / Don&apos;t know</SelectItem>
+                          {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map((type) => (
+                            <SelectItem key={type} value={type}>{type}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="mt-2 text-lg text-gray-800">{member.bloodType || '-'}</p>
                     )}
                   </div>
                   <div>

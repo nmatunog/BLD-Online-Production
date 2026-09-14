@@ -844,6 +844,7 @@ function SignupForm() {
             lastName={result.lastName}
             nickname={result.nickname || undefined}
             photoUrl={idPhoto}
+            bloodType={bloodType || undefined}
           />
         </div>
       );

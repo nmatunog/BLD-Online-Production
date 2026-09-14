@@ -29,6 +29,7 @@ export function MemberIdCard({
   lastName,
   nickname,
   photoUrl,
+  bloodType,
   showFront = true,
   showBack = true,
 }: MemberIdCardProps) {
@@ -109,6 +110,10 @@ export function MemberIdCard({
             <div className="back-community-id">{communityId}</div>
 
             <div className="back-name">{displayName}</div>
+
+            {bloodType && (
+              <div className="blood-type-text">Blood Type: {bloodType}</div>
+            )}
 
             <div className="instruction-text">Scan for attendance</div>
 
@@ -307,6 +312,14 @@ export function MemberIdCard({
           color: ${BLD.ink};
           margin-bottom: 2mm;
           text-align: center;
+        }
+
+        .blood-type-text {
+          font-size: 8pt;
+          font-weight: 600;
+          color: ${BLD.red};
+          text-align: center;
+          margin-bottom: 1.5mm;
         }
 
         .instruction-text {
