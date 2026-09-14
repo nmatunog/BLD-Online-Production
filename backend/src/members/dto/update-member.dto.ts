@@ -4,6 +4,7 @@ import {
   IsEmail,
   IsArray,
   IsInt,
+  IsIn,
   Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -79,6 +80,11 @@ export class UpdateMemberDto {
   @IsString()
   @IsOptional()
   gender?: string;
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])
+  bloodType?: string;
 
   @IsString()
   @IsOptional()

@@ -53,4 +53,11 @@ export class SignupDto {
     message: 'ID photo must be a processed image',
   })
   idPhoto!: string;
+
+  @IsString()
+  @IsOptional()
+  @IsIn(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'], {
+    message: 'Blood type must be one of: A+, A-, B+, B-, AB+, AB-, O+, O-',
+  })
+  bloodType?: string;
 }

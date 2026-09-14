@@ -122,6 +122,7 @@ model Member {
   qrCodeUrl       String? // BunnyCDN URL
   // Personal / family (optional)
   gender          String?
+  bloodType       String? // A+, A-, B+, B-, AB+, AB-, O+, O- (null = unknown/skipped)
   profession      String?
   civilStatus     String?
   dateOfBirth     String?

@@ -19,6 +19,7 @@ export interface Member {
   photoUrl?: string | null;
   qrCodeUrl?: string | null;
   gender?: string | null;
+  bloodType?: string | null;
   profession?: string | null;
   civilStatus?: string | null;
   dateOfBirth?: string | null;
@@ -98,6 +99,7 @@ export interface UpdateMemberRequest {
   serviceArea?: string;
   photoUrl?: string;
   gender?: string;
+  bloodType?: string | null;
   profession?: string;
   civilStatus?: string;
   dateOfBirth?: string;

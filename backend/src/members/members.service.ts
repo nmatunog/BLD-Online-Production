@@ -562,6 +562,9 @@ export class MembersService {
     if (updateMemberDto.gender !== undefined) {
       updateData.gender = updateMemberDto.gender ? String(updateMemberDto.gender).trim() || null : null;
     }
+    if (updateMemberDto.bloodType !== undefined) {
+      updateData.bloodType = updateMemberDto.bloodType ? String(updateMemberDto.bloodType).trim() || null : null;
+    }
     if (updateMemberDto.profession !== undefined) {
       updateData.profession = updateMemberDto.profession ? String(updateMemberDto.profession).trim() || null : null;
     }

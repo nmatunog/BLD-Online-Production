@@ -43,7 +43,9 @@ const BLD = {
   ink: '#1A1A1A',
 } as const;
 
-const STEPS = ['Your name', 'Encounter', 'ID Photo'] as const;
+const STEPS = ['Your name', 'Encounter', 'ID Photo', 'Blood Type'] as const;
+
+const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'] as const;
 
 const fieldClass =
   'mt-2 h-14 w-full text-xl md:text-2xl px-4 rounded-xl border-2 border-gray-300 focus-visible:border-[#D00008] focus-visible:ring-[#D00008]';
@@ -201,6 +203,7 @@ function SignupForm() {
   const [classNumber, setClassNumber] = useState('');
   const [signupPhone, setSignupPhone] = useState('');
   const [idPhoto, setIdPhoto] = useState<string | null>(null);
+  const [bloodType, setBloodType] = useState<string>('');
   const [qrCode, setQrCode] = useState<string>('');
   const [originalPhotoUrl, setOriginalPhotoUrl] = useState<string | null>(null);
   const [profileGaps, setProfileGaps] = useState<string[]>([]);
@@ -254,6 +257,7 @@ function SignupForm() {
     setClassNumber('');
     setSignupPhone('');
     setIdPhoto(null);
+    setBloodType('');
     setOriginalPhotoUrl(null);
     setLoginPhone('');
     setLoginPassword('');
@@ -536,6 +540,7 @@ function SignupForm() {
         city: 'Cebu',
         phone: signupPhone.trim(),
         idPhoto,
+        bloodType: bloodType.trim() || undefined,
       });
       setResult(data);
       setIsExisting(false);
@@ -839,6 +844,7 @@ function SignupForm() {
             lastName={result.lastName}
             nickname={result.nickname || undefined}
             photoUrl={idPhoto}
+            bloodType={bloodType || undefined}
           />
         </div>
       );
@@ -1281,6 +1287,35 @@ function SignupForm() {
         </div>
       )}
 
+      {step === 3 && (
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="bloodType" className={labelClass}>
+              Blood Type{' '}
+              <span className="text-gray-500 font-normal">(optional)</span>
+            </Label>
+            <p className="text-sm text-gray-600 mt-1 mb-3">
+              Shown on the back of your Community ID with the QR code. Skip if you don&apos;t know.
+            </p>
+            <Select
+              value={bloodType || undefined}
+              onValueChange={(value) => setBloodType(value)}
+            >
+              <SelectTrigger id="bloodType" className={fieldClass}>
+                <SelectValue placeholder="Select blood type" />
+              </SelectTrigger>
+              <SelectContent>
+                {BLOOD_TYPES.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {type}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-3 mt-8">
         {step > 0 ? (
           <Button
@@ -1315,15 +1350,39 @@ function SignupForm() {
             Next
             <ArrowRight className="w-5 h-5 ml-1" />
           </Button>
-        ) : (
+        ) : step === 2 ? (
           <Button
             type="button"
             className={`ml-auto ${primaryBtn}`}
-            disabled={isLoading || !canSubmitNew || !hasIdPhoto}
-            onClick={handleSubmit}
+            disabled={!canSubmitNew || !hasIdPhoto}
+            onClick={() => setStep(3)}
           >
-            {isLoading ? 'Saving…' : 'Get Community ID'}
+            Next
+            <ArrowRight className="w-5 h-5 ml-1" />
           </Button>
+        ) : (
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              className={`flex-1 ${outlineBtn}`}
+              onClick={() => {
+                setBloodType('');
+                handleSubmit();
+              }}
+              disabled={isLoading || !canSubmitNew || !hasIdPhoto}
+            >
+              Skip / Don&apos;t know
+            </Button>
+            <Button
+              type="button"
+              className={`flex-1 ${primaryBtn}`}
+              disabled={isLoading || !canSubmitNew || !hasIdPhoto}
+              onClick={handleSubmit}
+            >
+              {isLoading ? 'Saving…' : 'Get Community ID'}
+            </Button>
+          </>
         )}
       </div>
 

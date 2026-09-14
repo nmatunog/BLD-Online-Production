@@ -76,6 +76,7 @@ export interface SignupRequest {
   city?: string;
   phone: string;
   idPhoto: string;
+  bloodType?: string;
 }
 
 export interface SignupUpdateRequest {
@@ -89,6 +90,7 @@ export interface SignupUpdateRequest {
   idPhoto?: string;
   phone?: string;
   password?: string;
+  bloodType?: string;
 }
 
 export interface SignupResult {
