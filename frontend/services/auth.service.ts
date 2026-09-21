@@ -72,6 +72,7 @@ export class AuthService {
     const response = await apiClient.post<ApiResponse<SignupResult>>(
       '/auth/signup',
       data,
+      { timeout: 30000 },
     );
     if (response.data.success && response.data.data) {
       return response.data.data;
@@ -94,6 +95,7 @@ export class AuthService {
     const response = await apiClient.put<ApiResponse<SignupResult>>(
       '/auth/signup',
       data,
+      { timeout: 30000 },
     );
     if (response.data.success && response.data.data) {
       return response.data.data;
