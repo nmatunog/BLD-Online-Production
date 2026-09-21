@@ -404,6 +404,7 @@ export function IdPhotoUpload({
         reset();
         return;
       }
+      toast.dismiss();
       setOriginalImageSrc(imageSource);
       setImageSrc(imageSource);
       setCrop({ x: 0, y: 0 });
