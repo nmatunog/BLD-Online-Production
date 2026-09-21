@@ -270,6 +270,9 @@ export class AuthService {
       return { ...this.toSignupResult(member, false), photoUrl, qrCodeUrl };
     } catch (err) {
       await this.prisma.user.delete({ where: { id: member.userId } });
+      if (err instanceof BadRequestException) {
+        throw err;
+      }
       throw new BadRequestException(
         'Could not save ID photo. Please try another photo.',
       );
@@ -421,7 +424,10 @@ export class AuthService {
       try {
         const saved = await this.membersService.savePhoto(updated.id, dto.idPhoto);
         photoUrl = saved.photoUrl;
-      } catch {
+      } catch (err) {
+        if (err instanceof BadRequestException) {
+          throw err;
+        }
         throw new BadRequestException('Could not save ID photo. Please try another photo.');
       }
     } else if (!member.photoUrl) {

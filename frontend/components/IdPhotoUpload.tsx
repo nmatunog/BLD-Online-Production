@@ -6,6 +6,11 @@ import { Camera, Upload, X, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
+import {
+  ID_PHOTO_CLIENT_OUTPUT_SIZE,
+  ID_PHOTO_TOO_SMALL_MESSAGE,
+  isPhotoTooSmall,
+} from '@/lib/id-photo';
 
 type Mode = 'select' | 'camera' | 'crop' | 'preview-processed';
 
@@ -209,10 +214,77 @@ function isCanvasBlank(canvas: HTMLCanvasElement): boolean {
   return nonZeroCount < 10;
 }
 
-/** Crop to 1:1, 300×300 JPEG, mild lighting boost. */
+function rejectIfTooSmall(width: number, height: number): boolean {
+  if (!isPhotoTooSmall(width, height)) return false;
+  toast.error(ID_PHOTO_TOO_SMALL_MESSAGE, {
+    description: 'Use a photo at least 600 pixels on the shorter side.',
+    duration: 6000,
+  });
+  return true;
+}
+
+function PhotoCaptureChecklist() {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-2">
+      <p className="text-sm font-semibold text-gray-800">Before you take or upload a photo</p>
+      <ul className="text-sm text-gray-700 space-y-1 list-disc pl-5">
+        <li>Face centered, looking at the camera</li>
+        <li>Shoulders up — head and shoulders in frame</li>
+        <li>Plain light wall behind you</li>
+        <li>Good, even lighting (no harsh shadows)</li>
+        <li>No filters or beauty effects</li>
+      </ul>
+      <p className="text-sm text-gray-600 pt-1">
+        <span className="font-medium text-green-700">Good:</span> clear face, light background,
+        shoulders visible.{' '}
+        <span className="font-medium text-red-700">Avoid:</span> cropped forehead, busy background,
+        dim light, group photos.
+      </p>
+    </div>
+  );
+}
+
+function IdPhotoSilhouetteGuide() {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+      <svg
+        viewBox="0 0 200 200"
+        className="h-full w-auto max-h-full drop-shadow"
+        aria-hidden
+      >
+        <ellipse
+          cx="100"
+          cy="72"
+          rx="40"
+          ry="50"
+          fill="none"
+          stroke="white"
+          strokeWidth="2.5"
+          strokeDasharray="5 4"
+          opacity="0.95"
+        />
+        <path
+          d="M38 196 C38 138, 68 122, 100 122 C132 122, 162 138, 162 196"
+          fill="none"
+          stroke="white"
+          strokeWidth="2.5"
+          strokeDasharray="5 4"
+          opacity="0.95"
+        />
+      </svg>
+    </div>
+  );
+}
+
+/** Crop to 1:1 JPEG (slightly larger than 600 so the server can normalize). */
 async function processCrop(imageSrc: string, pixelCrop: Area): Promise<string> {
+  if (isPhotoTooSmall(pixelCrop.width, pixelCrop.height)) {
+    throw new Error(ID_PHOTO_TOO_SMALL_MESSAGE);
+  }
+
   const image = await loadImage(imageSrc);
-  const size = 300;
+  const cropSide = Math.min(pixelCrop.width, pixelCrop.height);
+  const size = Math.min(ID_PHOTO_CLIENT_OUTPUT_SIZE, Math.round(cropSide));
 
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -325,41 +397,34 @@ export function IdPhotoUpload({
     }
   };
 
-  const autoProcessImage = async (imageSource: string) => {
-    setIsProcessing(true);
+  const enterCropMode = async (imageSource: string) => {
     try {
       const img = await loadImage(imageSource);
-      const imgWidth = img.width;
-      const imgHeight = img.height;
-      
-      const minDimension = Math.min(imgWidth, imgHeight);
-      const cropArea: Area = {
-        x: (imgWidth - minDimension) / 2,
-        y: (imgHeight - minDimension) / 2,
-        width: minDimension,
-        height: minDimension,
-      };
-      
-      const processedUrl = await processCrop(imageSource, cropArea);
-      setProcessedPreview(processedUrl);
-      onPhotoProcessed(processedUrl);
-      setMode('preview-processed');
+      if (rejectIfTooSmall(img.width, img.height)) {
+        reset();
+        return;
+      }
+      setOriginalImageSrc(imageSource);
+      setImageSrc(imageSource);
+      setCrop({ x: 0, y: 0 });
+      setZoom(1);
+      setCroppedAreaPixels(null);
+      setImageSize({ width: img.width, height: img.height });
+      setMode('crop');
     } catch (err) {
-      console.error('Auto-process failed:', err);
-      toast.error('Photo processing failed', {
-        description: 'Could not process the photo. Please try again.',
+      console.error('Could not open cropper:', err);
+      toast.error('Could not load photo', {
+        description: 'Please try another photo.',
         duration: 6000,
       });
       reset();
-    } finally {
-      setIsProcessing(false);
     }
   };
 
   const startCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 1280 } },
+        video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1920 } },
       });
       streamRef.current = stream;
       setMode('camera');
@@ -385,10 +450,7 @@ export function IdPhotoUpload({
     const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
     stopCamera();
     originalFileRef.current = null;
-    
-    // Store original and auto-process
-    setOriginalImageSrc(dataUrl);
-    await autoProcessImage(dataUrl);
+    await enterCropMode(dataUrl);
   };
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -467,9 +529,7 @@ export function IdPhotoUpload({
     // Test if the image loads
     const testImg = new Image();
     testImg.onload = async () => {
-      // Success - store original and auto-process
-      setOriginalImageSrc(objectUrl);
-      await autoProcessImage(objectUrl);
+      await enterCropMode(objectUrl);
     };
     testImg.onerror = async () => {
       // Image load failed - try recovery
@@ -492,9 +552,7 @@ export function IdPhotoUpload({
           objectUrlRef.current = newObjectUrl;
           
           toast.success('Photo loaded', { id: fallbackToastId, duration: 2000 });
-          
-          setOriginalImageSrc(newObjectUrl);
-          await autoProcessImage(newObjectUrl);
+          await enterCropMode(newObjectUrl);
         } catch (reencodeError) {
           console.error('Fallback JPEG re-encoding failed:', reencodeError);
           toast.error('Image load failed', {
@@ -517,9 +575,7 @@ export function IdPhotoUpload({
           objectUrlRef.current = newObjectUrl;
           
           toast.success('Photo loaded', { id: fallbackToastId, duration: 2000 });
-          
-          setOriginalImageSrc(newObjectUrl);
-          await autoProcessImage(newObjectUrl);
+          await enterCropMode(newObjectUrl);
         } catch (conversionError) {
           console.error('Fallback conversion failed:', conversionError);
           toast.error('Image load failed', {
@@ -630,6 +686,15 @@ export function IdPhotoUpload({
       setImageSrc(null);
     } catch (err) {
       console.error('Photo processing failed:', err);
+      const message = err instanceof Error ? err.message : '';
+      if (message.includes('too small')) {
+        toast.error(ID_PHOTO_TOO_SMALL_MESSAGE, {
+          description: 'Zoom out so more of the photo is in the square, or use a clearer photo.',
+          duration: 6000,
+        });
+        setIsProcessing(false);
+        return;
+      }
       toast.error('Photo processing failed', { 
         description: 'Could not process the photo. Please try another photo.', 
         duration: 6000 
@@ -650,11 +715,12 @@ export function IdPhotoUpload({
   if (mode === 'camera') {
     return (
       <div className="space-y-4">
-        <div className="relative w-full aspect-square bg-black rounded-xl overflow-hidden">
+        <div className="relative w-full max-w-sm mx-auto aspect-square bg-black rounded-xl overflow-hidden">
           <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
+          <IdPhotoSilhouetteGuide />
         </div>
         <p className="text-sm text-gray-600 text-center">
-          Face the camera against a plain light or white wall. Use even lighting.
+          Align your face in the oval, shoulders visible. Use a plain light wall and even lighting.
         </p>
         <div className="flex gap-3">
           <Button type="button" variant="outline" className="flex-1 h-12" onClick={reset}>
@@ -678,16 +744,21 @@ export function IdPhotoUpload({
   if (mode === 'crop' && imageSrc) {
     return (
       <div className="space-y-4">
-        <div className="relative w-full bg-gray-100 rounded-xl overflow-hidden" style={{ maxHeight: '45vh', minHeight: '240px', height: '240px' }}>
+        <div
+          className="relative w-full max-w-sm mx-auto bg-gray-900 rounded-xl overflow-hidden"
+          style={{ maxHeight: '55vh', minHeight: '260px', aspectRatio: '1 / 1' }}
+        >
           <Cropper
             image={imageSrc}
             crop={crop}
             zoom={zoom}
             aspect={1}
+            objectFit="contain"
             onCropChange={setCrop}
             onZoomChange={setZoom}
             onCropComplete={(_, area) => setCroppedAreaPixels(area)}
           />
+          <IdPhotoSilhouetteGuide />
         </div>
         <div>
           <Label className="text-sm font-medium">Zoom</Label>
@@ -702,14 +773,21 @@ export function IdPhotoUpload({
           />
         </div>
         <p className="text-sm text-gray-600 text-center">
-          Adjust crop and zoom, then tap Done.
+          Drag and zoom so your face sits in the oval and shoulders are visible, then confirm.
         </p>
         <div className="flex gap-3">
           <Button 
             type="button" 
             variant="outline" 
             className="flex-1 h-12" 
-            onClick={() => setMode('preview-processed')} 
+            onClick={() => {
+              if (preview) {
+                setMode('preview-processed');
+                setImageSrc(null);
+                return;
+              }
+              reset();
+            }} 
             disabled={isProcessing}
           >
             <X className="w-4 h-4" />
@@ -727,7 +805,7 @@ export function IdPhotoUpload({
             ) : (
               <>
                 <Check className="w-4 h-4" />
-                Done
+                Use this photo
               </>
             )}
           </Button>
@@ -814,10 +892,12 @@ export function IdPhotoUpload({
         </div>
       )}
 
+      <PhotoCaptureChecklist />
+
       <p className="text-sm text-gray-600">
         {required
-          ? 'A face photo is required for the ID database and your Community ID card. Use a plain light or white wall background with even lighting.'
-          : 'Take or upload a face photo against a plain light or white wall for your Community ID.'}
+          ? 'A face photo is required for the ID database and your Community ID card.'
+          : 'Take or upload a face photo for your Community ID.'}
       </p>
 
       <div className="grid grid-cols-2 gap-3">

@@ -185,6 +185,14 @@ export function parseAuthError(error: unknown): ParsedError {
     };
   }
 
+  if (lowerMessage.includes('photo too small')) {
+    return {
+      title: 'Photo too small',
+      message: errorMessage || 'Photo too small — use a clearer photo',
+      type: 'validation',
+    };
+  }
+
   // Validation errors
   if (
     statusCode === 400 ||

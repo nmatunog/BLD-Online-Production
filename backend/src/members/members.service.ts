@@ -20,6 +20,11 @@ import {
   normalizeApostolate,
   normalizeMinistry,
 } from '../common/constants/organization.constants';
+import {
+  normalizeIdPhoto,
+  IdPhotoTooSmallError,
+  ID_PHOTO_TOO_SMALL_MESSAGE,
+} from '../common/utils/id-photo-normalize';
 
 /** Inputs that map to Cebu (Community ID starts with CEB) */
 const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
@@ -556,8 +561,13 @@ export class MembersService {
     if (updateMemberDto.serviceArea !== undefined) {
       updateData.serviceArea = updateMemberDto.serviceArea || null;
     }
+    let pendingPhotoDataUrl: string | null = null;
     if (updateMemberDto.photoUrl !== undefined) {
-      updateData.photoUrl = updateMemberDto.photoUrl || null;
+      if (updateMemberDto.photoUrl && updateMemberDto.photoUrl.startsWith('data:image/')) {
+        pendingPhotoDataUrl = updateMemberDto.photoUrl;
+      } else {
+        updateData.photoUrl = updateMemberDto.photoUrl || null;
+      }
     }
     if (updateMemberDto.gender !== undefined) {
       updateData.gender = updateMemberDto.gender ? String(updateMemberDto.gender).trim() || null : null;
@@ -605,7 +615,7 @@ export class MembersService {
 
     // Update both member and user in a transaction
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const updated = await this.prisma.$transaction(async (tx) => {
         // If taking over email/phone from an inactive account, clear it from the inactive user first
         const newEmail = userUpdateData.email != null ? String(userUpdateData.email).trim() : '';
         if (newEmail) {
@@ -665,7 +675,15 @@ export class MembersService {
           },
         });
       });
+      if (pendingPhotoDataUrl) {
+        const saved = await this.savePhoto(id, pendingPhotoDataUrl);
+        return { ...updated, photoUrl: saved.photoUrl };
+      }
+      return updated;
     } catch (e: unknown) {
+      if (e instanceof BadRequestException || e instanceof ConflictException || e instanceof ForbiddenException) {
+        throw e;
+      }
       // Never leak 500: convert all errors to HTTP exceptions with a safe message
       const prismaError = e as { code?: string; meta?: { target?: string[] }; message?: string };
       if (prismaError?.code === 'P2002' && prismaError?.meta?.target) {
@@ -885,8 +903,8 @@ export class MembersService {
   }
 
   /**
-   * Store a processed ID photo. Prefers BunnyCDN; falls back to a compressed JPEG data URL
-   * so signup still works when CDN env vars are missing.
+   * Store an ID photo. Center-crops 1:1, resizes to 600×600 JPEG ~q82, then
+   * uploads only that normalized buffer to BunnyCDN (or a data URL fallback).
    */
   async savePhoto(
     memberId: string,
@@ -922,16 +940,29 @@ export class MembersService {
       throw new BadRequestException('Photo must be JPEG, PNG, or WebP');
     }
 
+    let normalized: Buffer;
+    try {
+      normalized = await normalizeIdPhoto(buffer);
+    } catch (error) {
+      if (error instanceof IdPhotoTooSmallError) {
+        throw new BadRequestException(ID_PHOTO_TOO_SMALL_MESSAGE);
+      }
+      throw new BadRequestException(
+        error instanceof Error ? error.message : 'Could not process photo',
+      );
+    }
+
+    const storedType = 'image/jpeg';
     let photoUrl: string;
     if (this.bunnyCDN.isConfigured()) {
       try {
-        photoUrl = await this.bunnyCDN.uploadMemberPhoto(buffer, member.communityId, contentType);
+        photoUrl = await this.bunnyCDN.uploadMemberPhoto(normalized, member.communityId, storedType);
       } catch (error) {
         console.warn('BunnyCDN photo upload failed, storing data URL:', error);
-        photoUrl = `data:${contentType};base64,${buffer.toString('base64')}`;
+        photoUrl = `data:${storedType};base64,${normalized.toString('base64')}`;
       }
     } else {
-      photoUrl = `data:${contentType};base64,${buffer.toString('base64')}`;
+      photoUrl = `data:${storedType};base64,${normalized.toString('base64')}`;
     }
 
     await this.prisma.member.update({

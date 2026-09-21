@@ -1,6 +1,32 @@
 import { apiClient } from './api-client';
 import { ApiResponse } from '@/types/api.types';
 
+function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === 'object') {
+    const axiosErr = error as {
+      response?: { data?: { message?: string | string[]; error?: string } };
+      message?: string;
+    };
+    const data = axiosErr.response?.data;
+    if (data) {
+      if (typeof data.message === 'string' && data.message.trim()) {
+        return data.message;
+      }
+      if (Array.isArray(data.message)) {
+        const joined = data.message.filter((item) => typeof item === 'string').join(', ');
+        if (joined) return joined;
+      }
+      if (typeof data.error === 'string' && data.error.trim()) {
+        return data.error;
+      }
+    }
+    if (typeof axiosErr.message === 'string' && axiosErr.message.trim()) {
+      return axiosErr.message;
+    }
+  }
+  return fallback;
+}
+
 export interface Member {
   id: string;
   userId: string;
@@ -172,27 +198,35 @@ class MembersService {
   }
 
   async uploadMyPhoto(photoDataUrl: string): Promise<string> {
-    const response = await apiClient.post<ApiResponse<{ photoUrl: string }>>(
-      '/members/me/photo',
-      { photoDataUrl },
-      { timeout: 30000 },
-    );
-    if (!response.data.success || !response.data.data?.photoUrl) {
-      throw new Error(response.data.error || 'Failed to upload photo');
+    try {
+      const response = await apiClient.post<ApiResponse<{ photoUrl: string }>>(
+        '/members/me/photo',
+        { photoDataUrl },
+        { timeout: 30000 },
+      );
+      if (!response.data.success || !response.data.data?.photoUrl) {
+        throw new Error(response.data.error || 'Failed to upload photo');
+      }
+      return response.data.data.photoUrl;
+    } catch (error) {
+      throw new Error(getApiErrorMessage(error, 'Failed to upload photo'));
     }
-    return response.data.data.photoUrl;
   }
 
   async uploadMemberPhoto(memberId: string, photoDataUrl: string): Promise<string> {
-    const response = await apiClient.post<ApiResponse<{ photoUrl: string }>>(
-      `/members/${memberId}/photo`,
-      { photoDataUrl },
-      { timeout: 30000 },
-    );
-    if (!response.data.success || !response.data.data?.photoUrl) {
-      throw new Error(response.data.error || 'Failed to upload photo');
+    try {
+      const response = await apiClient.post<ApiResponse<{ photoUrl: string }>>(
+        `/members/${memberId}/photo`,
+        { photoDataUrl },
+        { timeout: 30000 },
+      );
+      if (!response.data.success || !response.data.data?.photoUrl) {
+        throw new Error(response.data.error || 'Failed to upload photo');
+      }
+      return response.data.data.photoUrl;
+    } catch (error) {
+      throw new Error(getApiErrorMessage(error, 'Failed to upload photo'));
     }
-    return response.data.data.photoUrl;
   }
 
   async delete(id: string): Promise<void> {
