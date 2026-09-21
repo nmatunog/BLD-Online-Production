@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -22,14 +23,21 @@ const U2NETP_STD = [0.229, 0.224, 0.225];
 /**
  * ~4.6MB quantized U-2-Net-p (same weights rembg uses). Cached under os.tmpdir().
  * Override with ID_PHOTO_REMBG_MODEL_URL or ID_PHOTO_REMBG_MODEL_PATH.
+ *
+ * SHA-256 is the rembg v0.0.0 release asset (md5 8e83ca70e441ab06c318d82300c84806).
+ * Fallback is a documented byte-for-byte Hugging Face mirror of that same file.
  */
 const DEFAULT_MODEL_URLS = [
   'https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx',
-  'https://huggingface.co/andrey18106/u2netp/resolve/main/u2netp.onnx',
+  'https://huggingface.co/edgetools/u2netp/resolve/main/u2netp.onnx',
 ];
 
 const MODEL_MIN_BYTES = 1_000_000;
 const MODEL_MAX_BYTES = 12_000_000;
+
+/** rembg u2netp.onnx (4,574,861 bytes). Rejects a swapped/truncated download. */
+export const REMBG_U2NETP_SHA256 =
+  '309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8';
 
 /**
  * Returns a PNG (or other sharp-readable buffer) with an alpha channel:
@@ -75,6 +83,27 @@ function modelCachePath(): string {
   return process.env.ID_PHOTO_REMBG_MODEL_PATH?.trim() || path.join(os.tmpdir(), 'bld-id-photo-u2netp.onnx');
 }
 
+export function isRembgU2netpModel(buf: Buffer): boolean {
+  if (buf.length < MODEL_MIN_BYTES || buf.length > MODEL_MAX_BYTES) {
+    return false;
+  }
+  const digest = createHash('sha256').update(buf).digest('hex');
+  return digest === REMBG_U2NETP_SHA256;
+}
+
+async function readCachedU2netp(dest: string): Promise<boolean> {
+  try {
+    const st = await fs.promises.stat(dest);
+    if (!st.isFile() || st.size < MODEL_MIN_BYTES || st.size > MODEL_MAX_BYTES) {
+      return false;
+    }
+    const buf = await fs.promises.readFile(dest);
+    return isRembgU2netpModel(buf);
+  } catch {
+    return false;
+  }
+}
+
 async function downloadModel(url: string, dest: string): Promise<void> {
   const res = await fetch(url, {
     redirect: 'follow',
@@ -84,8 +113,8 @@ async function downloadModel(url: string, dest: string): Promise<void> {
     throw new Error(`Model download HTTP ${res.status} from ${url}`);
   }
   const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length < MODEL_MIN_BYTES || buf.length > MODEL_MAX_BYTES) {
-    throw new Error(`Unexpected model size ${buf.length} from ${url}`);
+  if (!isRembgU2netpModel(buf)) {
+    throw new Error(`rembg u2netp checksum/size mismatch from ${url} (${buf.length} bytes)`);
   }
   const tmp = `${dest}.${process.pid}.tmp`;
   await fs.promises.writeFile(tmp, buf);
@@ -94,13 +123,8 @@ async function downloadModel(url: string, dest: string): Promise<void> {
 
 async function ensureModelFile(): Promise<string> {
   const dest = modelCachePath();
-  try {
-    const st = await fs.promises.stat(dest);
-    if (st.isFile() && st.size >= MODEL_MIN_BYTES && st.size <= MODEL_MAX_BYTES) {
-      return dest;
-    }
-  } catch {
-    // missing
+  if (await readCachedU2netp(dest)) {
+    return dest;
   }
 
   const urls = [
