@@ -11,8 +11,15 @@ import {
   ID_PHOTO_TOO_SMALL_MESSAGE,
   isPhotoTooSmall,
 } from '@/lib/id-photo';
+import {
+  ID_PHOTO_CROP_MAX_ZOOM,
+  NO_FACE_CROP_TIP,
+  resolveInitialIdPhotoCrop,
+  type PixelBox,
+} from '@/lib/id-photo-face-crop';
+import { detectPrimaryFace } from '@/lib/id-photo-face-detect';
 
-type Mode = 'select' | 'camera' | 'crop' | 'preview-processed';
+type Mode = 'select' | 'camera' | 'preparing' | 'crop' | 'preview-processed';
 
 interface IdPhotoUploadProps {
   onPhotoProcessed: (photoDataUrl: string | null) => void;
@@ -334,6 +341,9 @@ export function IdPhotoUpload({
   const [crop, setCrop] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
+  const [initialCropPixels, setInitialCropPixels] = useState<PixelBox | null>(null);
+  const [cropperNonce, setCropperNonce] = useState(0);
+  const [showNoFaceTip, setShowNoFaceTip] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [preview, setProcessedPreview] = useState<string | null>(currentPhoto);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
@@ -343,6 +353,7 @@ export function IdPhotoUpload({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const objectUrlRef = useRef<string | null>(null);
   const originalFileRef = useRef<File | null>(null);
+  const prepareGenRef = useRef(0);
 
   const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -382,11 +393,14 @@ export function IdPhotoUpload({
   }, [imageSrc]);
 
   const reset = () => {
+    prepareGenRef.current += 1;
     stopCamera();
     setMode('select');
     setImageSrc(null);
     setOriginalImageSrc(null);
     setCroppedAreaPixels(null);
+    setInitialCropPixels(null);
+    setShowNoFaceTip(false);
     setImageSize(null);
     originalFileRef.current = null;
     
@@ -398,8 +412,10 @@ export function IdPhotoUpload({
   };
 
   const enterCropMode = async (imageSource: string) => {
+    const gen = ++prepareGenRef.current;
     try {
       const img = await loadImage(imageSource);
+      if (gen !== prepareGenRef.current) return;
       if (rejectIfTooSmall(img.width, img.height)) {
         reset();
         return;
@@ -410,7 +426,22 @@ export function IdPhotoUpload({
       setCrop({ x: 0, y: 0 });
       setZoom(1);
       setCroppedAreaPixels(null);
+      setInitialCropPixels(null);
+      setShowNoFaceTip(false);
       setImageSize({ width: img.width, height: img.height });
+      setMode('preparing');
+
+      const face = await detectPrimaryFace(img);
+      if (gen !== prepareGenRef.current) return;
+      const { crop: initialCrop, usedFace } = resolveInitialIdPhotoCrop(
+        img.width,
+        img.height,
+        face,
+      );
+      setInitialCropPixels(initialCrop);
+      setCroppedAreaPixels(initialCrop);
+      setShowNoFaceTip(!usedFace);
+      setCropperNonce((n) => n + 1);
       setMode('crop');
     } catch (err) {
       console.error('Could not open cropper:', err);
@@ -594,12 +625,7 @@ export function IdPhotoUpload({
 
   const openAdjust = () => {
     if (!originalImageSrc) return;
-    setImageSrc(originalImageSrc);
-    setCrop({ x: 0, y: 0 });
-    setZoom(1);
-    setCroppedAreaPixels(null);
-    setImageSize(null);
-    setMode('crop');
+    void enterCropMode(originalImageSrc);
   };
 
   const applyCrop = async () => {
@@ -743,6 +769,24 @@ export function IdPhotoUpload({
     );
   }
 
+  if (mode === 'preparing' && imageSrc) {
+    return (
+      <div className="space-y-4">
+        <div className="relative w-full max-w-sm mx-auto aspect-square bg-gray-900 rounded-xl overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={imageSrc} alt="" className="h-full w-full object-contain opacity-60" />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <p className="rounded-full bg-black/60 px-4 py-2 text-sm text-white">Finding your face…</p>
+          </div>
+        </div>
+        <Button type="button" variant="outline" className="w-full h-12" onClick={reset}>
+          <X className="w-4 h-4" />
+          Cancel
+        </Button>
+      </div>
+    );
+  }
+
   if (mode === 'crop' && imageSrc) {
     return (
       <div className="space-y-4">
@@ -751,11 +795,15 @@ export function IdPhotoUpload({
           style={{ maxHeight: '55vh', minHeight: '260px', aspectRatio: '1 / 1' }}
         >
           <Cropper
+            key={cropperNonce}
             image={imageSrc}
             crop={crop}
             zoom={zoom}
             aspect={1}
             objectFit="contain"
+            minZoom={1}
+            maxZoom={ID_PHOTO_CROP_MAX_ZOOM}
+            initialCroppedAreaPixels={initialCropPixels ?? undefined}
             onCropChange={setCrop}
             onZoomChange={setZoom}
             onCropComplete={(_, area) => setCroppedAreaPixels(area)}
@@ -767,13 +815,21 @@ export function IdPhotoUpload({
           <input
             type="range"
             min={1}
-            max={3}
+            max={ID_PHOTO_CROP_MAX_ZOOM}
             step={0.1}
             value={zoom}
             onChange={(e) => setZoom(Number(e.target.value))}
             className="w-full mt-1"
           />
         </div>
+        {showNoFaceTip && (
+          <p
+            className="text-sm text-center text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2"
+            role="status"
+          >
+            {NO_FACE_CROP_TIP}
+          </p>
+        )}
         <p className="text-sm text-gray-600 text-center">
           Drag and zoom so your face sits in the oval and shoulders are visible, then confirm.
         </p>

@@ -1,6 +1,26 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   eslint: { ignoreDuringBuilds: true },
+  transpilePackages: [
+    '@tensorflow/tfjs',
+    '@tensorflow/tfjs-core',
+    '@tensorflow/tfjs-converter',
+    '@tensorflow/tfjs-backend-cpu',
+    '@tensorflow/tfjs-backend-webgl',
+    '@tensorflow-models/blazeface',
+  ],
+  serverExternalPackages: ['@tensorflow/tfjs', '@tensorflow-models/blazeface'],
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+        crypto: false,
+      };
+    }
+    return config;
+  },
   async headers() {
     return [
       {

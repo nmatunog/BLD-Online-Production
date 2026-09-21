@@ -6,7 +6,8 @@
     "dev": "next dev -H 127.0.0.1 -p 3000",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "vitest run"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -54,6 +55,8 @@
     "tailwind-merge": "^3.4.0",
     "tailwindcss": "^4",
     "typescript": "^5",
+    "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow-models/blazeface": "^0.1.0",
     "xlsx": "^0.18.5",
     "zod": "^4.1.12"
   },
@@ -63,6 +66,7 @@
     "@types/react-dom": "^19",
     "baseline-browser-mapping": "^2.9.17",
     "eslint": "^9",
-    "eslint-config-next": "^15.1.6"
+    "eslint-config-next": "^15.1.6",
+    "vitest": "^3.2.4"
   }
 }
