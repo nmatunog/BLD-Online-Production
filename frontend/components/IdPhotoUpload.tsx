@@ -9,6 +9,7 @@ import { toast } from 'sonner';
 import {
   ID_PHOTO_CLIENT_OUTPUT_SIZE,
   ID_PHOTO_TOO_SMALL_MESSAGE,
+  ID_PHOTO_WHITE_BG_HINT,
   isPhotoTooSmall,
 } from '@/lib/id-photo';
 import {
@@ -833,6 +834,7 @@ export function IdPhotoUpload({
         <p className="text-sm text-gray-600 text-center">
           Drag and zoom so your face sits in the oval and shoulders are visible, then confirm.
         </p>
+        <p className="text-sm text-gray-600 text-center">{ID_PHOTO_WHITE_BG_HINT}</p>
         <div className="flex gap-3">
           <Button 
             type="button" 
