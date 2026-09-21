@@ -90,7 +90,15 @@ export function idPhotoCropFromFace(
   const faceCenterX = clampedFace.x + clampedFace.width / 2;
   const faceCenterY = clampedFace.y + clampedFace.height / 2;
   const desiredSide = clampedFace.height / FACE_HEIGHT_IN_CROP;
-  const side = clamp(desiredSide, minCropSide, minSide);
+
+  // Shrink so the face can stay framed when it sits near an image edge.
+  const maxSideForX = 2 * Math.min(faceCenterX, imageWidth - faceCenterX);
+  const maxSideForY = Math.min(
+    faceCenterY / FACE_CENTER_Y_IN_CROP,
+    (imageHeight - faceCenterY) / (1 - FACE_CENTER_Y_IN_CROP),
+  );
+  const maxCenteredSide = Math.min(minSide, maxSideForX, maxSideForY);
+  const side = clamp(desiredSide, minCropSide, Math.max(minCropSide, maxCenteredSide));
 
   const x = clamp(faceCenterX - side / 2, 0, imageWidth - side);
   const y = clamp(faceCenterY - side * FACE_CENTER_Y_IN_CROP, 0, imageHeight - side);

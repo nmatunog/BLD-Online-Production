@@ -72,6 +72,9 @@ describe('idPhotoCropFromFace', () => {
     expect(containsFace(crop, face)).toBe(true);
     const center = centerSquareCrop(imageWidth, imageHeight);
     expect(crop.x).toBeLessThan(center.x);
+    const cropCenterX = crop.x + crop.width / 2;
+    const faceCenterX = face.x + face.width / 2;
+    expect(Math.abs(cropCenterX - faceCenterX)).toBeLessThanOrEqual(1);
   });
 
   it('clamps a face near the top so the crop stays in-bounds', () => {
