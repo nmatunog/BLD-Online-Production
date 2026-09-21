@@ -5,6 +5,7 @@ import {
   ConflictException,
   ForbiddenException,
   Logger,
+  OnModuleInit,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateMemberDto } from './dto/create-member.dto';
@@ -21,10 +22,10 @@ import {
   normalizeMinistry,
 } from '../common/constants/organization.constants';
 import {
-  normalizeIdPhoto,
   IdPhotoTooSmallError,
   ID_PHOTO_TOO_SMALL_MESSAGE,
 } from '../common/utils/id-photo-normalize';
+import { prepareStoredIdPhoto, warmupIdPhotoWhiteBg } from '../common/utils/id-photo-white-bg';
 
 /** Inputs that map to Cebu (Community ID starts with CEB) */
 const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
@@ -46,13 +47,17 @@ function normalizeCityToCode(input: string): string {
 }
 
 @Injectable()
-export class MembersService {
+export class MembersService implements OnModuleInit {
   private readonly logger = new Logger(MembersService.name);
 
   constructor(
     private prisma: PrismaService,
     private bunnyCDN: BunnyCDNService,
   ) {}
+
+  onModuleInit() {
+    void warmupIdPhotoWhiteBg();
+  }
 
   async create(createMemberDto: CreateMemberDto, userId: string) {
     // Check if user already has a member profile
@@ -903,8 +908,8 @@ export class MembersService {
   }
 
   /**
-   * Store an ID photo. Center-crops 1:1, resizes to 600×600 JPEG ~q82, then
-   * uploads only that normalized buffer to BunnyCDN (or a data URL fallback).
+   * Store an ID photo. White-BG cleanup (fail-open), then 1:1 cover crop,
+   * 600×600 JPEG ~q82, then BunnyCDN (or a data URL fallback).
    */
   async savePhoto(
     memberId: string,
@@ -942,7 +947,7 @@ export class MembersService {
 
     let normalized: Buffer;
     try {
-      normalized = await normalizeIdPhoto(buffer);
+      normalized = await prepareStoredIdPhoto(buffer);
     } catch (error) {
       if (error instanceof IdPhotoTooSmallError) {
         throw new BadRequestException(ID_PHOTO_TOO_SMALL_MESSAGE);
