@@ -7,6 +7,9 @@ export const ID_PHOTO_CLIENT_OUTPUT_SIZE = 800;
 
 export const ID_PHOTO_TOO_SMALL_MESSAGE = 'Photo too small — use a clearer photo';
 
+/** Shown near crop confirm; server applies white-BG cleanup on upload. */
+export const ID_PHOTO_WHITE_BG_HINT = "We'll clean up the background for your ID.";
+
 export function isPhotoTooSmall(width: number, height: number): boolean {
   return Math.min(width, height) < ID_PHOTO_MIN_SHORT_SIDE;
 }

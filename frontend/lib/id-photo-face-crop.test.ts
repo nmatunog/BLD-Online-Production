@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ID_PHOTO_MIN_SHORT_SIDE } from './id-photo';
+import { ID_PHOTO_MIN_SHORT_SIDE, ID_PHOTO_WHITE_BG_HINT } from './id-photo';
 import {
   FACE_CENTER_Y_IN_CROP,
   FACE_HEIGHT_IN_CROP,
@@ -149,5 +149,11 @@ describe('resolveInitialIdPhotoCrop', () => {
     expect(result.usedFace).toBe(false);
     expect(result.crop).toEqual(centerSquareCrop(1600, 900));
     expect(NO_FACE_CROP_TIP).toMatch(/Couldn.t find a face/);
+  });
+});
+
+describe('ID_PHOTO_WHITE_BG_HINT', () => {
+  it('tells the member the server will clean the background', () => {
+    expect(ID_PHOTO_WHITE_BG_HINT).toBe("We'll clean up the background for your ID.");
   });
 });
