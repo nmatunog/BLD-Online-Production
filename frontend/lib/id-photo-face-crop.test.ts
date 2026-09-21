@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { ID_PHOTO_MIN_SHORT_SIDE } from './id-photo';
 import {
   FACE_CENTER_Y_IN_CROP,
   FACE_HEIGHT_IN_CROP,
@@ -67,14 +68,12 @@ describe('idPhotoCropFromFace', () => {
     const crop = idPhotoCropFromFace(imageWidth, imageHeight, face);
 
     expect(crop.width).toBe(crop.height);
+    expect(crop.width).toBeGreaterThanOrEqual(ID_PHOTO_MIN_SHORT_SIDE);
     expect(crop.x).toBeLessThan(imageWidth / 2);
     expect(crop.x).toBe(0);
     expect(containsFace(crop, face)).toBe(true);
     const center = centerSquareCrop(imageWidth, imageHeight);
     expect(crop.x).toBeLessThan(center.x);
-    const cropCenterX = crop.x + crop.width / 2;
-    const faceCenterX = face.x + face.width / 2;
-    expect(Math.abs(cropCenterX - faceCenterX)).toBeLessThanOrEqual(1);
   });
 
   it('clamps a face near the top so the crop stays in-bounds', () => {
@@ -98,8 +97,18 @@ describe('idPhotoCropFromFace', () => {
     const minSide = Math.min(imageWidth, imageHeight);
     const minCropSide = minSide / ID_PHOTO_CROP_MAX_ZOOM;
 
-    expect(crop.width).toBeGreaterThanOrEqual(Math.floor(minCropSide));
+    expect(crop.width).toBeGreaterThanOrEqual(Math.max(Math.floor(minCropSide), ID_PHOTO_MIN_SHORT_SIDE));
     expect(crop.width).toBeLessThanOrEqual(minSide);
+  });
+
+  it('never initializes a crop smaller than 600px when the image can supply it', () => {
+    const imageWidth = 2400;
+    const imageHeight = 1000;
+    const face: FaceBox = { x: 80, y: 220, width: 180, height: 240, score: 0.92 };
+    const crop = idPhotoCropFromFace(imageWidth, imageHeight, face);
+    expect(crop.width).toBeGreaterThanOrEqual(ID_PHOTO_MIN_SHORT_SIDE);
+    expect(crop.height).toBeGreaterThanOrEqual(ID_PHOTO_MIN_SHORT_SIDE);
+    expect(containsFace(crop, face)).toBe(true);
   });
 
   it('falls back to a centered square when the box is unusable', () => {

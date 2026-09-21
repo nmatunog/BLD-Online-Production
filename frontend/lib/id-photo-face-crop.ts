@@ -1,3 +1,5 @@
+import { ID_PHOTO_MIN_SHORT_SIDE } from './id-photo';
+
 /** Pixel rectangle in original-image coordinates (same shape as react-easy-crop Area). */
 export type PixelBox = {
   x: number;
@@ -85,7 +87,12 @@ export function idPhotoCropFromFace(
 
   const maxZoom = options?.maxZoom ?? ID_PHOTO_CROP_MAX_ZOOM;
   const minSide = Math.min(imageWidth, imageHeight);
-  const minCropSide = minSide / Math.max(1, maxZoom);
+  // Never auto-crop below the 600px submit floor when the image is large enough.
+  // Edge-face shrink can still clamp position, but "Use this photo" must remain valid.
+  const minCropSide = Math.min(
+    minSide,
+    Math.max(minSide / Math.max(1, maxZoom), ID_PHOTO_MIN_SHORT_SIDE),
+  );
 
   const faceCenterX = clampedFace.x + clampedFace.width / 2;
   const faceCenterY = clampedFace.y + clampedFace.height / 2;
