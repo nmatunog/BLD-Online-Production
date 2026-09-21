@@ -474,7 +474,7 @@ export function IdPhotoUpload({
     }
     
     let blobToUse: Blob = file;
-    let needsHeicConversion = isPotentialHeic;
+    const needsHeicConversion = isPotentialHeic;
     
     // Convert HEIC/HEIF to JPEG before creating object URL
     if (needsHeicConversion) {
@@ -643,9 +643,10 @@ export function IdPhotoUpload({
       let dataUrl: string;
       try {
         dataUrl = await processCrop(imageSrc, cropArea);
-      } catch (cropError: any) {
+      } catch (cropError: unknown) {
+        const cropMessage = cropError instanceof Error ? cropError.message : '';
         // If canvas is blank, retry with re-encoded image
-        if (cropError.message?.includes('blank') && originalFileRef.current) {
+        if (cropMessage.includes('blank') && originalFileRef.current) {
           const retryToastId = toast.loading('Retrying with optimized image...', {
             description: 'Canvas issue detected, re-encoding image',
           });
