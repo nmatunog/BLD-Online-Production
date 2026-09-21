@@ -1,5 +1,11 @@
 import sharp from 'sharp';
-import { applyWhiteBackground, flattenOnWhite, prepareStoredIdPhoto } from './id-photo-white-bg';
+import {
+  applyWhiteBackground,
+  flattenOnWhite,
+  isRembgU2netpModel,
+  prepareStoredIdPhoto,
+  REMBG_U2NETP_SHA256,
+} from './id-photo-white-bg';
 import { ID_PHOTO_OUTPUT_SIZE, ID_PHOTO_TOO_SMALL_MESSAGE } from './id-photo-normalize';
 
 async function rgbJpeg(
@@ -219,5 +225,21 @@ describe('prepareStoredIdPhoto', () => {
     await expect(
       prepareStoredIdPhoto(src, { removeBackground: colorKeyRedBackground }),
     ).rejects.toThrow(ID_PHOTO_TOO_SMALL_MESSAGE);
+  });
+});
+
+describe('isRembgU2netpModel', () => {
+  it('pins the rembg u2netp SHA-256', () => {
+    expect(REMBG_U2NETP_SHA256).toBe(
+      '309c8469258dda742793dce0ebea8e6dd393174f89934733ecc8b14c76f4ddd8',
+    );
+  });
+
+  it('rejects a same-sized buffer that is not the rembg weights', () => {
+    expect(isRembgU2netpModel(Buffer.alloc(1_500_000, 7))).toBe(false);
+  });
+
+  it('rejects an undersized buffer', () => {
+    expect(isRembgU2netpModel(Buffer.from('not-a-model'))).toBe(false);
   });
 });
