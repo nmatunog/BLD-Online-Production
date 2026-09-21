@@ -19,8 +19,9 @@ export class IdPhotoTooSmallError extends Error {
 }
 
 /**
- * Decode an ID photo, center-crop to 1:1, resize to 600×600, encode JPEG ~q82.
- * Strips metadata (sharp does not copy EXIF unless withMetadata() is used).
+ * Decode an ID photo, apply EXIF orientation, center-crop to 1:1, resize to
+ * 600×600, encode JPEG ~q82. Strips metadata (sharp does not copy EXIF unless
+ * withMetadata() is used).
  */
 export async function normalizeIdPhoto(input: Buffer): Promise<Buffer> {
   if (!input?.length) {
