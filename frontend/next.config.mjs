@@ -9,7 +9,6 @@ const nextConfig = {
     '@tensorflow/tfjs-backend-webgl',
     '@tensorflow-models/blazeface',
   ],
-  serverExternalPackages: ['@tensorflow/tfjs', '@tensorflow-models/blazeface'],
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {

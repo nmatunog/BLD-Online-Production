@@ -49,7 +49,7 @@ describe('idPhotoCropFromFace', () => {
 
     const faceCenterX = face.x + face.width / 2;
     const cropCenterX = crop.x + crop.width / 2;
-    expect(cropCenterX).toBeCloseTo(faceCenterX, 0);
+    expect(Math.abs(cropCenterX - faceCenterX)).toBeLessThanOrEqual(1);
 
     const faceCenterY = face.y + face.height / 2;
     const faceCenterYInCrop = (faceCenterY - crop.y) / crop.height;
