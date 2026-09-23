@@ -1307,11 +1307,11 @@ export default function MembersPage() {
               setShowEditDialog(open);
             }}
           >
-            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-white" aria-describedby="edit-member-desc">
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-white">
               <DialogHeader>
                 <DialogTitle className="text-lg font-semibold">Edit Member Profile</DialogTitle>
-                <DialogDescription id="edit-member-desc" className="sr-only">
-                  Edit personal and ministry information for this member.
+                <DialogDescription className="sr-only">
+                  Edit personal and ministry information for this member. Align the ID photo, then use this photo to save.
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleUpdateMember} className="space-y-6">

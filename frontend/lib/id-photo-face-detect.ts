@@ -24,6 +24,40 @@ type BlazeFaceModel = {
 
 let modelPromise: Promise<BlazeFaceModel> | null = null;
 
+type WebGLProbeDocument = {
+  createElement: (tagName: 'canvas') => {
+    getContext: (contextId: string) => unknown;
+  };
+};
+
+/** Probe the browser before TensorFlow tries WebGL (TF logs a hard error on failure). */
+export function isWebGLAvailable(
+  doc: WebGLProbeDocument | undefined = typeof document !== 'undefined'
+    ? (document as unknown as WebGLProbeDocument)
+    : undefined,
+): boolean {
+  if (!doc) return false;
+  try {
+    const canvas = doc.createElement('canvas');
+    const gl =
+      canvas.getContext('webgl2') ||
+      canvas.getContext('webgl') ||
+      canvas.getContext('experimental-webgl');
+    if (!gl || typeof (gl as WebGLRenderingContext).getExtension !== 'function') {
+      return false;
+    }
+    const lose = (gl as WebGLRenderingContext).getExtension('WEBGL_lose_context');
+    lose?.loseContext();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function resolveTfBackendName(webglAvailable: boolean = isWebGLAvailable()): 'webgl' | 'cpu' {
+  return webglAvailable ? 'webgl' : 'cpu';
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('Face detection timed out')), ms);
@@ -51,8 +85,9 @@ async function loadBlazeFace(): Promise<BlazeFaceModel> {
       const blazeface = await import('@tensorflow-models/blazeface');
 
       try {
-        const webglOk = await tf.setBackend('webgl');
-        if (!webglOk) {
+        const backend = resolveTfBackendName();
+        const ok = await tf.setBackend(backend);
+        if (!ok && backend === 'webgl') {
           await tf.setBackend('cpu');
         }
       } catch {
@@ -114,8 +149,7 @@ export async function detectPrimaryFace(image: HTMLImageElement): Promise<FaceBo
       .map(predictionToFaceBox)
       .filter((face): face is FaceBox => face !== null);
     return pickPrimaryFace(faces);
-  } catch (error) {
-    console.warn('ID photo face detection skipped:', error);
+  } catch {
     return null;
   }
 }
