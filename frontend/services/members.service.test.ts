@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SESSION_EXPIRED_MESSAGE } from './api-client-token';
 
-const ensureFreshToken = vi.fn();
-const post = vi.fn();
+const { ensureFreshToken, post } = vi.hoisted(() => ({
+  ensureFreshToken: vi.fn(),
+  post: vi.fn(),
+}));
 
 vi.mock('./api-client', () => ({
   apiClient: {
