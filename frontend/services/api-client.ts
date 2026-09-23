@@ -1,5 +1,12 @@
 import axios, { AxiosError, AxiosInstance, AxiosRequestConfig } from 'axios';
 import { getApiUrl } from '@/lib/runtime-config';
+import {
+  buildRetriedRequestConfig,
+  isAuthEndpointUrl,
+  isCredentialAttemptUrl,
+  shouldClearSessionOn401,
+  type RetryableRequestConfig,
+} from './api-client-retry';
 
 // Log API URL for debugging (only in development)
 // This will be logged when ApiClient is instantiated
@@ -89,46 +96,47 @@ class ApiClient {
         }
         
         if (error.response?.status === 401 && typeof window !== 'undefined') {
-          const originalConfig = error.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined;
+          const originalConfig = error.config as RetryableRequestConfig | undefined;
           const url = String(originalConfig?.url || '');
 
-          // Never try to refresh if we are already refreshing, or if this 401 came from auth endpoints.
-          const isAuthEndpoint =
-            url.includes('/auth/login') ||
-            url.includes('/auth/register') ||
-            url.includes('/auth/signup') ||
-            url.includes('/auth/refresh') ||
-            url.includes('/auth/login-by-qr');
+          // Never try to refresh if this 401 came from auth endpoints.
+          const isAuthEndpoint = isAuthEndpointUrl(url);
 
           // Failed sign-in / sign-up (wrong password, etc.): do NOT wipe an existing session or redirect.
-          const isCredentialAttempt =
-            url.includes('/auth/login') ||
-            url.includes('/auth/register') ||
-            url.includes('/auth/login-by-qr');
+          const isCredentialAttempt = isCredentialAttemptUrl(url);
 
           const currentPath = window.location.pathname;
           const isOnAuthPage = currentPath.includes('/login') || currentPath.includes('/register') || currentPath.includes('/signup') || currentPath.includes('/reset-password');
 
-          // Attempt one silent refresh + retry to avoid "random logouts" when access token expires.
-          if (!isAuthEndpoint && originalConfig && !originalConfig._retry) {
+          // One silent refresh + retry. If refresh works, keep the session even when the
+          // retried call (e.g. member photo POST) still fails.
+          const alreadyRetried = Boolean(originalConfig?._retry);
+          let refreshSucceeded = false;
+          if (!isAuthEndpoint && originalConfig && !alreadyRetried) {
             originalConfig._retry = true;
             const refreshToken = localStorage.getItem('refreshToken');
             if (refreshToken) {
-              try {
-                const newAccessToken = await this.refreshAccessToken(refreshToken);
-                if (newAccessToken) {
-                  originalConfig.headers = originalConfig.headers || {};
-                  (originalConfig.headers as any).Authorization = `Bearer ${newAccessToken}`;
-                  return this.client.request(originalConfig);
+              const newAccessToken = await this.refreshAccessToken(refreshToken);
+              if (newAccessToken) {
+                refreshSucceeded = true;
+                try {
+                  return await this.client.request(
+                    buildRetriedRequestConfig(originalConfig, newAccessToken),
+                  );
+                } catch (retryError) {
+                  return Promise.reject(retryError);
                 }
-              } catch {
-                // Fall through to logout below
               }
             }
           }
 
-          // Only clear session when a protected API call was unauthorized — not when login/register returned 401.
-          if (!isCredentialAttempt) {
+          if (
+            shouldClearSessionOn401({
+              isCredentialAttempt,
+              alreadyRetried,
+              refreshSucceeded,
+            })
+          ) {
             this.clearToken();
             localStorage.removeItem('authData');
             if (!isOnAuthPage) {

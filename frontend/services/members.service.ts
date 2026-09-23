@@ -1,6 +1,9 @@
 import { apiClient } from './api-client';
 import { ApiResponse } from '@/types/api.types';
 
+/** rembg/normalize often takes 8–15s; keep well above the 10s axios default. */
+export const PHOTO_UPLOAD_TIMEOUT_MS = 60_000;
+
 function getApiErrorMessage(error: unknown, fallback: string): string {
   if (error && typeof error === 'object') {
     const axiosErr = error as {
@@ -202,7 +205,7 @@ class MembersService {
       const response = await apiClient.post<ApiResponse<{ photoUrl: string }>>(
         '/members/me/photo',
         { photoDataUrl },
-        { timeout: 30000 },
+        { timeout: PHOTO_UPLOAD_TIMEOUT_MS },
       );
       if (!response.data.success || !response.data.data?.photoUrl) {
         throw new Error(response.data.error || 'Failed to upload photo');
@@ -218,7 +221,7 @@ class MembersService {
       const response = await apiClient.post<ApiResponse<{ photoUrl: string }>>(
         `/members/${memberId}/photo`,
         { photoDataUrl },
-        { timeout: 30000 },
+        { timeout: PHOTO_UPLOAD_TIMEOUT_MS },
       );
       if (!response.data.success || !response.data.data?.photoUrl) {
         throw new Error(response.data.error || 'Failed to upload photo');

@@ -23,7 +23,7 @@ import { detectPrimaryFace } from '@/lib/id-photo-face-detect';
 type Mode = 'select' | 'camera' | 'preparing' | 'crop' | 'preview-processed';
 
 interface IdPhotoUploadProps {
-  onPhotoProcessed: (photoDataUrl: string | null) => void;
+  onPhotoProcessed: (photoDataUrl: string | null) => void | Promise<void>;
   currentPhoto?: string | null;
   accentColor?: string;
   required?: boolean;
@@ -346,6 +346,7 @@ export function IdPhotoUpload({
   const [cropperNonce, setCropperNonce] = useState(0);
   const [showNoFaceTip, setShowNoFaceTip] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [preview, setProcessedPreview] = useState<string | null>(currentPhoto);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
 
@@ -633,6 +634,7 @@ export function IdPhotoUpload({
     if (!imageSrc) return;
     
     setIsProcessing(true);
+    let dataUrl: string | undefined;
     try {
       let cropArea = croppedAreaPixels;
       
@@ -668,7 +670,6 @@ export function IdPhotoUpload({
         });
       }
       
-      let dataUrl: string;
       try {
         dataUrl = await processCrop(imageSrc, cropArea);
       } catch (cropError: unknown) {
@@ -708,9 +709,12 @@ export function IdPhotoUpload({
           throw cropError;
         }
       }
+
+      if (!dataUrl) {
+        throw new Error('Could not process the photo');
+      }
       
       setProcessedPreview(dataUrl);
-      onPhotoProcessed(dataUrl);
       setMode('preview-processed');
       setImageSrc(null);
     } catch (err) {
@@ -729,8 +733,22 @@ export function IdPhotoUpload({
         duration: 6000 
       });
       reset();
+      return;
     } finally {
       setIsProcessing(false);
+    }
+
+    if (!dataUrl) return;
+    const persistResult = onPhotoProcessed(dataUrl);
+    if (persistResult && typeof persistResult.then === 'function') {
+      setIsSaving(true);
+      try {
+        await persistResult;
+      } catch {
+        // Caller owns save-error UI (toast). Keep the cropped preview so admin can retry.
+      } finally {
+        setIsSaving(false);
+      }
     }
   };
 
@@ -897,16 +915,26 @@ export function IdPhotoUpload({
           <button
             type="button"
             onClick={clearPhoto}
-            className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600"
+            disabled={isSaving}
+            className="absolute -top-2 -right-2 w-8 h-8 bg-red-500 text-white rounded-full flex items-center justify-center hover:bg-red-600 disabled:opacity-50 disabled:pointer-events-none"
             aria-label={required ? 'Retake photo' : 'Remove photo'}
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <p className="text-sm text-gray-600 text-center">
-          Photo ready. Tap Adjust to crop/zoom, or tap Save when ready.
-        </p>
+        {isSaving ? (
+          <p
+            role="status"
+            className="text-sm text-center text-purple-900 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2"
+          >
+            Saving photo… may take ~15s
+          </p>
+        ) : (
+          <p className="text-sm text-gray-600 text-center">
+            Photo ready. Tap Adjust to crop/zoom, or tap Save when ready.
+          </p>
+        )}
 
         <Button
           type="button"
@@ -914,6 +942,7 @@ export function IdPhotoUpload({
           className="w-full h-12 text-base font-semibold"
           style={{ borderColor: `${accentColor}40`, color: accentColor }}
           onClick={openAdjust}
+          disabled={isSaving}
         >
           Adjust photo
         </Button>
