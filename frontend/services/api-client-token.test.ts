@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ACCESS_TOKEN_REFRESH_SKEW_MS,
+  describeRefreshFailure,
   getAccessTokenExpiryMs,
   planFreshAccessToken,
   runEnsureFreshToken,
@@ -116,5 +117,23 @@ describe('runEnsureFreshToken', () => {
     await expect(runEnsureFreshToken(expired, null, async () => 'nope', nowMs)).rejects.toThrow(
       SESSION_EXPIRED_MESSAGE,
     );
+  });
+});
+
+describe('describeRefreshFailure', () => {
+  it('exposes axios status and body for logging', () => {
+    expect(
+      describeRefreshFailure({
+        response: { status: 401, data: { message: 'Invalid refresh token' } },
+        message: 'Request failed with status code 401',
+      }),
+    ).toEqual({ status: 401, body: { message: 'Invalid refresh token' } });
+  });
+
+  it('falls back to the error message when there is no response', () => {
+    expect(describeRefreshFailure(new Error('Network Error'))).toEqual({
+      status: null,
+      body: 'Network Error',
+    });
   });
 });

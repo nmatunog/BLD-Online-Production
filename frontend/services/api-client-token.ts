@@ -64,6 +64,20 @@ export function planFreshAccessToken(
   return { action: 'expired' };
 }
 
+export function describeRefreshFailure(error: unknown): { status: number | null; body: unknown } {
+  if (error && typeof error === 'object') {
+    const axiosErr = error as {
+      response?: { status?: number; data?: unknown };
+      message?: string;
+    };
+    return {
+      status: typeof axiosErr.response?.status === 'number' ? axiosErr.response.status : null,
+      body: axiosErr.response?.data ?? axiosErr.message ?? null,
+    };
+  }
+  return { status: null, body: error ?? null };
+}
+
 export async function runEnsureFreshToken(
   accessToken: string | null | undefined,
   refreshToken: string | null | undefined,

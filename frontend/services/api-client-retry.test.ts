@@ -4,6 +4,7 @@ import {
   buildRetriedRequestConfig,
   isAuthEndpointUrl,
   isCredentialAttemptUrl,
+  prepareOutgoingRequestHeaders,
   shouldClearSessionOn401,
   toRelativeRequestUrl,
   type RetryableRequestConfig,
@@ -157,7 +158,7 @@ describe('buildRetriedRequestConfig', () => {
     expect((retried.headers as AxiosHeaders).get('Authorization')).toBe('Bearer next-token');
   });
 
-  it('keeps FormData and drops Content-Type so the boundary can be reset', () => {
+  it('keeps FormData and drops Content-Type / Content-Length so the boundary can be reset', () => {
     const form = new FormData();
     form.append('file', new Blob(['fake-image']), 'photo.jpg');
 
@@ -169,6 +170,7 @@ describe('buildRetriedRequestConfig', () => {
         timeout: 60_000,
         headers: {
           'Content-Type': 'multipart/form-data; boundary=stale',
+          'Content-Length': '4096',
           Authorization: 'Bearer expired',
         },
       },
@@ -176,9 +178,33 @@ describe('buildRetriedRequestConfig', () => {
     );
 
     expect(retried.data).toBe(form);
+    expect(retried.timeout).toBe(60_000);
     const headers = retried.headers as AxiosHeaders;
     expect(headers.get('Authorization')).toBe('Bearer fresh-token');
     expect(headers.get('Content-Type')).toBeUndefined();
+    expect(headers.get('Content-Length')).toBeUndefined();
+  });
+
+  it('drops Content-Length on a JSON photo retry so axios can recompute it', () => {
+    const retried = buildRetriedRequestConfig(
+      {
+        method: 'post',
+        url: '/members/me/photo',
+        data: { photoDataUrl: 'data:image/jpeg;base64,abc' },
+        timeout: 60_000,
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': '12',
+        },
+      },
+      'fresh-token',
+    );
+
+    const headers = retried.headers as AxiosHeaders;
+    expect(headers.get('Authorization')).toBe('Bearer fresh-token');
+    expect(headers.get('Content-Type')).toBe('application/json');
+    expect(headers.get('Content-Length')).toBeUndefined();
+    expect(retried.timeout).toBe(60_000);
   });
 
   it('drops an already-aborted signal so the retry can proceed', () => {
@@ -194,5 +220,34 @@ describe('buildRetriedRequestConfig', () => {
     );
 
     expect(retried.signal).toBeUndefined();
+  });
+});
+
+describe('prepareOutgoingRequestHeaders', () => {
+  it('strips default JSON Content-Type and Content-Length for FormData', () => {
+    const form = new FormData();
+    form.append('file', new Blob(['x']), 'id-photo.jpg');
+    const headers = prepareOutgoingRequestHeaders(
+      {
+        'Content-Type': 'application/json',
+        'Content-Length': '80',
+        Authorization: 'Bearer stale',
+      },
+      { data: form, accessToken: 'fresh-token' },
+    );
+
+    expect(headers.get('Authorization')).toBe('Bearer fresh-token');
+    expect(headers.get('Content-Type')).toBeUndefined();
+    expect(headers.get('Content-Length')).toBeUndefined();
+  });
+
+  it('keeps JSON Content-Type for object bodies and still drops Content-Length', () => {
+    const headers = prepareOutgoingRequestHeaders(
+      { 'Content-Type': 'application/json', 'Content-Length': '40' },
+      { data: { photoDataUrl: 'data:image/jpeg;base64,abc' }, accessToken: 'tok' },
+    );
+    expect(headers.get('Content-Type')).toBe('application/json');
+    expect(headers.get('Content-Length')).toBeUndefined();
+    expect(headers.get('Authorization')).toBe('Bearer tok');
   });
 });

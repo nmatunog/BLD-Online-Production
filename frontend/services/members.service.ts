@@ -5,7 +5,53 @@ import { ApiResponse } from '@/types/api.types';
 /** rembg/normalize often takes 8–15s; keep well above the 10s axios default. */
 export const PHOTO_UPLOAD_TIMEOUT_MS = 60_000;
 
-function getApiErrorMessage(error: unknown, fallback: string): string {
+const PHOTO_DATA_URL_RE = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/;
+
+function base64ToUint8Array(b64: string): Uint8Array {
+  if (typeof Buffer !== 'undefined') {
+    return new Uint8Array(Buffer.from(b64, 'base64'));
+  }
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function extensionForImageMime(mime: string): string {
+  if (mime.includes('png')) return 'png';
+  if (mime.includes('webp')) return 'webp';
+  return 'jpg';
+}
+
+/**
+ * Prefer multipart `file` (Nest FileInterceptor). Fall back to JSON `{ photoDataUrl }`
+ * when FormData is unavailable or the data URL cannot be decoded.
+ */
+export function buildMemberPhotoUploadBody(
+  photoDataUrl: string,
+): FormData | { photoDataUrl: string } {
+  if (typeof FormData === 'undefined' || typeof Blob === 'undefined') {
+    return { photoDataUrl };
+  }
+  try {
+    const match = photoDataUrl.match(PHOTO_DATA_URL_RE);
+    if (!match) return { photoDataUrl };
+    const mime = match[1];
+    const bytes = base64ToUint8Array(match[2]);
+    if (!bytes.byteLength) return { photoDataUrl };
+    const copy = new Uint8Array(bytes.byteLength);
+    copy.set(bytes);
+    const form = new FormData();
+    form.append('file', new Blob([copy], { type: mime }), `id-photo.${extensionForImageMime(mime)}`);
+    return form;
+  } catch {
+    return { photoDataUrl };
+  }
+}
+
+export function getMemberApiErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message === SESSION_EXPIRED_MESSAGE) {
     return SESSION_EXPIRED_MESSAGE;
   }
@@ -14,9 +60,6 @@ function getApiErrorMessage(error: unknown, fallback: string): string {
       response?: { status?: number; data?: { message?: string | string[]; error?: string } };
       message?: string;
     };
-    if (axiosErr.response?.status === 401) {
-      return SESSION_EXPIRED_MESSAGE;
-    }
     const data = axiosErr.response?.data;
     if (data) {
       if (typeof data.message === 'string' && data.message.trim()) {
@@ -29,6 +72,9 @@ function getApiErrorMessage(error: unknown, fallback: string): string {
       if (typeof data.error === 'string' && data.error.trim()) {
         return data.error;
       }
+    }
+    if (axiosErr.response?.status === 401) {
+      return SESSION_EXPIRED_MESSAGE;
     }
     if (typeof axiosErr.message === 'string' && axiosErr.message.trim()) {
       return axiosErr.message;
@@ -212,7 +258,7 @@ class MembersService {
       await apiClient.ensureFreshToken();
       const response = await apiClient.post<ApiResponse<{ photoUrl: string }>>(
         '/members/me/photo',
-        { photoDataUrl },
+        buildMemberPhotoUploadBody(photoDataUrl),
         { timeout: PHOTO_UPLOAD_TIMEOUT_MS },
       );
       if (!response.data.success || !response.data.data?.photoUrl) {
@@ -220,7 +266,7 @@ class MembersService {
       }
       return response.data.data.photoUrl;
     } catch (error) {
-      throw new Error(getApiErrorMessage(error, 'Failed to upload photo'));
+      throw new Error(getMemberApiErrorMessage(error, 'Failed to upload photo'));
     }
   }
 
@@ -229,7 +275,7 @@ class MembersService {
       await apiClient.ensureFreshToken();
       const response = await apiClient.post<ApiResponse<{ photoUrl: string }>>(
         `/members/${memberId}/photo`,
-        { photoDataUrl },
+        buildMemberPhotoUploadBody(photoDataUrl),
         { timeout: PHOTO_UPLOAD_TIMEOUT_MS },
       );
       if (!response.data.success || !response.data.data?.photoUrl) {
@@ -237,7 +283,7 @@ class MembersService {
       }
       return response.data.data.photoUrl;
     } catch (error) {
-      throw new Error(getApiErrorMessage(error, 'Failed to upload photo'));
+      throw new Error(getMemberApiErrorMessage(error, 'Failed to upload photo'));
     }
   }
 

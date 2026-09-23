@@ -4,10 +4,11 @@ import {
   buildRetriedRequestConfig,
   isAuthEndpointUrl,
   isCredentialAttemptUrl,
+  prepareOutgoingRequestHeaders,
   shouldClearSessionOn401,
   type RetryableRequestConfig,
 } from './api-client-retry';
-import { runEnsureFreshToken } from './api-client-token';
+import { describeRefreshFailure, runEnsureFreshToken } from './api-client-token';
 
 // Log API URL for debugging (only in development)
 // This will be logged when ApiClient is instantiated
@@ -29,10 +30,10 @@ class ApiClient {
     // Request interceptor for auth token
     this.client.interceptors.request.use(
       (config) => {
-        const token = this.getToken();
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
+        config.headers = prepareOutgoingRequestHeaders(config.headers, {
+          data: config.data,
+          accessToken: this.getToken(),
+        });
         // Log request in development
         if (typeof window !== 'undefined' && process.env.NODE_ENV === 'development') {
           console.log('📤 API Request:', config.method?.toUpperCase(), config.url);
@@ -184,8 +185,17 @@ class ApiClient {
 
           return accessToken;
         }
+        if (typeof window !== 'undefined') {
+          console.error('❌ Token refresh failed', {
+            status: res?.status ?? null,
+            body: res?.data ?? null,
+          });
+        }
         return null;
-      } catch {
+      } catch (err) {
+        if (typeof window !== 'undefined') {
+          console.error('❌ Token refresh failed', describeRefreshFailure(err));
+        }
         return null;
       } finally {
         this.refreshPromise = null;

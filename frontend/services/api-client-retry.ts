@@ -83,15 +83,48 @@ export function shouldClearSessionOn401(options: {
   return true;
 }
 
+export function isFormDataBody(data: unknown): boolean {
+  return typeof FormData !== 'undefined' && typeof data === 'object' && data instanceof FormData;
+}
+
+/**
+ * Auth + body headers for a live or retried request.
+ * FormData must not keep Content-Type (boundary) or Content-Length (stale).
+ */
+export function prepareOutgoingRequestHeaders(
+  headers: RetryableRequestConfig['headers'],
+  options: { data?: unknown; accessToken?: string | null },
+): AxiosHeaders {
+  const next =
+    headers instanceof AxiosHeaders
+      ? AxiosHeaders.from(headers)
+      : AxiosHeaders.from((headers ?? {}) as Record<string, string>);
+
+  if (options.accessToken) {
+    next.set('Authorization', `Bearer ${options.accessToken}`);
+  }
+
+  next.delete('Content-Length');
+  next.delete('content-length');
+
+  if (isFormDataBody(options.data)) {
+    next.delete('Content-Type');
+    next.delete('content-type');
+  }
+
+  return next;
+}
+
 export function buildRetriedRequestConfig(
   originalConfig: RetryableRequestConfig,
   accessToken: string,
 ): RetryableRequestConfig {
   const data = originalConfig.data;
-  const isFormData = typeof FormData !== 'undefined' && data instanceof FormData;
-  const headers = new AxiosHeaders();
-  headers.set('Authorization', `Bearer ${accessToken}`);
-  if (!isFormData) {
+  const headers = prepareOutgoingRequestHeaders(undefined, {
+    data,
+    accessToken,
+  });
+  if (!isFormDataBody(data)) {
     headers.set('Content-Type', 'application/json');
   }
 
