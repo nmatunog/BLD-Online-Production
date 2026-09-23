@@ -318,16 +318,6 @@ async function processCrop(imageSrc: string, pixelCrop: Area): Promise<string> {
     throw new Error('Canvas is blank - image may not be fully decoded');
   }
 
-  const imageData = ctx.getImageData(0, 0, size, size);
-  const data = imageData.data;
-  const brightness = 1.12;
-  const contrast = 1.08;
-  for (let i = 0; i < data.length; i += 4) {
-    data[i] = Math.min(255, Math.max(0, ((data[i] - 128) * contrast + 128) * brightness));
-    data[i + 1] = Math.min(255, Math.max(0, ((data[i + 1] - 128) * contrast + 128) * brightness));
-    data[i + 2] = Math.min(255, Math.max(0, ((data[i + 2] - 128) * contrast + 128) * brightness));
-  }
-  ctx.putImageData(imageData, 0, 0);
   return canvas.toDataURL('image/jpeg', 0.88);
 }
 
