@@ -833,8 +833,12 @@ export function IdPhotoUpload({
           <IdPhotoSilhouetteGuide />
         </div>
         <div>
-          <Label className="text-sm font-medium">Zoom</Label>
+          <Label htmlFor="id-photo-zoom" className="text-sm font-medium">
+            Zoom
+          </Label>
           <input
+            id="id-photo-zoom"
+            name="idPhotoZoom"
             type="range"
             min={1}
             max={ID_PHOTO_CROP_MAX_ZOOM}
@@ -1015,7 +1019,12 @@ export function IdPhotoUpload({
         </Button>
       </div>
 
+      <label htmlFor="id-photo-file" className="sr-only">
+        Upload ID photo
+      </label>
       <input
+        id="id-photo-file"
+        name="idPhotoFile"
         ref={fileInputRef}
         type="file"
         accept="image/*,.heic,.heif,image/heic,image/heif"

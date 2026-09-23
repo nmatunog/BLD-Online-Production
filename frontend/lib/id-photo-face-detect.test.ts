@@ -2,12 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { isWebGLAvailable, resolveTfBackendName } from './id-photo-face-detect';
 
 describe('resolveTfBackendName', () => {
-  it('uses cpu when WebGL is unavailable so TensorFlow never logs a WebGL error', () => {
-    expect(resolveTfBackendName(false)).toBe('cpu');
-  });
-
-  it('uses webgl when the browser can create a context', () => {
-    expect(resolveTfBackendName(true)).toBe('webgl');
+  it('always uses cpu so TensorFlow never initializes WebGL', () => {
+    expect(resolveTfBackendName()).toBe('cpu');
   });
 });
 

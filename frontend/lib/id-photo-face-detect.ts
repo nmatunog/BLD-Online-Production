@@ -54,8 +54,9 @@ export function isWebGLAvailable(
   }
 }
 
-export function resolveTfBackendName(webglAvailable: boolean = isWebGLAvailable()): 'webgl' | 'cpu' {
-  return webglAvailable ? 'webgl' : 'cpu';
+/** Always CPU. TF's WebGL factory logs hard errors even when a dummy canvas probe succeeds. */
+export function resolveTfBackendName(): 'cpu' {
+  return 'cpu';
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -86,11 +87,7 @@ async function loadBlazeFace(): Promise<BlazeFaceModel> {
       tf.env().set('CANVAS2D_WILL_READ_FREQUENTLY_FOR_GPU', true);
 
       try {
-        const backend = resolveTfBackendName();
-        const ok = await tf.setBackend(backend);
-        if (!ok && backend === 'webgl') {
-          await tf.setBackend('cpu');
-        }
+        await tf.setBackend(resolveTfBackendName());
       } catch {
         await tf.setBackend('cpu');
       }
