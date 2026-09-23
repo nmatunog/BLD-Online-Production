@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Save, QrCode, Download, X } from 'lucide-react';
 import { IdPhotoUpload } from '@/components/IdPhotoUpload';
+import { withPhotoCacheBust } from '@/lib/photo-url';
 import { membersService, type Member, type UpdateMemberRequest } from '@/services/members.service';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
@@ -387,14 +388,14 @@ export default function ProfilePage() {
                 <h3 className="text-lg font-semibold text-gray-800 mb-4">ID Photo</h3>
                 {isEditing ? (
                   <IdPhotoUpload
-                    currentPhoto={member.photoUrl}
+                    currentPhoto={withPhotoCacheBust(member.photoUrl, member.updatedAt)}
                     accentColor="#7c3aed"
                     required
                     onPhotoProcessed={async (dataUrl) => {
                       if (!dataUrl) return;
                       try {
                         const photoUrl = await membersService.uploadMyPhoto(dataUrl);
-                        setMember({ ...member, photoUrl });
+                        setMember({ ...member, photoUrl, updatedAt: new Date().toISOString() });
                         toast.success('ID photo saved');
                       } catch (error) {
                         toast.error('Could not save photo', {
@@ -406,7 +407,7 @@ export default function ProfilePage() {
                 ) : member.photoUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={member.photoUrl}
+                    src={withPhotoCacheBust(member.photoUrl, member.updatedAt)}
                     alt="ID photo"
                     className="w-28 h-28 rounded-xl object-cover border-2 border-purple-300"
                   />

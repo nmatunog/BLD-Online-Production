@@ -3,6 +3,7 @@
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import { generateStableMemberQR } from '@/lib/qr-service';
+import { withPhotoCacheBust } from '@/lib/photo-url';
 
 interface MemberIdCardProps {
   communityId: string;
@@ -53,7 +54,7 @@ export function MemberIdCard({
               {photoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={photoUrl}
+                  src={withPhotoCacheBust(photoUrl, communityId)}
                   alt="Member"
                   className="member-photo"
                 />

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as https from 'https';
+import { buildMemberPhotoStoragePath } from '../utils/member-photo-path';
 
 @Injectable()
 export class BunnyCDNService {
@@ -121,19 +122,16 @@ export class BunnyCDNService {
   }
 
   /**
-   * Upload a member ID photo to BunnyCDN
-   * @param fileData - Buffer or base64 data URL
-   * @param communityId - Community ID (e.g., CEB-ME1002) for stable path
-   * @param contentType - MIME type
-   * @returns URL of the uploaded file
+   * Upload a member ID photo to BunnyCDN.
+   * Path includes a timestamp so a replacement is a new URL (Bunny pull-zone
+   * cache would keep serving the previous bytes at a stable communityId.jpg).
    */
   async uploadMemberPhoto(
     fileData: Buffer | string,
     communityId: string,
     contentType: string = 'image/jpeg',
   ): Promise<string> {
-    const ext = contentType.includes('png') ? 'png' : 'jpg';
-    const fileName = `member-photos/${communityId}.${ext}`;
+    const fileName = buildMemberPhotoStoragePath(communityId, contentType);
     return this.uploadFile(fileData, fileName, contentType);
   }
 
