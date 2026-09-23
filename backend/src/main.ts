@@ -3,6 +3,7 @@ import { ValidationPipe, BadRequestException } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
+import { isAllowedCorsOrigin } from './common/utils/cors-origin';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
@@ -20,7 +21,9 @@ async function bootstrap(): Promise<void> {
     frontendUrl,
     'http://localhost:3000',
     'http://localhost:3002',
+    'https://app.bldcebu.com',
     'https://app.BLDCebu.com',
+    'https://www.app.bldcebu.com',
     'https://www.app.BLDCebu.com',
   ];
   
@@ -33,29 +36,13 @@ async function bootstrap(): Promise<void> {
       if (!origin) {
         return callback(null, true);
       }
-      
-      // Check if origin is in allowed list
-      if (allowedOrigins.some(allowed => origin === allowed || origin.startsWith(allowed))) {
+
+      if (isAllowedCorsOrigin(origin, allowedOrigins)) {
         return callback(null, true);
       }
-      
-      // For production, allow Vercel domains and custom domain
-      if (process.env.NODE_ENV === 'production') {
-        // Allow Vercel domains
-        if (origin.includes('.vercel.app')) {
-          return callback(null, true);
-        }
-        // Allow custom domain
-        if (origin.includes('BLDCebu.com')) {
-          return callback(null, true);
-        }
-        // Allow Cloud Run domains (for backward compatibility)
-        if (origin.includes('.run.app')) {
-          return callback(null, true);
-        }
-      }
-      
-      callback(new Error('Not allowed by CORS'));
+
+      // Do not throw — cors Error path omits Access-Control-Allow-Origin (browser CORS noise).
+      callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
