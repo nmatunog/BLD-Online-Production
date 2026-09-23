@@ -206,18 +206,76 @@ function minMaxToUint8(pred: Float32Array): Buffer {
   return out;
 }
 
-async function opaquePixelRatio(cutout: Buffer): Promise<number> {
+/** Soft mask → hard cutout so flatten-on-white does not ghost skin. */
+export function hardenAlphaChannel(rgba: Buffer): void {
+  for (let i = 3; i < rgba.length; i += 4) {
+    const a = rgba[i];
+    if (a <= 64) rgba[i] = 0;
+    else if (a >= 160) rgba[i] = 255;
+    else rgba[i] = Math.round(((a - 64) / 96) * 255);
+  }
+}
+
+export async function hardenCutoutAlpha(cutout: Buffer): Promise<Buffer> {
+  const { data, info } = await sharp(cutout, { failOn: 'none' })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  hardenAlphaChannel(data);
+  return sharp(data, {
+    raw: { width: info.width ?? 0, height: info.height ?? 0, channels: 4 },
+  })
+    .png()
+    .toBuffer();
+}
+
+export async function cutoutOpacityStats(cutout: Buffer): Promise<{ weak: number; strong: number }> {
   const { data, info } = await sharp(cutout, { failOn: 'none' })
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
   const pixels = (info.width ?? 0) * (info.height ?? 0);
-  if (!pixels) return 0;
-  let opaque = 0;
+  if (!pixels) return { weak: 0, strong: 0 };
+  let weak = 0;
+  let strong = 0;
   for (let i = 3; i < data.length; i += 4) {
-    if (data[i] > 16) opaque++;
+    if (data[i] > 16) weak++;
+    if (data[i] >= 200) strong++;
   }
-  return opaque / pixels;
+  return { weak: weak / pixels, strong: strong / pixels };
+}
+
+function luminance(r: number, g: number, b: number): number {
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * True when rembg claimed a solid subject but those pixels were blended toward white
+ * (typical u2netp miss on a tight face crop).
+ */
+export async function isSubjectWashedOut(source: Buffer, flattened: Buffer, cutout: Buffer): Promise<boolean> {
+  const cut = await sharp(cutout, { failOn: 'none' }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const width = cut.info.width ?? 0;
+  const height = cut.info.height ?? 0;
+  if (!width || !height) return false;
+
+  const [srcRaw, flatRaw] = await Promise.all([
+    sharp(source, { failOn: 'none' }).rotate().removeAlpha().resize(width, height, { fit: 'fill' }).raw().toBuffer(),
+    sharp(flattened, { failOn: 'none' }).rotate().removeAlpha().resize(width, height, { fit: 'fill' }).raw().toBuffer(),
+  ]);
+
+  let subject = 0;
+  let blown = 0;
+  const pixels = width * height;
+  for (let i = 0; i < pixels; i++) {
+    if (cut.data[i * 4 + 3] < 200) continue;
+    subject++;
+    const so = i * 3;
+    const sl = luminance(srcRaw[so], srcRaw[so + 1], srcRaw[so + 2]);
+    const fl = luminance(flatRaw[so], flatRaw[so + 1], flatRaw[so + 2]);
+    if (sl < 230 && fl > sl + 40 && fl > 215) blown++;
+  }
+  return subject > 50 && blown / subject > 0.25;
 }
 
 /**
@@ -315,14 +373,20 @@ export async function applyWhiteBackground(
       timeoutMs,
       `ID photo rembg timed out after ${timeoutMs}ms`,
     );
-
-    const opaque = await opaquePixelRatio(cutout);
-    if (opaque < 0.01) {
-      logger.warn('ID photo white-BG cleanup skipped: rembg produced an empty subject');
+    const hardened = await hardenCutoutAlpha(cutout);
+    const { weak, strong } = await cutoutOpacityStats(hardened);
+    if (weak < 0.01 || strong < 0.04) {
+      logger.warn(
+        `ID photo white-BG cleanup skipped: rembg mask too weak (weak=${weak.toFixed(3)} strong=${strong.toFixed(3)})`,
+      );
       return { buffer: input, applied: false };
     }
 
-    const flattened = await flattenOnWhite(cutout);
+    const flattened = await flattenOnWhite(hardened);
+    if (await isSubjectWashedOut(input, flattened, hardened)) {
+      logger.warn('ID photo white-BG cleanup skipped: rembg washed out the subject');
+      return { buffer: input, applied: false };
+    }
     return { buffer: flattened, applied: true };
   } catch (err) {
     logger.warn(

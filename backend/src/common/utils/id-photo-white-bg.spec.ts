@@ -1,8 +1,11 @@
 import sharp from 'sharp';
 import {
   applyWhiteBackground,
+  cutoutOpacityStats,
   flattenOnWhite,
+  hardenAlphaChannel,
   isRembgU2netpModel,
+  isSubjectWashedOut,
   prepareStoredIdPhoto,
   REMBG_U2NETP_SHA256,
 } from './id-photo-white-bg';
@@ -84,6 +87,49 @@ function expectNearWhite(px: { r: number; g: number; b: number }) {
   expect(Math.abs(px.r - px.b)).toBeLessThan(12);
 }
 
+describe('hardenAlphaChannel', () => {
+  it('snaps weak alpha to 0 and strong alpha to 255', () => {
+    const rgba = Buffer.from([10, 20, 30, 40, 10, 20, 30, 180, 10, 20, 30, 100]);
+    hardenAlphaChannel(rgba);
+    expect(rgba[3]).toBe(0);
+    expect(rgba[7]).toBe(255);
+    expect(rgba[11]).toBeGreaterThan(80);
+    expect(rgba[11]).toBeLessThan(180);
+  });
+});
+
+describe('cutoutOpacityStats', () => {
+  it('counts strong vs weak opaque pixels', async () => {
+    const rgba = Buffer.alloc(4 * 4 * 4, 0);
+    rgba[3] = 255;
+    rgba[7] = 40;
+    const png = await sharp(rgba, { raw: { width: 4, height: 4, channels: 4 } }).png().toBuffer();
+    const stats = await cutoutOpacityStats(png);
+    expect(stats.strong).toBeCloseTo(1 / 16, 5);
+    expect(stats.weak).toBeCloseTo(2 / 16, 5);
+  });
+});
+
+describe('isSubjectWashedOut', () => {
+  it('detects a solid-alpha cutout whose subject was blended to white', async () => {
+    const source = await rgbJpeg(64, 64, { r: 80, g: 70, b: 60 });
+    const white = await rgbJpeg(64, 64, { r: 255, g: 255, b: 255 });
+    const cutout = await sharp({
+      create: { width: 64, height: 64, channels: 4, background: { r: 80, g: 70, b: 60, alpha: 1 } },
+    })
+      .png()
+      .toBuffer();
+    await expect(isSubjectWashedOut(source, white, cutout)).resolves.toBe(true);
+  });
+
+  it('accepts a clean cutout whose subject color is preserved', async () => {
+    const src = await subjectOnRed(640);
+    const cutout = await colorKeyRedBackground(src);
+    const flat = await flattenOnWhite(cutout);
+    await expect(isSubjectWashedOut(src, flat, cutout)).resolves.toBe(false);
+  });
+});
+
 describe('flattenOnWhite', () => {
   it('composites a transparent PNG onto #FFFFFF', async () => {
     const rgba = Buffer.alloc(4 * 4 * 4, 0);
@@ -159,6 +205,28 @@ describe('applyWhiteBackground', () => {
 
     const { buffer, applied } = await applyWhiteBackground(src, {
       removeBackground: async () => empty,
+    });
+    expect(applied).toBe(false);
+    expect(buffer).toBe(src);
+  });
+
+  it('fail-opens when rembg returns a soft ghost mask', async () => {
+    const src = await rgbJpeg(80, 80, { r: 90, g: 70, b: 55 });
+    const { buffer, applied } = await applyWhiteBackground(src, {
+      removeBackground: async (input) => {
+        const { data, info } = await sharp(input, { failOn: 'none' })
+          .ensureAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        for (let i = 3; i < data.length; i += 4) {
+          data[i] = 40;
+        }
+        return sharp(data, {
+          raw: { width: info.width!, height: info.height!, channels: 4 },
+        })
+          .png()
+          .toBuffer();
+      },
     });
     expect(applied).toBe(false);
     expect(buffer).toBe(src);
