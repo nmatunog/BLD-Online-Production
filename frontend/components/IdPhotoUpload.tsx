@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import Cropper, { type Area } from 'react-easy-crop';
 import { Camera, Upload, X, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -350,6 +350,10 @@ export function IdPhotoUpload({
   const [isSaving, setIsSaving] = useState(false);
   const [preview, setProcessedPreview] = useState<string | null>(currentPhoto);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
+
+  const photoFieldId = useId();
+  const zoomInputId = `${photoFieldId}-zoom`;
+  const fileInputId = `${photoFieldId}-file`;
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -833,12 +837,13 @@ export function IdPhotoUpload({
           <IdPhotoSilhouetteGuide />
         </div>
         <div>
-          <Label htmlFor="id-photo-zoom" className="text-sm font-medium">
+          <Label htmlFor={zoomInputId} className="text-sm font-medium">
             Zoom
           </Label>
           <input
-            id="id-photo-zoom"
+            id={zoomInputId}
             name="idPhotoZoom"
+            form=""
             type="range"
             min={1}
             max={ID_PHOTO_CROP_MAX_ZOOM}
@@ -1019,12 +1024,13 @@ export function IdPhotoUpload({
         </Button>
       </div>
 
-      <label htmlFor="id-photo-file" className="sr-only">
+      <label htmlFor={fileInputId} className="sr-only">
         Upload ID photo
       </label>
       <input
-        id="id-photo-file"
+        id={fileInputId}
         name="idPhotoFile"
+        form=""
         ref={fileInputRef}
         type="file"
         accept="image/*,.heic,.heif,image/heic,image/heif"

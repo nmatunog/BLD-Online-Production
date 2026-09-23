@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { IdPhotoUpload } from '@/components/IdPhotoUpload';
+import { withPhotoCacheBust } from '@/lib/photo-url';
 import {
   APOSTOLATES,
   MINISTRIES_BY_APOSTOLATE,
@@ -90,6 +91,7 @@ export default function MembersPage() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
+  const [pendingPhotoDataUrl, setPendingPhotoDataUrl] = useState<string | null>(null);
   const [showQRCode, setShowQRCode] = useState<string | null>(null);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [showRoleAssignmentDialog, setShowRoleAssignmentDialog] = useState(false);
@@ -714,6 +716,7 @@ export default function MembersPage() {
       children: Array.isArray(member.children) ? member.children.map((c: { name?: string; gender?: string; dateOfBirth?: string }) => ({ name: c?.name || '', gender: c?.gender || '', dateOfBirth: c?.dateOfBirth || '' })) : [],
       dateOfEncounter: member.dateOfEncounter || '',
     });
+    setPendingPhotoDataUrl(null);
     setShowEditDialog(true);
   };
 
@@ -755,6 +758,9 @@ export default function MembersPage() {
     if (userRole === 'SUPER_USER' && editForm.communityId?.trim()) {
       updateData.communityId = editForm.communityId.trim();
     }
+    if (pendingPhotoDataUrl) {
+      updateData.photoUrl = pendingPhotoDataUrl;
+    }
 
     // Remove undefined values
     Object.keys(updateData).forEach(key => {
@@ -768,6 +774,7 @@ export default function MembersPage() {
       toast.success('Member Updated', {
         description: 'The member has been updated successfully.',
       });
+      setPendingPhotoDataUrl(null);
       setShowEditDialog(false);
       setEditingMember(null);
       reloadCurrentPage();
@@ -869,9 +876,11 @@ export default function MembersPage() {
           {/* Filters */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Search Members</label>
+              <label htmlFor="member-search" className="block text-sm font-medium text-gray-700 mb-2">Search Members</label>
               <div className="flex space-x-2">
                 <Input
+                  id="member-search"
+                  name="memberSearch"
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -882,9 +891,9 @@ export default function MembersPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Apostolate</label>
+              <label htmlFor="filter-apostolate" className="block text-sm font-medium text-gray-700 mb-2">Filter by Apostolate</label>
               <Select value={filterApostolate} onValueChange={(v) => { setFilterApostolate(v); setFilterMinistry('ALL'); }}>
-                <SelectTrigger>
+                <SelectTrigger id="filter-apostolate">
                   <SelectValue placeholder="All Apostolates" />
                 </SelectTrigger>
                 <SelectContent>
@@ -897,13 +906,13 @@ export default function MembersPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Ministry</label>
+              <label htmlFor="filter-ministry" className="block text-sm font-medium text-gray-700 mb-2">Filter by Ministry</label>
               <Select
                 value={filterMinistry}
                 onValueChange={setFilterMinistry}
                 disabled={filterApostolate !== 'ALL' && ministryOptions.length === 0}
               >
-                <SelectTrigger>
+                <SelectTrigger id="filter-ministry">
                   <SelectValue placeholder={filterApostolate !== 'ALL' ? `Ministries in ${filterApostolate}` : 'All Ministries'} />
                 </SelectTrigger>
                 <SelectContent>
@@ -916,9 +925,9 @@ export default function MembersPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Role</label>
+              <label htmlFor="filter-role" className="block text-sm font-medium text-gray-700 mb-2">Filter by Role</label>
               <Select value={filterRole} onValueChange={setFilterRole}>
-                <SelectTrigger>
+                <SelectTrigger id="filter-role">
                   <SelectValue placeholder="All Roles" />
                 </SelectTrigger>
                 <SelectContent>
@@ -931,9 +940,9 @@ export default function MembersPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Status</label>
+              <label htmlFor="filter-status" className="block text-sm font-medium text-gray-700 mb-2">Filter by Status</label>
               <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger>
+                <SelectTrigger id="filter-status">
                   <SelectValue placeholder="All Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -950,8 +959,10 @@ export default function MembersPage() {
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center space-x-3 flex-wrap gap-y-2">
               <span className="text-sm text-gray-600">Ministry Coordinators at top, then A–Z by name.</span>
-              <label className="flex items-center space-x-2 cursor-pointer">
+              <label htmlFor="sort-alphabetically" className="flex items-center space-x-2 cursor-pointer">
                 <input
+                  id="sort-alphabetically"
+                  name="sortAlphabetically"
                   type="checkbox"
                   checked={sortAlphabetically}
                   onChange={(e) => setSortAlphabetically(e.target.checked)}
@@ -1021,7 +1032,7 @@ export default function MembersPage() {
                               {member.photoUrl ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
-                                  src={member.photoUrl}
+                                  src={withPhotoCacheBust(member.photoUrl, member.updatedAt)}
                                   alt=""
                                   className="w-10 h-10 rounded-full object-cover border border-gray-200 shrink-0"
                                 />
@@ -1304,6 +1315,10 @@ export default function MembersPage() {
             open={showEditDialog}
             onOpenChange={(open) => {
               if (!open && isSavingPhoto) return;
+              if (!open) {
+                setPendingPhotoDataUrl(null);
+                setEditingMember(null);
+              }
               setShowEditDialog(open);
             }}
           >
@@ -1329,25 +1344,36 @@ export default function MembersPage() {
                   {editingMember && (
                     <div className="mb-4">
                       <IdPhotoUpload
-                        currentPhoto={editingMember.photoUrl}
+                        currentPhoto={withPhotoCacheBust(editingMember.photoUrl, editingMember.updatedAt)}
                         accentColor="#7c3aed"
                         required
                         onPhotoProcessed={async (dataUrl) => {
-                          if (!dataUrl) return;
+                          if (!dataUrl) {
+                            setPendingPhotoDataUrl(null);
+                            return;
+                          }
+                          setPendingPhotoDataUrl(dataUrl);
                           setIsSavingPhoto(true);
                           try {
                             const photoUrl = await membersService.uploadMemberPhoto(
                               editingMember.id,
                               dataUrl,
                             );
-                            setEditingMember({ ...editingMember, photoUrl });
+                            setPendingPhotoDataUrl(null);
+                            const nextUpdatedAt = new Date().toISOString();
+                            setEditingMember({ ...editingMember, photoUrl, updatedAt: nextUpdatedAt });
                             setMembers((prev) =>
-                              prev.map((m) => (m.id === editingMember.id ? { ...m, photoUrl } : m)),
+                              prev.map((m) =>
+                                m.id === editingMember.id ? { ...m, photoUrl, updatedAt: nextUpdatedAt } : m,
+                              ),
                             );
                             toast.success('ID photo saved');
                           } catch (error) {
                             toast.error('Could not save photo', {
-                              description: error instanceof Error ? error.message : 'Please try again',
+                              description:
+                                error instanceof Error
+                                  ? `${error.message} Click Save Changes to retry.`
+                                  : 'Click Save Changes to retry.',
                             });
                           } finally {
                             setIsSavingPhoto(false);
@@ -1358,8 +1384,10 @@ export default function MembersPage() {
                   )}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label className="block text-sm font-medium text-gray-700 mb-2">First Name *</Label>
+                      <Label htmlFor="edit-first-name" className="block text-sm font-medium text-gray-700 mb-2">First Name *</Label>
                       <Input
+                        id="edit-first-name"
+                        name="firstName"
                         type="text"
                         value={editForm.firstName}
                         onChange={(e) => handleProfileInputChange('firstName', e.target.value)}
@@ -1367,8 +1395,10 @@ export default function MembersPage() {
                       />
                     </div>
                     <div>
-                      <Label className="block text-sm font-medium text-gray-700 mb-2">Last Name *</Label>
+                      <Label htmlFor="edit-last-name" className="block text-sm font-medium text-gray-700 mb-2">Last Name *</Label>
                       <Input
+                        id="edit-last-name"
+                        name="lastName"
                         type="text"
                         value={editForm.lastName}
                         onChange={(e) => handleProfileInputChange('lastName', e.target.value)}
@@ -1377,16 +1407,20 @@ export default function MembersPage() {
                     </div>
                   </div>
                   <div>
-                    <Label className="block text-sm font-medium text-gray-700 mb-2">Middle Name</Label>
+                    <Label htmlFor="edit-middle-name" className="block text-sm font-medium text-gray-700 mb-2">Middle Name</Label>
                     <Input
+                      id="edit-middle-name"
+                      name="middleName"
                       type="text"
                       value={editForm.middleName}
                       onChange={(e) => handleProfileInputChange('middleName', e.target.value)}
                     />
                   </div>
                   <div>
-                    <Label className="block text-sm font-medium text-gray-700 mb-2">Nickname</Label>
+                    <Label htmlFor="edit-nickname" className="block text-sm font-medium text-gray-700 mb-2">Nickname</Label>
                     <Input
+                      id="edit-nickname"
+                      name="nickname"
                       type="text"
                       value={editForm.nickname}
                       onChange={(e) => handleProfileInputChange('nickname', e.target.value)}
@@ -1395,16 +1429,20 @@ export default function MembersPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label className="block text-sm font-medium text-gray-700 mb-2">Email</Label>
+                      <Label htmlFor="edit-email" className="block text-sm font-medium text-gray-700 mb-2">Email</Label>
                       <Input
+                        id="edit-email"
+                        name="email"
                         type="email"
                         value={editForm.email}
                         onChange={(e) => setEditForm({...editForm, email: e.target.value})}
                       />
                     </div>
                     <div>
-                      <Label className="block text-sm font-medium text-gray-700 mb-2">Phone</Label>
+                      <Label htmlFor="edit-phone" className="block text-sm font-medium text-gray-700 mb-2">Phone</Label>
                       <Input
+                        id="edit-phone"
+                        name="phone"
                         type="tel"
                         value={editForm.phone}
                         onChange={(e) => setEditForm({...editForm, phone: e.target.value})}
@@ -1413,9 +1451,9 @@ export default function MembersPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-4 mt-4">
                     <div>
-                      <Label className="block text-sm font-medium text-gray-700 mb-2">Gender *</Label>
+                      <Label htmlFor="edit-gender" className="block text-sm font-medium text-gray-700 mb-2">Gender *</Label>
                       <Select value={editForm.gender} onValueChange={(value) => setEditForm({...editForm, gender: value})}>
-                        <SelectTrigger>
+                        <SelectTrigger id="edit-gender">
                           <SelectValue placeholder="Select Gender" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1426,8 +1464,10 @@ export default function MembersPage() {
                       </Select>
                     </div>
                     <div>
-                      <Label className="block text-sm font-medium text-gray-700 mb-2">Profession/Occupation</Label>
+                      <Label htmlFor="edit-profession" className="block text-sm font-medium text-gray-700 mb-2">Profession/Occupation</Label>
                       <Input
+                        id="edit-profession"
+                        name="profession"
                         type="text"
                         value={editForm.profession}
                         onChange={(e) => setEditForm({...editForm, profession: e.target.value})}
@@ -1437,9 +1477,9 @@ export default function MembersPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-4 mt-4">
                     <div>
-                      <Label className="block text-sm font-medium text-gray-700 mb-2">Civil Status *</Label>
+                      <Label htmlFor="edit-civil-status" className="block text-sm font-medium text-gray-700 mb-2">Civil Status *</Label>
                       <Select value={editForm.civilStatus} onValueChange={(value) => setEditForm({...editForm, civilStatus: value})}>
-                        <SelectTrigger>
+                        <SelectTrigger id="edit-civil-status">
                           <SelectValue placeholder="Select Civil Status" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1450,8 +1490,10 @@ export default function MembersPage() {
                       </Select>
                     </div>
                     <div>
-                      <Label className="block text-sm font-medium text-gray-700 mb-2">Date of Birth</Label>
+                      <Label htmlFor="edit-date-of-birth" className="block text-sm font-medium text-gray-700 mb-2">Date of Birth</Label>
                       <Input
+                        id="edit-date-of-birth"
+                        name="dateOfBirth"
                         type="date"
                         value={editForm.dateOfBirth}
                         onChange={(e) => setEditForm({...editForm, dateOfBirth: e.target.value})}
@@ -1466,8 +1508,10 @@ export default function MembersPage() {
                     <h4 className="text-md font-semibold text-gray-800 mb-4">Family Information</h4>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <Label className="block text-sm font-medium text-gray-700 mb-2">Full Name of Spouse</Label>
+                        <Label htmlFor="edit-spouse-name" className="block text-sm font-medium text-gray-700 mb-2">Full Name of Spouse</Label>
                         <Input
+                          id="edit-spouse-name"
+                          name="spouseName"
                           type="text"
                           value={editForm.spouseName}
                           onChange={(e) => setEditForm({...editForm, spouseName: e.target.value})}
@@ -1475,8 +1519,10 @@ export default function MembersPage() {
                         />
                       </div>
                       <div>
-                        <Label className="block text-sm font-medium text-gray-700 mb-2">Date of Marriage</Label>
+                        <Label htmlFor="edit-date-of-marriage" className="block text-sm font-medium text-gray-700 mb-2">Date of Marriage</Label>
                         <Input
+                          id="edit-date-of-marriage"
+                          name="dateOfMarriage"
                           type="date"
                           value={editForm.dateOfMarriage}
                           onChange={(e) => setEditForm({...editForm, dateOfMarriage: e.target.value})}
@@ -1484,8 +1530,10 @@ export default function MembersPage() {
                       </div>
                     </div>
                     <div>
-                      <Label className="block text-sm font-medium text-gray-700 mb-2">Number of Children</Label>
+                      <Label htmlFor="edit-number-of-children" className="block text-sm font-medium text-gray-700 mb-2">Number of Children</Label>
                       <Input
+                        id="edit-number-of-children"
+                        name="numberOfChildren"
                         type="number"
                         min="0"
                         value={editForm.numberOfChildren}
@@ -1501,8 +1549,10 @@ export default function MembersPage() {
                             <h6 className="text-sm font-medium text-gray-600 mb-3">Child {index + 1}</h6>
                             <div className="grid grid-cols-2 gap-4">
                               <div>
-                                <Label className="block text-sm font-medium text-gray-700 mb-2">Full Name</Label>
+                                <Label htmlFor={`edit-child-${index}-name`} className="block text-sm font-medium text-gray-700 mb-2">Full Name</Label>
                                 <Input
+                                  id={`edit-child-${index}-name`}
+                                  name={`child-${index}-name`}
                                   type="text"
                                   value={editForm.children[index]?.name || ''}
                                   onChange={(e) => {
@@ -1514,7 +1564,7 @@ export default function MembersPage() {
                                 />
                               </div>
                               <div>
-                                <Label className="block text-sm font-medium text-gray-700 mb-2">Gender</Label>
+                                <Label htmlFor={`edit-child-${index}-gender`} className="block text-sm font-medium text-gray-700 mb-2">Gender</Label>
                                 <Select
                                   value={editForm.children[index]?.gender || ''}
                                   onValueChange={(value) => {
@@ -1523,7 +1573,7 @@ export default function MembersPage() {
                                     setEditForm({...editForm, children: newChildren});
                                   }}
                                 >
-                                  <SelectTrigger>
+                                  <SelectTrigger id={`edit-child-${index}-gender`}>
                                     <SelectValue placeholder="Select Gender" />
                                   </SelectTrigger>
                                   <SelectContent>
@@ -1535,8 +1585,10 @@ export default function MembersPage() {
                               </div>
                             </div>
                             <div className="mt-4">
-                              <Label className="block text-sm font-medium text-gray-700 mb-2">Date of Birth</Label>
+                              <Label htmlFor={`edit-child-${index}-dob`} className="block text-sm font-medium text-gray-700 mb-2">Date of Birth</Label>
                               <Input
+                                id={`edit-child-${index}-dob`}
+                                name={`child-${index}-dateOfBirth`}
                                 type="date"
                                 value={editForm.children[index]?.dateOfBirth || ''}
                                 onChange={(e) => {
@@ -1557,12 +1609,12 @@ export default function MembersPage() {
                 <div className="bg-purple-50 p-4 rounded-lg">
                   <h4 className="text-md font-semibold text-gray-800 mb-4">Ministry Information</h4>
                   <div>
-                    <Label className="block text-sm font-medium text-gray-700 mb-2">Apostolate *</Label>
+                    <Label htmlFor="edit-apostolate" className="block text-sm font-medium text-gray-700 mb-2">Apostolate *</Label>
                     <Select
                       value={editForm.apostolate}
                       onValueChange={(value) => setEditForm({...editForm, apostolate: value, ministry: ''})}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="edit-apostolate">
                         <SelectValue placeholder="Select Apostolate" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1573,13 +1625,13 @@ export default function MembersPage() {
                     </Select>
                   </div>
                   <div>
-                    <Label className="block text-sm font-medium text-gray-700 mb-2">Ministry *</Label>
+                    <Label htmlFor="edit-ministry" className="block text-sm font-medium text-gray-700 mb-2">Ministry *</Label>
                     <Select
                       value={editForm.ministry}
                       onValueChange={(value) => setEditForm({...editForm, ministry: value})}
                       disabled={!editForm.apostolate}
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="edit-ministry">
                         <SelectValue placeholder="Select Ministry" />
                       </SelectTrigger>
                       <SelectContent>
@@ -1590,13 +1642,15 @@ export default function MembersPage() {
                     </Select>
                   </div>
                   <div>
-                    <Label className="block text-sm font-medium text-gray-700 mb-2">
+                    <Label htmlFor="edit-service-area" className="block text-sm font-medium text-gray-700 mb-2">
                       Service Area
                       <span className="ml-2 text-xs font-normal text-gray-500">
                         (Optional - e.g., geographic area, zone, or specific program)
                       </span>
                     </Label>
                     <Input
+                      id="edit-service-area"
+                      name="serviceArea"
                       type="text"
                       value={editForm.serviceArea}
                       onChange={(e) => setEditForm({...editForm, serviceArea: e.target.value})}
@@ -1617,8 +1671,10 @@ export default function MembersPage() {
                     )}
                   </h4>
                   <div>
-                    <Label className={`block text-sm font-medium mb-2 ${userRole === 'SUPER_USER' ? 'text-gray-700' : 'text-gray-500'}`}>Community ID</Label>
+                    <Label htmlFor="edit-community-id" className={`block text-sm font-medium mb-2 ${userRole === 'SUPER_USER' ? 'text-gray-700' : 'text-gray-500'}`}>Community ID</Label>
                     <Input
+                      id="edit-community-id"
+                      name="communityId"
                       type="text"
                       value={editForm.communityId}
                       onChange={(e) => setEditForm({...editForm, communityId: e.target.value.toUpperCase()})}
@@ -1629,14 +1685,14 @@ export default function MembersPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label className={`block text-sm font-medium mb-2 ${userRole === 'SUPER_USER' ? 'text-gray-700' : 'text-gray-500'}`}>City / Location</Label>
+                      <Label htmlFor="edit-city" className={`block text-sm font-medium mb-2 ${userRole === 'SUPER_USER' ? 'text-gray-700' : 'text-gray-500'}`}>City / Location</Label>
                       {userRole === 'SUPER_USER' ? (
                         <>
                           <Select
                             value={editForm.city || undefined}
                             onValueChange={(value) => setEditForm({ ...editForm, city: value, ...(value !== 'OTHERS' ? { cityOthers: '' } : {}) })}
                           >
-                            <SelectTrigger>
+                            <SelectTrigger id="edit-city">
                               <SelectValue placeholder="Select city or location" />
                             </SelectTrigger>
                             <SelectContent>
@@ -1647,6 +1703,8 @@ export default function MembersPage() {
                           </Select>
                           {editForm.city === 'OTHERS' && (
                             <Input
+                              id="edit-city-others"
+                              name="cityOthers"
                               type="text"
                               placeholder="Enter location (e.g. Talisay, Don Bosco → saved as Cebu)"
                               value={editForm.cityOthers}
@@ -1660,13 +1718,13 @@ export default function MembersPage() {
                       )}
                     </div>
                     <div>
-                      <Label className={`block text-sm font-medium mb-2 ${userRole === 'SUPER_USER' ? 'text-gray-700' : 'text-gray-500'}`}>Encounter Type</Label>
+                      <Label htmlFor="edit-encounter-type" className={`block text-sm font-medium mb-2 ${userRole === 'SUPER_USER' ? 'text-gray-700' : 'text-gray-500'}`}>Encounter Type</Label>
                       {userRole === 'SUPER_USER' ? (
                         <Select
                           value={editForm.encounterType}
                           onValueChange={(value) => setEditForm({...editForm, encounterType: value})}
                         >
-                          <SelectTrigger>
+                          <SelectTrigger id="edit-encounter-type">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -1677,6 +1735,8 @@ export default function MembersPage() {
                         </Select>
                       ) : (
                         <Input
+                          id="edit-encounter-type"
+                          name="encounterType"
                           type="text"
                           value={editForm.encounterType}
                           disabled
@@ -1687,8 +1747,10 @@ export default function MembersPage() {
                     </div>
                   </div>
                   <div>
-                    <Label className={`block text-sm font-medium mb-2 ${userRole === 'SUPER_USER' ? 'text-gray-700' : 'text-gray-500'}`}>Class Number</Label>
+                    <Label htmlFor="edit-class-number" className={`block text-sm font-medium mb-2 ${userRole === 'SUPER_USER' ? 'text-gray-700' : 'text-gray-500'}`}>Class Number</Label>
                     <Input
+                      id="edit-class-number"
+                      name="classNumber"
                       type="number"
                       min="1"
                       max="1000"
@@ -1700,10 +1762,12 @@ export default function MembersPage() {
                     />
                   </div>
                   <div>
-                    <Label className="block text-sm font-medium text-gray-700 mb-2">
+                    <Label htmlFor="edit-date-of-encounter" className="block text-sm font-medium text-gray-700 mb-2">
                       Date of {editForm.encounterType || 'Encounter'}
                     </Label>
                     <Input
+                      id="edit-date-of-encounter"
+                      name="dateOfEncounter"
                       type="date"
                       value={editForm.dateOfEncounter}
                       onChange={(e) => setEditForm({...editForm, dateOfEncounter: e.target.value})}
@@ -1718,6 +1782,7 @@ export default function MembersPage() {
                     disabled={isSavingPhoto}
                     onClick={() => {
                       if (isSavingPhoto) return;
+                      setPendingPhotoDataUrl(null);
                       setShowEditDialog(false);
                       setEditingMember(null);
                     }}
@@ -1752,14 +1817,14 @@ export default function MembersPage() {
                 {roleAssignmentForm.role === 'CLASS_SHEPHERD' && (
                   <>
                     <div>
-                      <Label className="text-base font-semibold text-gray-700">
+                      <Label htmlFor="role-shepherd-encounter-type" className="text-base font-semibold text-gray-700">
                         Encounter Type *
                       </Label>
                       <Select
                         value={roleAssignmentForm.shepherdEncounterType}
                         onValueChange={(value) => setRoleAssignmentForm({...roleAssignmentForm, shepherdEncounterType: value})}
                       >
-                        <SelectTrigger className="mt-2 h-12 text-lg">
+                        <SelectTrigger id="role-shepherd-encounter-type" className="mt-2 h-12 text-lg">
                           <SelectValue placeholder="Select Encounter Type" />
                         </SelectTrigger>
                         <SelectContent>
@@ -1770,13 +1835,15 @@ export default function MembersPage() {
                       </Select>
                     </div>
                     <div>
-                      <Label className="text-base font-semibold text-gray-700">
+                      <Label htmlFor="role-shepherd-class-number" className="text-base font-semibold text-gray-700">
                         Class Number *
                         <span className="ml-2 text-xs font-normal text-gray-500">
                           (The encounter class they will shepherd, e.g., 101)
                         </span>
                       </Label>
                       <Input
+                        id="role-shepherd-class-number"
+                        name="shepherdClassNumber"
                         type="number"
                         min="1"
                         max="999"
@@ -1794,7 +1861,7 @@ export default function MembersPage() {
 
                 {roleAssignmentForm.role === 'MINISTRY_COORDINATOR' && (
                   <div>
-                    <Label className="text-base font-semibold text-gray-700">
+                    <Label htmlFor="role-ministry" className="text-base font-semibold text-gray-700">
                       Ministry *
                       <span className="ml-2 text-xs font-normal text-gray-500">
                         (The ministry they will coordinate)
@@ -1804,7 +1871,7 @@ export default function MembersPage() {
                       value={roleAssignmentForm.ministry}
                       onValueChange={(value) => setRoleAssignmentForm({...roleAssignmentForm, ministry: value})}
                     >
-                      <SelectTrigger className="mt-2 h-12 text-lg">
+                      <SelectTrigger id="role-ministry" className="mt-2 h-12 text-lg">
                         <SelectValue placeholder="Select Ministry" />
                       </SelectTrigger>
                       <SelectContent>
