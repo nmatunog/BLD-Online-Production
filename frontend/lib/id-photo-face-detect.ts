@@ -83,6 +83,7 @@ async function loadBlazeFace(): Promise<BlazeFaceModel> {
     modelPromise = (async () => {
       const tf = await import('@tensorflow/tfjs');
       const blazeface = await import('@tensorflow-models/blazeface');
+      tf.env().set('CANVAS2D_WILL_READ_FREQUENTLY_FOR_GPU', true);
 
       try {
         const backend = resolveTfBackendName();

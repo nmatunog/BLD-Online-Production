@@ -19,7 +19,7 @@ import {
   type PixelBox,
 } from '@/lib/id-photo-face-crop';
 import { detectPrimaryFace } from '@/lib/id-photo-face-detect';
-import { getCanvas2dContext } from '@/lib/id-photo-canvas';
+import { getCanvas2dContext, installCanvasWillReadFrequently } from '@/lib/id-photo-canvas';
 
 type Mode = 'select' | 'camera' | 'preparing' | 'crop' | 'preview-processed';
 
@@ -364,7 +364,9 @@ export function IdPhotoUpload({
   }, []);
 
   useEffect(() => {
+    const uninstall = installCanvasWillReadFrequently();
     return () => {
+      uninstall();
       stopCamera();
       // Cleanup object URL on unmount
       if (objectUrlRef.current) {
