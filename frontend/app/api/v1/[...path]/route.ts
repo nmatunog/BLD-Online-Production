@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
+import { buildUpstreamHeaders } from '@/lib/api-proxy-headers';
 
 export const runtime = 'nodejs';
+/** rembg/normalize photo POST can take 8–15s; allow 60s on the same-origin proxy. */
+export const maxDuration = 60;
 
 function getBackendBaseUrl(): string | null {
   const fromEnv =
@@ -32,9 +35,7 @@ async function proxy(req: Request, ctx: { params: Promise<{ path?: string[] }> }
   const target = new URL(`${backendBase}/api/v1/${path.join('/')}`);
   target.search = url.search;
 
-  const headers = new Headers(req.headers);
-  // Ensure host/origin headers don't confuse upstream
-  headers.delete('host');
+  const headers = buildUpstreamHeaders(req.headers);
 
   const method = req.method.toUpperCase();
   const hasBody = !['GET', 'HEAD'].includes(method);
