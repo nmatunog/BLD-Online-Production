@@ -87,6 +87,21 @@ describe('getMemberApiErrorMessage', () => {
       ),
     ).toBe(SESSION_EXPIRED_MESSAGE);
   });
+
+  it('stringifies a nested object message instead of [object Object]', () => {
+    expect(
+      getMemberApiErrorMessage(
+        {
+          response: {
+            status: 400,
+            data: { message: { message: 'Could not process photo', statusCode: 400 } },
+          },
+          message: 'Request failed with status code 400',
+        },
+        'Failed to upload photo',
+      ),
+    ).toBe('Could not process photo');
+  });
 });
 
 describe('membersService photo upload', () => {
@@ -161,6 +176,16 @@ describe('membersService photo upload', () => {
 
     await expect(membersService.uploadMemberPhoto('member-1', PHOTO_DATA_URL)).rejects.toThrow(
       'Photo file or photoDataUrl is required',
+    );
+  });
+
+  it('does not throw Error: [object Object] when the API error field is an object', async () => {
+    post.mockResolvedValue({
+      data: { success: false, error: { statusCode: 400, message: 'Could not process photo' } },
+    });
+
+    await expect(membersService.uploadMemberPhoto('member-1', PHOTO_DATA_URL)).rejects.toThrow(
+      'Could not process photo',
     );
   });
 });

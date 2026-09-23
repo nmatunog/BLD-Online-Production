@@ -31,6 +31,7 @@ import {
   capitalizeLocation,
 } from '@/lib/member-constants';
 import { generateMemberQR, downloadQRCode, type MemberData } from '@/lib/qr-service';
+import { getErrorMessage } from '@/lib/get-error-message';
 
 export default function ProfilePage() {
   const router = useRouter();
@@ -399,7 +400,7 @@ export default function ProfilePage() {
                         toast.success('ID photo saved');
                       } catch (error) {
                         toast.error('Could not save photo', {
-                          description: error instanceof Error ? error.message : 'Please try again',
+                          description: getErrorMessage(error, 'Please try again'),
                         });
                       }
                     }}

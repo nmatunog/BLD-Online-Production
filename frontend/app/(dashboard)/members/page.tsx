@@ -38,6 +38,7 @@ import {
   getCityLabel,
 } from '@/lib/member-constants';
 import { generateMemberQR, downloadQRCode, type MemberData } from '@/lib/qr-service';
+import { getErrorMessage } from '@/lib/get-error-message';
 import jsPDF from 'jspdf';
 
 interface EditFormData {
@@ -779,11 +780,8 @@ export default function MembersPage() {
       setEditingMember(null);
       reloadCurrentPage();
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string | string[] }; status?: number } };
-      const raw = err.response?.data?.message;
-      const msg = typeof raw === 'string' ? raw : Array.isArray(raw) ? raw[0] : undefined;
-      const description = msg ?? (error instanceof Error ? error.message : 'Failed to update member');
-      const isDuplicateCommunityId = typeof description === 'string' && /community id|already in use/i.test(description);
+      const description = getErrorMessage(error, 'Failed to update member');
+      const isDuplicateCommunityId = /community id|already in use/i.test(description);
       toast.error(isDuplicateCommunityId ? 'Duplicate Community ID' : 'Update failed', {
         description,
         duration: 6000,
@@ -1370,10 +1368,7 @@ export default function MembersPage() {
                             toast.success('ID photo saved');
                           } catch (error) {
                             toast.error('Could not save photo', {
-                              description:
-                                error instanceof Error
-                                  ? `${error.message} Click Save Changes to retry.`
-                                  : 'Click Save Changes to retry.',
+                              description: `${getErrorMessage(error, 'Please try again')} Click Save Changes to retry.`,
                             });
                           } finally {
                             setIsSavingPhoto(false);
