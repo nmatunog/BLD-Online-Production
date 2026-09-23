@@ -32,7 +32,7 @@ export async function normalizeIdPhoto(input: Buffer): Promise<Buffer> {
 
   let meta: sharp.Metadata;
   try {
-    meta = await sharp(input, { failOn: 'none' }).rotate().metadata();
+    meta = await sharp(input, { failOn: 'truncated' }).rotate().metadata();
   } catch {
     throw new Error('Could not read photo');
   }
@@ -48,16 +48,20 @@ export async function normalizeIdPhoto(input: Buffer): Promise<Buffer> {
   }
 
   try {
-    return await sharp(input, { failOn: 'none' })
+    return await sharp(input, { failOn: 'truncated' })
       .rotate()
       .resize(ID_PHOTO_OUTPUT_SIZE, ID_PHOTO_OUTPUT_SIZE, {
         fit: 'cover',
         position: 'centre',
       })
+      .toColourspace('srgb')
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
       .jpeg({
         quality: ID_PHOTO_JPEG_QUALITY,
         mozjpeg: true,
         chromaSubsampling: '4:2:0',
+        progressive: false,
+        force: true,
       })
       .toBuffer();
   } catch {
