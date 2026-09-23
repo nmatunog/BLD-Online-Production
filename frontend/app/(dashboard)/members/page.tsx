@@ -89,6 +89,7 @@ export default function MembersPage() {
   const [authLoading, setAuthLoading] = useState(true);
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingMember, setEditingMember] = useState<Member | null>(null);
+  const [isSavingPhoto, setIsSavingPhoto] = useState(false);
   const [showQRCode, setShowQRCode] = useState<string | null>(null);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [showRoleAssignmentDialog, setShowRoleAssignmentDialog] = useState(false);
@@ -720,7 +721,7 @@ export default function MembersPage() {
   const handleUpdateMember = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!editingMember) return;
+    if (!editingMember || isSavingPhoto) return;
 
     // Only send fields that are allowed by the backend DTO
     // Apostolate/ministry: send null when empty so backend validation accepts (valid apostolates list)
@@ -1299,7 +1300,13 @@ export default function MembersPage() {
 
         {/* Edit Member Dialog - Part 1: Personal Information */}
         {showEditDialog && editingMember && (
-          <Dialog open={showEditDialog} onOpenChange={setShowEditDialog}>
+          <Dialog
+            open={showEditDialog}
+            onOpenChange={(open) => {
+              if (!open && isSavingPhoto) return;
+              setShowEditDialog(open);
+            }}
+          >
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-white" aria-describedby="edit-member-desc">
               <DialogHeader>
                 <DialogTitle className="text-lg font-semibold">Edit Member Profile</DialogTitle>
@@ -1311,6 +1318,14 @@ export default function MembersPage() {
                 {/* Personal Information */}
                 <div className="bg-gray-50 p-4 rounded-lg">
                   <h4 className="text-md font-semibold text-gray-800 mb-4">Personal Information</h4>
+                  {isSavingPhoto && (
+                    <p
+                      role="status"
+                      className="mb-3 text-sm text-purple-900 bg-purple-50 border border-purple-200 rounded-lg px-3 py-2"
+                    >
+                      Saving photo… may take ~15s
+                    </p>
+                  )}
                   {editingMember && (
                     <div className="mb-4">
                       <IdPhotoUpload
@@ -1319,6 +1334,7 @@ export default function MembersPage() {
                         required
                         onPhotoProcessed={async (dataUrl) => {
                           if (!dataUrl) return;
+                          setIsSavingPhoto(true);
                           try {
                             const photoUrl = await membersService.uploadMemberPhoto(
                               editingMember.id,
@@ -1333,6 +1349,8 @@ export default function MembersPage() {
                             toast.error('Could not save photo', {
                               description: error instanceof Error ? error.message : 'Please try again',
                             });
+                          } finally {
+                            setIsSavingPhoto(false);
                           }
                         }}
                       />
@@ -1697,7 +1715,9 @@ export default function MembersPage() {
                   <Button
                     type="button"
                     variant="outline"
+                    disabled={isSavingPhoto}
                     onClick={() => {
+                      if (isSavingPhoto) return;
                       setShowEditDialog(false);
                       setEditingMember(null);
                     }}
@@ -1706,6 +1726,7 @@ export default function MembersPage() {
                   </Button>
                   <Button
                     type="submit"
+                    disabled={isSavingPhoto}
                     className="bg-purple-600 text-white hover:bg-purple-700"
                   >
                     Save Changes
