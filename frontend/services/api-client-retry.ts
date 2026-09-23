@@ -35,11 +35,18 @@ export function shouldClearSessionOn401(options: {
   return true;
 }
 
+function cloneRequestHeaders(headers: RetryableRequestConfig['headers']): AxiosHeaders {
+  if (headers instanceof AxiosHeaders) {
+    return AxiosHeaders.from(headers);
+  }
+  return AxiosHeaders.from((headers ?? {}) as Record<string, string>);
+}
+
 export function buildRetriedRequestConfig(
   originalConfig: RetryableRequestConfig,
   accessToken: string,
 ): RetryableRequestConfig {
-  const headers = AxiosHeaders.from(originalConfig.headers ?? {});
+  const headers = cloneRequestHeaders(originalConfig.headers);
   headers.set('Authorization', `Bearer ${accessToken}`);
 
   const data = originalConfig.data;
