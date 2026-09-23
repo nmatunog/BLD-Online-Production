@@ -7,6 +7,7 @@ import {
   shouldClearSessionOn401,
   type RetryableRequestConfig,
 } from './api-client-retry';
+import { runEnsureFreshToken } from './api-client-token';
 
 // Log API URL for debugging (only in development)
 // This will be logged when ApiClient is instantiated
@@ -197,6 +198,21 @@ class ApiClient {
   private getToken(): string | null {
     if (typeof window === 'undefined') return null;
     return localStorage.getItem('accessToken');
+  }
+
+  private getRefreshToken(): string | null {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem('refreshToken');
+  }
+
+  /**
+   * Use the current access JWT if it is still valid (with a 60s skew).
+   * Otherwise refresh. Throws a clear session-expired error when refresh cannot run.
+   */
+  async ensureFreshToken(): Promise<string> {
+    return runEnsureFreshToken(this.getToken(), this.getRefreshToken(), (refreshToken) =>
+      this.refreshAccessToken(refreshToken),
+    );
   }
 
   private clearToken(): void {

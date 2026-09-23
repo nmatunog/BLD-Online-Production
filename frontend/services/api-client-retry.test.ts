@@ -5,6 +5,8 @@ import {
   isAuthEndpointUrl,
   isCredentialAttemptUrl,
   shouldClearSessionOn401,
+  toRelativeRequestUrl,
+  type RetryableRequestConfig,
 } from './api-client-retry';
 
 describe('shouldClearSessionOn401', () => {
@@ -62,7 +64,63 @@ describe('auth URL helpers', () => {
   });
 });
 
+describe('toRelativeRequestUrl', () => {
+  it('keeps an already-relative member photo path', () => {
+    expect(toRelativeRequestUrl('/members/member-1/photo', 'https://app.bldcebu.com/api/v1')).toBe(
+      '/members/member-1/photo',
+    );
+  });
+
+  it('strips an absolute URL that already includes baseURL', () => {
+    expect(
+      toRelativeRequestUrl(
+        'https://app.bldcebu.com/api/v1/members/member-1/photo',
+        'https://app.bldcebu.com/api/v1',
+      ),
+    ).toBe('/members/member-1/photo');
+  });
+
+  it('strips a path that accidentally includes the /api/v1 prefix', () => {
+    expect(
+      toRelativeRequestUrl('/api/v1/members/member-1/photo', 'https://app.bldcebu.com/api/v1'),
+    ).toBe('/members/member-1/photo');
+  });
+});
+
 describe('buildRetriedRequestConfig', () => {
+  it('rebuilds a clean relative config instead of spreading a mutated axios config', () => {
+    const photoDataUrl = 'data:image/jpeg;base64,abc123';
+    const retried = buildRetriedRequestConfig(
+      {
+        method: 'POST',
+        url: 'https://app.bldcebu.com/api/v1/members/member-1/photo',
+        baseURL: 'https://app.bldcebu.com/api/v1',
+        data: { photoDataUrl },
+        timeout: 60_000,
+        adapter: () => {
+          throw new Error('stale adapter must not be reused');
+        },
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer expired' },
+      } as RetryableRequestConfig,
+      'fresh-token',
+    );
+
+    expect(retried).toEqual(
+      expect.objectContaining({
+        method: 'post',
+        url: '/members/member-1/photo',
+        data: { photoDataUrl },
+        timeout: 60_000,
+        _retry: true,
+      }),
+    );
+    expect(retried.baseURL).toBeUndefined();
+    expect(retried.adapter).toBeUndefined();
+    expect(retried.headers).toBeInstanceOf(AxiosHeaders);
+    expect((retried.headers as AxiosHeaders).get('Authorization')).toBe('Bearer fresh-token');
+    expect((retried.headers as AxiosHeaders).get('Content-Type')).toBe('application/json');
+  });
+
   it('keeps JSON photo body and sets a fresh Authorization header', () => {
     const photoDataUrl = 'data:image/jpeg;base64,abc123';
     const retried = buildRetriedRequestConfig(

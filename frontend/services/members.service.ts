@@ -1,15 +1,22 @@
 import { apiClient } from './api-client';
+import { SESSION_EXPIRED_MESSAGE } from './api-client-token';
 import { ApiResponse } from '@/types/api.types';
 
 /** rembg/normalize often takes 8–15s; keep well above the 10s axios default. */
 export const PHOTO_UPLOAD_TIMEOUT_MS = 60_000;
 
 function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message === SESSION_EXPIRED_MESSAGE) {
+    return SESSION_EXPIRED_MESSAGE;
+  }
   if (error && typeof error === 'object') {
     const axiosErr = error as {
-      response?: { data?: { message?: string | string[]; error?: string } };
+      response?: { status?: number; data?: { message?: string | string[]; error?: string } };
       message?: string;
     };
+    if (axiosErr.response?.status === 401) {
+      return SESSION_EXPIRED_MESSAGE;
+    }
     const data = axiosErr.response?.data;
     if (data) {
       if (typeof data.message === 'string' && data.message.trim()) {
@@ -202,6 +209,7 @@ class MembersService {
 
   async uploadMyPhoto(photoDataUrl: string): Promise<string> {
     try {
+      await apiClient.ensureFreshToken();
       const response = await apiClient.post<ApiResponse<{ photoUrl: string }>>(
         '/members/me/photo',
         { photoDataUrl },
@@ -218,6 +226,7 @@ class MembersService {
 
   async uploadMemberPhoto(memberId: string, photoDataUrl: string): Promise<string> {
     try {
+      await apiClient.ensureFreshToken();
       const response = await apiClient.post<ApiResponse<{ photoUrl: string }>>(
         `/members/${memberId}/photo`,
         { photoDataUrl },
