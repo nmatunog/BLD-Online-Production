@@ -19,6 +19,7 @@ import {
   type PixelBox,
 } from '@/lib/id-photo-face-crop';
 import { detectPrimaryFace } from '@/lib/id-photo-face-detect';
+import { getCanvas2dContext } from '@/lib/id-photo-canvas';
 
 type Mode = 'select' | 'camera' | 'preparing' | 'crop' | 'preview-processed';
 
@@ -128,7 +129,7 @@ async function reencodeToBaselineJpeg(blob: Blob): Promise<Blob> {
       canvas.width = imageBitmap.width;
       canvas.height = imageBitmap.height;
       
-      const ctx = canvas.getContext('2d');
+      const ctx = getCanvas2dContext(canvas);
       if (!ctx) throw new Error('No canvas context');
       
       ctx.drawImage(imageBitmap, 0, 0);
@@ -152,7 +153,7 @@ async function reencodeToBaselineJpeg(blob: Blob): Promise<Blob> {
       canvas.width = img.width;
       canvas.height = img.height;
       
-      const ctx = canvas.getContext('2d');
+      const ctx = getCanvas2dContext(canvas);
       if (!ctx) throw new Error('No canvas context');
       
       ctx.drawImage(img, 0, 0);
@@ -199,7 +200,7 @@ async function convertHeicToJpeg(file: File | Blob): Promise<Blob> {
  * Check if canvas is blank/transparent (common issue with progressive JPEGs in Safari)
  */
 function isCanvasBlank(canvas: HTMLCanvasElement): boolean {
-  const ctx = canvas.getContext('2d');
+  const ctx = getCanvas2dContext(canvas);
   if (!ctx) return true;
   
   const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -297,7 +298,7 @@ async function processCrop(imageSrc: string, pixelCrop: Area): Promise<string> {
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext('2d');
+  const ctx = getCanvas2dContext(canvas);
   if (!ctx) throw new Error('No canvas context');
 
   ctx.drawImage(
@@ -478,7 +479,7 @@ export function IdPhotoUpload({
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth || 720;
     canvas.height = video.videoHeight || 720;
-    const ctx = canvas.getContext('2d');
+    const ctx = getCanvas2dContext(canvas);
     if (!ctx) return;
     ctx.drawImage(video, 0, 0);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
