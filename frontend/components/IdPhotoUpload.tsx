@@ -8,10 +8,21 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import {
   ID_PHOTO_CLIENT_OUTPUT_SIZE,
+  ID_PHOTO_HEIC_MESSAGE,
+  ID_PHOTO_LOW_RES_HINT,
+  ID_PHOTO_TOO_SMALL_HINT,
   ID_PHOTO_TOO_SMALL_MESSAGE,
   ID_PHOTO_WHITE_BG_HINT,
+  idPhotoMaxZoom,
+  isPhotoLowResolution,
   isPhotoTooSmall,
+  type IdPhotoClientFlow,
 } from '@/lib/id-photo';
+import {
+  cameraFailureMessage,
+  cameraFailureReason,
+  requestIdPhotoCameraStream,
+} from '@/lib/id-photo-camera';
 import {
   ID_PHOTO_CROP_MAX_ZOOM,
   NO_FACE_CROP_TIP,
@@ -20,6 +31,7 @@ import {
 } from '@/lib/id-photo-face-crop';
 import { detectPrimaryFace } from '@/lib/id-photo-face-detect';
 import { getCanvas2dContext, installCanvasWillReadFrequently } from '@/lib/id-photo-canvas';
+import { reportIdPhotoClientFailure } from '@/lib/id-photo-telemetry';
 
 type Mode = 'select' | 'camera' | 'preparing' | 'crop' | 'preview-processed';
 
@@ -28,6 +40,7 @@ interface IdPhotoUploadProps {
   currentPhoto?: string | null;
   accentColor?: string;
   required?: boolean;
+  flow: IdPhotoClientFlow;
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -223,10 +236,22 @@ function isCanvasBlank(canvas: HTMLCanvasElement): boolean {
   return nonZeroCount < 10;
 }
 
-function rejectIfTooSmall(width: number, height: number): boolean {
+function rejectIfTooSmall(
+  width: number,
+  height: number,
+  flow: IdPhotoClientFlow,
+  mimeType?: string | null,
+): boolean {
   if (!isPhotoTooSmall(width, height)) return false;
+  reportIdPhotoClientFailure({
+    reason: 'too_small',
+    flow,
+    width,
+    height,
+    mimeType: mimeType ?? undefined,
+  });
   toast.error(ID_PHOTO_TOO_SMALL_MESSAGE, {
-    description: 'Use a photo at least 600 pixels on the shorter side.',
+    description: ID_PHOTO_TOO_SMALL_HINT,
     duration: 6000,
   });
   return true;
@@ -336,6 +361,7 @@ export function IdPhotoUpload({
   currentPhoto = null,
   accentColor = '#D00008',
   required = false,
+  flow,
 }: IdPhotoUploadProps) {
   const [mode, setMode] = useState<Mode>('select');
   const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -350,6 +376,8 @@ export function IdPhotoUpload({
   const [isSaving, setIsSaving] = useState(false);
   const [preview, setProcessedPreview] = useState<string | null>(currentPhoto);
   const [imageSize, setImageSize] = useState<{ width: number; height: number } | null>(null);
+  const [showLowResHint, setShowLowResHint] = useState(false);
+  const maxZoom = imageSize ? idPhotoMaxZoom(imageSize.width, imageSize.height) : ID_PHOTO_CROP_MAX_ZOOM;
 
   const photoFieldId = useId();
   const zoomInputId = `${photoFieldId}-zoom`;
@@ -360,6 +388,7 @@ export function IdPhotoUpload({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const objectUrlRef = useRef<string | null>(null);
   const originalFileRef = useRef<File | null>(null);
+  const mimeTypeRef = useRef<string | undefined>(undefined);
   const prepareGenRef = useRef(0);
 
   const stopCamera = useCallback(() => {
@@ -383,6 +412,10 @@ export function IdPhotoUpload({
   useEffect(() => {
     setProcessedPreview(currentPhoto);
   }, [currentPhoto]);
+
+  useEffect(() => {
+    setZoom((current) => Math.min(current, maxZoom));
+  }, [maxZoom]);
 
   // Load image to get dimensions (for crop mode)
   useEffect(() => {
@@ -411,7 +444,9 @@ export function IdPhotoUpload({
     setInitialCropPixels(null);
     setShowNoFaceTip(false);
     setImageSize(null);
+    setShowLowResHint(false);
     originalFileRef.current = null;
+    mimeTypeRef.current = undefined;
     
     // Revoke object URL
     if (objectUrlRef.current) {
@@ -425,11 +460,12 @@ export function IdPhotoUpload({
     try {
       const img = await loadImage(imageSource);
       if (gen !== prepareGenRef.current) return;
-      if (rejectIfTooSmall(img.width, img.height)) {
+      if (rejectIfTooSmall(img.width, img.height, flow, mimeTypeRef.current)) {
         reset();
         return;
       }
       toast.dismiss();
+      setShowLowResHint(isPhotoLowResolution(img.width, img.height));
       setOriginalImageSrc(imageSource);
       setImageSrc(imageSource);
       setCrop({ x: 0, y: 0 });
@@ -454,6 +490,11 @@ export function IdPhotoUpload({
       setMode('crop');
     } catch (err) {
       console.error('Could not open cropper:', err);
+      reportIdPhotoClientFailure({
+        reason: 'load_error',
+        flow,
+        mimeType: mimeTypeRef.current,
+      });
       toast.error('Could not load photo', {
         description: 'Please try another photo.',
         duration: 6000,
@@ -464,9 +505,7 @@ export function IdPhotoUpload({
 
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1920 } },
-      });
+      const stream = await requestIdPhotoCameraStream();
       streamRef.current = stream;
       setMode('camera');
       requestAnimationFrame(() => {
@@ -474,8 +513,13 @@ export function IdPhotoUpload({
           videoRef.current.srcObject = stream;
         }
       });
-    } catch {
-      alert('Unable to access camera. Please allow camera permission or upload a file instead.');
+    } catch (error) {
+      const reason = cameraFailureReason(error);
+      reportIdPhotoClientFailure({ reason, flow });
+      toast.error(reason === 'camera_denied' ? 'Camera blocked' : 'Camera unavailable', {
+        description: cameraFailureMessage(reason),
+        duration: 6000,
+      });
     }
   };
 
@@ -491,6 +535,7 @@ export function IdPhotoUpload({
     const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
     stopCamera();
     originalFileRef.current = null;
+    mimeTypeRef.current = 'image/jpeg';
     await enterCropMode(dataUrl);
   };
 
@@ -505,6 +550,7 @@ export function IdPhotoUpload({
     // Check if it's an image file
     const isImage = file.type.startsWith('image/');
     const isPotentialHeic = await isHeicFile(file);
+    mimeTypeRef.current = file.type || (isPotentialHeic ? 'image/heic' : undefined);
     
     if (!isImage && !isPotentialHeic) {
       toast.error('Invalid file type', {
@@ -530,7 +576,7 @@ export function IdPhotoUpload({
         console.error('HEIC conversion error:', error);
         toast.error('Conversion failed', {
           id: convertToastId,
-          description: 'Could not convert HEIC image. Trying alternate method...',
+          description: 'Trying the original file in case this browser can open HEIC…',
           duration: 4000,
         });
         blobToUse = file;
@@ -575,9 +621,14 @@ export function IdPhotoUpload({
     testImg.onerror = async () => {
       // Image load failed - try recovery
       if (needsHeicConversion) {
-        toast.error('Image load failed', {
-          description: 'Could not load this HEIC image. Please try taking a new photo or use a different file.',
-          duration: 6000,
+        reportIdPhotoClientFailure({
+          reason: 'heic_decode',
+          flow,
+          mimeType: mimeTypeRef.current || 'image/heic',
+        });
+        toast.error('Cannot open HEIC photo', {
+          description: ID_PHOTO_HEIC_MESSAGE,
+          duration: 8000,
         });
         URL.revokeObjectURL(objectUrl);
         objectUrlRef.current = null;
@@ -596,6 +647,11 @@ export function IdPhotoUpload({
           await enterCropMode(newObjectUrl);
         } catch (reencodeError) {
           console.error('Fallback JPEG re-encoding failed:', reencodeError);
+          reportIdPhotoClientFailure({
+            reason: 'decode',
+            flow,
+            mimeType: mimeTypeRef.current || 'image/jpeg',
+          });
           toast.error('Image load failed', {
             id: fallbackToastId,
             description: 'Could not load this image. Please try taking a new photo or use a different file.',
@@ -619,10 +675,18 @@ export function IdPhotoUpload({
           await enterCropMode(newObjectUrl);
         } catch (conversionError) {
           console.error('Fallback conversion failed:', conversionError);
-          toast.error('Image load failed', {
+          const looksHeic = await isHeicFile(file);
+          reportIdPhotoClientFailure({
+            reason: looksHeic ? 'heic_decode' : 'decode',
+            flow,
+            mimeType: mimeTypeRef.current,
+          });
+          toast.error(looksHeic ? 'Cannot open HEIC photo' : 'Image load failed', {
             id: fallbackToastId,
-            description: 'Could not load this image. Please try taking a new photo or use a different file.',
-            duration: 6000,
+            description: looksHeic
+              ? ID_PHOTO_HEIC_MESSAGE
+              : 'Could not load this image. Please try taking a new photo or use a different file.',
+            duration: 8000,
           });
           URL.revokeObjectURL(objectUrl);
           objectUrlRef.current = null;
@@ -728,6 +792,13 @@ export function IdPhotoUpload({
       console.error('Photo processing failed:', err);
       const message = err instanceof Error ? err.message : '';
       if (message.includes('too small')) {
+        reportIdPhotoClientFailure({
+          reason: 'too_small',
+          flow,
+          width: croppedAreaPixels?.width,
+          height: croppedAreaPixels?.height,
+          mimeType: mimeTypeRef.current,
+        });
         toast.error(ID_PHOTO_TOO_SMALL_MESSAGE, {
           description: 'Zoom out so more of the photo is in the square, or use a clearer photo.',
           duration: 6000,
@@ -735,6 +806,11 @@ export function IdPhotoUpload({
         setIsProcessing(false);
         return;
       }
+      reportIdPhotoClientFailure({
+        reason: 'decode',
+        flow,
+        mimeType: mimeTypeRef.current,
+      });
       toast.error('Photo processing failed', { 
         description: 'Could not process the photo. Please try another photo.', 
         duration: 6000 
@@ -828,10 +904,10 @@ export function IdPhotoUpload({
             aspect={1}
             objectFit="contain"
             minZoom={1}
-            maxZoom={ID_PHOTO_CROP_MAX_ZOOM}
+            maxZoom={maxZoom}
             initialCroppedAreaPixels={initialCropPixels ?? undefined}
             onCropChange={setCrop}
-            onZoomChange={setZoom}
+            onZoomChange={(next) => setZoom(Math.min(maxZoom, next))}
             onCropComplete={(_, area) => setCroppedAreaPixels(area)}
           />
           <IdPhotoSilhouetteGuide />
@@ -846,13 +922,23 @@ export function IdPhotoUpload({
             form=""
             type="range"
             min={1}
-            max={ID_PHOTO_CROP_MAX_ZOOM}
+            max={maxZoom}
             step={0.1}
-            value={zoom}
-            onChange={(e) => setZoom(Number(e.target.value))}
+            value={Math.min(zoom, maxZoom)}
+            onChange={(e) => setZoom(Math.min(maxZoom, Number(e.target.value)))}
             className="w-full mt-1"
           />
         </div>
+        {(showLowResHint ||
+          (croppedAreaPixels &&
+            isPhotoLowResolution(croppedAreaPixels.width, croppedAreaPixels.height))) && (
+          <p
+            className="text-sm text-center text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2"
+            role="status"
+          >
+            {ID_PHOTO_LOW_RES_HINT}
+          </p>
+        )}
         {showNoFaceTip && (
           <p
             className="text-sm text-center text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2"

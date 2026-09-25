@@ -101,7 +101,7 @@ describe('idPhotoCropFromFace', () => {
     expect(crop.width).toBeLessThanOrEqual(minSide);
   });
 
-  it('never initializes a crop smaller than 600px when the image can supply it', () => {
+  it('never initializes a crop smaller than 400px when the image can supply it', () => {
     const imageWidth = 2400;
     const imageHeight = 1000;
     const face: FaceBox = { x: 80, y: 220, width: 180, height: 240, score: 0.92 };
@@ -109,6 +109,14 @@ describe('idPhotoCropFromFace', () => {
     expect(crop.width).toBeGreaterThanOrEqual(ID_PHOTO_MIN_SHORT_SIDE);
     expect(crop.height).toBeGreaterThanOrEqual(ID_PHOTO_MIN_SHORT_SIDE);
     expect(containsFace(crop, face)).toBe(true);
+  });
+
+  it('keeps a 640×480 webcam crop at or above the 400px floor', () => {
+    const face: FaceBox = { x: 220, y: 80, width: 200, height: 240, score: 0.9 };
+    const crop = idPhotoCropFromFace(640, 480, face);
+    expect(crop.width).toBeGreaterThanOrEqual(ID_PHOTO_MIN_SHORT_SIDE);
+    expect(crop.height).toBeGreaterThanOrEqual(ID_PHOTO_MIN_SHORT_SIDE);
+    expect(crop.width).toBeLessThanOrEqual(480);
   });
 
   it('falls back to a centered square when the box is unusable', () => {

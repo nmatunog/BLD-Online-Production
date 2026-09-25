@@ -1345,6 +1345,7 @@ export default function MembersPage() {
                         currentPhoto={withPhotoCacheBust(editingMember.photoUrl, editingMember.updatedAt)}
                         accentColor="#7c3aed"
                         required
+                        flow="admin"
                         onPhotoProcessed={async (dataUrl) => {
                           if (!dataUrl) {
                             setPendingPhotoDataUrl(null);

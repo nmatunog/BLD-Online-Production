@@ -14,6 +14,7 @@ import { RegistrationsModule } from './registrations/registrations.module';
 import { AccountingModule } from './accounting/accounting.module';
 import { ReportsModule } from './reports/reports.module';
 import { HealthModule } from './health/health.module';
+import { IdPhotoModule } from './id-photo/id-photo.module';
 // import { EmailModule } from './email/email.module';
 // import { PaymentModule } from './payment/payment.module';
 
@@ -34,6 +35,7 @@ import { HealthModule } from './health/health.module';
     AccountingModule,
     ReportsModule,
     HealthModule,
+    IdPhotoModule,
     // Add other modules as they are implemented
     // EmailModule,
     // PaymentModule,

@@ -999,6 +999,7 @@ function SignupForm() {
               currentPhoto={idPhoto}
               accentColor={BLD.red}
               required
+              flow="signup"
             />
           </div>
         ) : (
@@ -1278,6 +1279,7 @@ function SignupForm() {
             currentPhoto={idPhoto}
             accentColor={BLD.red}
             required
+            flow="signup"
           />
           {!idPhoto && (
             <p className="text-sm text-[#D00008]">
