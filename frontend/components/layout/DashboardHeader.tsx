@@ -3,15 +3,40 @@
 import { useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Home, Users, Calendar, CheckCircle, FileText, LogOut, Menu, X, User, BarChart3 } from 'lucide-react';
+import {
+  Home,
+  Users,
+  Calendar,
+  CheckCircle,
+  FileText,
+  LogOut,
+  Menu,
+  User,
+  BarChart3,
+  type LucideIcon,
+} from 'lucide-react';
 import { authService } from '@/services/auth.service';
 import { useAuth } from '@/contexts/AuthContext';
-import { Button } from '@/components/ui/button';
-import { ThemeToggle } from '@/components/theme-toggle';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import {
+  getDashboardPageTitle,
+  getVisibleNavItems,
+  isNavItemActive,
+  type NavIconKey,
+} from '@/lib/nav-items';
+import { MobileNavDrawer, type MobileNavDrawerItem } from '@/components/layout/MobileNavDrawer';
 
-// Role Badge Component
+const NAV_ICONS: Record<NavIconKey, LucideIcon> = {
+  home: Home,
+  checkin: CheckCircle,
+  members: Users,
+  events: Calendar,
+  registrations: FileText,
+  reports: BarChart3,
+  profile: User,
+};
+
 function RoleBadge({ role }: { role: string }) {
   const getRoleStyle = (role: string): string => {
     switch (role) {
@@ -41,18 +66,13 @@ export default function DashboardHeader() {
   const { user } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
-  const adminRoles = ['SUPER_USER', 'ADMINISTRATOR', 'DCS', 'MINISTRY_COORDINATOR', 'CLASS_SHEPHERD'];
-  const isAdmin = user?.role && adminRoles.includes(user.role);
-  const isMember = user?.role === 'MEMBER';
-
   const handleLogout = () => {
     authService.logout();
     toast.success('Logged out successfully');
     router.push('/login');
   };
 
-  // Get user display name
-const getUserDisplayName = () => {
+  const getUserDisplayName = () => {
     if (user?.member) {
       const nickname = user.member.nickname || user.member.firstName;
       return `${nickname} ${user.member.lastName}`;
@@ -60,29 +80,17 @@ const getUserDisplayName = () => {
     return user?.email || user?.phone || 'User';
   };
 
-  const navItems = [
-    { href: '/dashboard', label: 'Dashboard', icon: Home, shortLabel: 'Home', show: true },
-    { href: isMember ? '/checkin/self-checkin' : '/checkin', label: isMember ? 'Self Check-In' : 'Check-in', icon: CheckCircle, shortLabel: isMember ? 'Self Check-In' : 'Check-in', show: true },
-    { href: '/members', label: 'Members', icon: Users, shortLabel: 'Members', show: isAdmin },
-    { href: '/events', label: 'Events', icon: Calendar, shortLabel: 'Events', show: true }, // Show to all users
-    { href: '/event-registrations', label: 'Event Registrations', icon: FileText, shortLabel: 'Registrations', show: true }, // Show to all users (members see non-recurring only)
-    { href: '/reports', label: 'Reports', icon: BarChart3, shortLabel: 'Reports', show: isAdmin }, // Show to admins only
-    { href: '/profile', label: 'Profile', icon: User, shortLabel: 'Profile', show: true },
-  ].filter(link => link.show);
-
-  const isActive = (href: string) => {
-    if (href === '/dashboard') {
-      return pathname === '/dashboard';
-    }
-    return pathname.startsWith(href);
-  };
-
   if (!user) {
     return null;
   }
 
+  const navItems: MobileNavDrawerItem[] = getVisibleNavItems(user.role).map((item) => ({
+    ...item,
+    icon: NAV_ICONS[item.iconKey],
+  }));
   const displayName = getUserDisplayName();
   const communityId = user.member?.communityId;
+  const pageTitle = getDashboardPageTitle(pathname);
 
   return (
     <header className="bg-white shadow-lg">
@@ -126,11 +134,10 @@ const getUserDisplayName = () => {
             )}
           </div>
 
-          {/* Navigation Bar */}
           <nav className="flex flex-wrap gap-1 bg-gray-100 p-1 rounded-lg">
             {navItems.map((item) => {
               const Icon = item.icon;
-              const active = isActive(item.href);
+              const active = isNavItemActive(pathname, item.href);
               return (
                 <Link
                   key={item.href}
@@ -150,90 +157,39 @@ const getUserDisplayName = () => {
           </nav>
         </div>
 
-        {/* Mobile Header */}
-        <div className="md:hidden py-4">
-          <div className="flex justify-between items-center mb-4">
-            <div className="flex-1 min-w-0">
-              <h1 className="text-xl font-bold text-rose-700 truncate">
-                BLD Cebu Community Online Portal
-              </h1>
-              <div className="flex items-center gap-2 mt-1">
-                <p className="text-sm text-gray-600 truncate">
-                  Welcome, {displayName}!
-                </p>
-                {user.role && <RoleBadge role={user.role} />}
-              </div>
-              {communityId && (
-                <p className="text-xs text-gray-500 mt-1 truncate">
-                  ID: {communityId}
-                </p>
-              )}
-            </div>
-            <div className="flex items-center space-x-2 ml-2">
-              <button
-                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                {mobileMenuOpen ? (
-                  <X className="w-6 h-6" />
-                ) : (
-                  <Menu className="w-6 h-6" />
-                )}
-              </button>
+        {/* Mobile Header: hamburger + visible page title */}
+        <div className="md:hidden py-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label="Menu"
+              aria-expanded={mobileMenuOpen}
+              aria-controls="mobile-nav-drawer"
+              onClick={() => setMobileMenuOpen(true)}
+              className="inline-flex min-h-12 min-w-12 shrink-0 items-center justify-center gap-1 rounded-xl border-2 border-gray-400 bg-white px-2 text-gray-900 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-700 focus-visible:ring-offset-2"
+            >
+              <Menu className="h-6 w-6" aria-hidden />
+              <span className="sr-only">Menu</span>
+            </button>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[1.375rem] font-bold leading-tight text-gray-900">{pageTitle}</p>
+              <p className="truncate text-[1rem] font-medium text-gray-800">{displayName}</p>
             </div>
           </div>
-
-          {/* Mobile Navigation */}
-          {mobileMenuOpen && (
-            <div className="space-y-2">
-              <nav className="grid grid-cols-2 gap-2">
-                {navItems.map((item) => {
-                  const Icon = item.icon;
-                  const active = isActive(item.href);
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onClick={() => setMobileMenuOpen(false)}
-                      className={cn(
-                        'flex items-center space-x-2 px-3 py-3 rounded-lg transition-colors text-sm',
-                        active
-                          ? 'bg-rose-100 text-rose-700'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      )}
-                    >
-                      <Icon size={18} />
-                      <span>{item.shortLabel}</span>
-                    </Link>
-                  );
-                })}
-              </nav>
-
-              {user && (
-                <div className="flex space-x-2 pt-2 border-t border-gray-200">
-                  <Link
-                    href="/profile"
-                    onClick={() => setMobileMenuOpen(false)}
-                    className="flex-1 flex items-center justify-center space-x-2 text-gray-600 hover:text-gray-900 px-3 py-2 rounded-lg hover:bg-gray-100 transition-colors"
-                  >
-                    <User size={18} />
-                    <span>Profile</span>
-                  </Link>
-                  <button
-                    onClick={() => {
-                      handleLogout();
-                      setMobileMenuOpen(false);
-                    }}
-                    className="flex-1 flex items-center justify-center space-x-2 bg-red-600 text-white px-3 py-2 rounded-lg hover:bg-red-700 transition-colors"
-                  >
-                    <LogOut size={18} />
-                    <span>Sign Out</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
         </div>
+      </div>
+
+      <div className="md:hidden">
+        <MobileNavDrawer
+          open={mobileMenuOpen}
+          onOpenChange={setMobileMenuOpen}
+          items={navItems}
+          pathname={pathname}
+          displayName={displayName}
+          communityId={communityId}
+          role={user.role}
+          onLogout={handleLogout}
+        />
       </div>
     </header>
   );

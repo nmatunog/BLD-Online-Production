@@ -5,6 +5,7 @@
 
 import { Calendar, Clock, MapPin } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { formatEventDateManila, formatEventTimeManila } from '@/lib/checkin-ux';
 
 export interface EventHeaderProps {
   title: string;
@@ -13,31 +14,6 @@ export interface EventHeaderProps {
   location?: string | null;
   subtitle?: string;
   className?: string;
-}
-
-function formatDate(dateString: string): string {
-  try {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  } catch {
-    return dateString;
-  }
-}
-
-function formatTime(timeString: string): string {
-  try {
-    const [hours, minutes] = timeString.split(':');
-    const hour = parseInt(hours, 10);
-    const ampm = hour >= 12 ? 'PM' : 'AM';
-    const displayHour = hour % 12 || 12;
-    return `${displayHour}:${minutes} ${ampm}`;
-  } catch {
-    return timeString;
-  }
 }
 
 export function EventHeader({ 
@@ -49,35 +25,35 @@ export function EventHeader({
   className = ''
 }: EventHeaderProps) {
   return (
-    <Card className={`bg-gradient-to-br from-purple-50 to-blue-50 border-purple-200 shadow-sm ${className}`}>
-      <CardHeader>
-        <CardTitle className="text-2xl text-purple-800">{title}</CardTitle>
-        {subtitle && <p className="text-sm text-purple-600">{subtitle}</p>}
+    <Card className={`bg-white border-2 border-gray-300 shadow-sm ${className}`}>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-[1.75rem] md:text-[2rem] font-bold leading-tight text-gray-900">{title}</CardTitle>
+        {subtitle && <p className="text-[1.125rem] font-medium text-gray-800">{subtitle}</p>}
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 gap-3">
           <div className="flex items-start gap-3">
-            <Calendar className="w-5 h-5 text-purple-600 mt-0.5 shrink-0" />
+            <Calendar className="w-6 h-6 text-rose-800 mt-0.5 shrink-0" aria-hidden />
             <div>
-              <p className="text-sm font-medium text-gray-600">Date</p>
-              <p className="text-base font-semibold text-gray-900">{formatDate(startDate)}</p>
+              <p className="text-[1.125rem] font-semibold text-gray-800">Date</p>
+              <p className="text-[1.375rem] font-bold text-gray-900">{formatEventDateManila(startDate)}</p>
             </div>
           </div>
           {startTime && (
             <div className="flex items-start gap-3">
-              <Clock className="w-5 h-5 text-purple-600 mt-0.5 shrink-0" />
+              <Clock className="w-6 h-6 text-rose-800 mt-0.5 shrink-0" aria-hidden />
               <div>
-                <p className="text-sm font-medium text-gray-600">Time</p>
-                <p className="text-base font-semibold text-gray-900">{formatTime(startTime)}</p>
+                <p className="text-[1.125rem] font-semibold text-gray-800">Time</p>
+                <p className="text-[1.375rem] font-bold text-gray-900">{formatEventTimeManila(startTime)}</p>
               </div>
             </div>
           )}
           {location && (
             <div className="flex items-start gap-3">
-              <MapPin className="w-5 h-5 text-purple-600 mt-0.5 shrink-0" />
+              <MapPin className="w-6 h-6 text-rose-800 mt-0.5 shrink-0" aria-hidden />
               <div>
-                <p className="text-sm font-medium text-gray-600">Location</p>
-                <p className="text-base font-semibold text-gray-900">{location}</p>
+                <p className="text-[1.125rem] font-semibold text-gray-800">Location</p>
+                <p className="text-[1.375rem] font-bold text-gray-900">{location}</p>
               </div>
             </div>
           )}

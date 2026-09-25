@@ -18,7 +18,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { qrUtils } from '@/lib/qr-scanner-service';
 import { deviceMemory } from '@/lib/device-memory';
-import { EventHeader, QRScannerCard, ManualCheckInCard } from '@/components/checkin';
+import { EventHeader, QRScannerCard, ManualCheckInCard, CheckInResultOverlay, MoreOptions } from '@/components/checkin';
+import { getErrorMessage } from '@/lib/get-error-message';
+import { resultFromCheckInError, type CheckInResultState } from '@/lib/checkin-ux';
 
 export default function PublicCheckInPage() {
   const router = useRouter();
@@ -31,6 +33,7 @@ export default function PublicCheckInPage() {
   const [rememberedMember, setRememberedMember] = useState<ReturnType<typeof deviceMemory.getRememberedMember>>(null);
   const [checkInMode, setCheckInMode] = useState<'choose' | 'self' | 'staff'>('choose');
   const [autoCheckInAttempted, setAutoCheckInAttempted] = useState(false);
+  const [checkInResult, setCheckInResult] = useState<CheckInResultState | null>(null);
 
   useEffect(() => {
     if (eventId) {
@@ -119,23 +122,20 @@ export default function PublicCheckInPage() {
 
       if (response.data.success) {
         setIsCheckedIn(true);
+        setCheckInResult({
+          kind: 'success',
+          name: rememberedMember?.displayName,
+          communityId: normalizedId,
+          message: 'Checked in',
+        });
         toast.success('✅ Check-in Successful!', {
           description: 'Member has been checked in',
           duration: 3000,
         });
       }
-    } catch (error: any) {
-      let errorMessage = 'Failed to check in';
-      if (error?.response?.data) {
-        const errorData = error.response.data;
-        if (Array.isArray(errorData.message)) {
-          errorMessage = errorData.message.join(', ');
-        } else if (errorData.message) {
-          errorMessage = errorData.message;
-        }
-      } else if (error instanceof Error) {
-        errorMessage = error.message;
-      }
+    } catch (error: unknown) {
+      const errorMessage = getErrorMessage(error, 'Failed to check in');
+      setCheckInResult(resultFromCheckInError(errorMessage, rememberedMember?.displayName, normalizedId));
       toast.error('Check-in Failed', {
         description: errorMessage,
         duration: 5000,
@@ -186,19 +186,17 @@ export default function PublicCheckInPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header: Event title + quiet Login */}
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-4xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold text-gray-900">Event Check-In</h1>
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-[1.75rem] font-bold text-gray-900">Event Check-In</h1>
             {checkInMode !== 'staff' && (
               <Button
                 variant="ghost"
-                size="sm"
                 onClick={() => router.push('/login')}
-                className="text-gray-600"
+                className="min-h-12 text-[1.125rem] font-semibold text-gray-900"
               >
-                <LogIn className="w-4 h-4 mr-1" />
+                <LogIn className="w-5 h-5 mr-1" />
                 Login
               </Button>
             )}
@@ -206,8 +204,8 @@ export default function PublicCheckInPage() {
         </div>
       </div>
       
-      <div className="p-4 md:p-6">
-        <div className="max-w-4xl mx-auto space-y-6">
+      <div className="checkin-screen p-4 md:p-6">
+        <div className="max-w-xl mx-auto space-y-6 md:max-w-4xl">
           {/* Event Header */}
           <EventHeader
             title={event.title}
@@ -222,27 +220,25 @@ export default function PublicCheckInPage() {
                 <CardTitle className="text-lg">Choose Your Action</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <p className="text-sm text-gray-600 mb-2">
+                <p className="text-[1.125rem] font-medium text-gray-900 mb-2">
                   {deviceMemory.getDisplayText()}
                 </p>
                 
-                {/* Primary: Check in as me (≥44px tap target) */}
                 <Button
                   onClick={() => {
                     setCheckInMode('self');
                     setTimeout(() => handleSelfCheckIn(), 100);
                   }}
-                  className="w-full min-h-[56px] bg-green-600 hover:bg-green-700 text-white text-lg font-semibold"
+                  className="w-full min-h-14 bg-green-700 hover:bg-green-800 text-white text-[1.25rem] font-semibold"
                 >
                   <UserCheck className="w-5 h-5 mr-2" />
                   Check in as {rememberedMember.displayName}
                 </Button>
                 
-                {/* Secondary: Staff mode */}
                 <Button
                   onClick={() => setCheckInMode('staff')}
                   variant="outline"
-                  className="w-full min-h-[56px] border-2 text-lg font-medium"
+                  className="w-full min-h-14 border-2 border-gray-500 text-[1.125rem] font-semibold text-gray-900"
                 >
                   I&apos;m staff — scan members
                 </Button>
@@ -273,24 +269,24 @@ export default function PublicCheckInPage() {
                 </CardHeader>
                 <CardContent>
                   {isCheckedIn ? (
-                    <div className="flex items-center gap-3 text-green-600">
-                      <CheckCircle className="w-6 h-6" />
+                    <div className="flex items-center gap-3 text-green-800" aria-live="polite" role="status">
+                      <CheckCircle className="w-8 h-8" />
                       <div>
-                        <p className="font-semibold text-gray-900">Checked In</p>
-                        <p className="text-sm text-gray-600">
-                          You have successfully checked in as {rememberedMember.displayName}
+                        <p className="text-[1.375rem] font-bold text-gray-900">Checked in</p>
+                        <p className="text-[1.125rem] font-medium text-gray-900">
+                          {rememberedMember.displayName}
                         </p>
                       </div>
                     </div>
                   ) : loading ? (
                     <div className="flex items-center gap-3">
-                      <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
-                      <span>Checking in...</span>
+                      <Loader2 className="w-6 h-6 animate-spin text-rose-800" />
+                      <span className="text-[1.125rem] font-medium text-gray-900">Checking in…</span>
                     </div>
                   ) : (
                     <div>
-                      <p className="font-semibold text-gray-900">Ready to Check In</p>
-                      <p className="text-sm text-gray-600">Checking in as {rememberedMember.displayName}</p>
+                      <p className="text-[1.375rem] font-bold text-gray-900">Ready to check in</p>
+                      <p className="text-[1.125rem] font-medium text-gray-900">Checking in as {rememberedMember.displayName}</p>
                     </div>
                   )}
                 </CardContent>
@@ -320,17 +316,19 @@ export default function PublicCheckInPage() {
                 qrCodeRegionId="qr-reader-public-staff"
               />
 
-              {/* Manual Community ID behind "Can't scan?" */}
-              <ManualCheckInCard
-                onCheckIn={performCheckIn}
-                loading={loading}
-                disabled={false}
-              />
+              <MoreOptions>
+                <ManualCheckInCard
+                  onCheckIn={performCheckIn}
+                  loading={loading}
+                  disabled={false}
+                />
+              </MoreOptions>
             </>
           )}
 
         </div>
       </div>
+      <CheckInResultOverlay result={checkInResult} onDismiss={() => setCheckInResult(null)} />
     </div>
   );
 }

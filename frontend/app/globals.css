@@ -55,6 +55,29 @@
   }
 }
 
+.checkin-screen {
+  font-size: 1.125rem;
+  color: #111827;
+}
+
+.checkin-screen :focus-visible {
+  outline: 2px solid #9f1239;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .checkin-screen *,
+  .checkin-screen *::before,
+  .checkin-screen *::after,
+  #mobile-nav-drawer,
+  #mobile-nav-drawer * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 @media print {
   .no-print {
     display: none !important;
