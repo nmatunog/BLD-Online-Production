@@ -1,4 +1,4 @@
-import { ID_PHOTO_MIN_SHORT_SIDE } from './id-photo';
+import { ID_PHOTO_MIN_SHORT_SIDE, ID_PHOTO_ZOOM_HARD_CAP, idPhotoMaxZoom } from './id-photo';
 
 /** Pixel rectangle in original-image coordinates (same shape as react-easy-crop Area). */
 export type PixelBox = {
@@ -27,8 +27,8 @@ export const FACE_HEIGHT_IN_CROP = 0.46;
 /** Face center as a fraction from the top of the crop (head in the upper third). */
 export const FACE_CENTER_Y_IN_CROP = 0.38;
 
-/** Matches the cropper zoom slider so initial framing is reachable by drag/zoom. */
-export const ID_PHOTO_CROP_MAX_ZOOM = 3;
+/** Matches the cropper zoom hard cap so initial framing is reachable by drag/zoom. */
+export const ID_PHOTO_CROP_MAX_ZOOM = ID_PHOTO_ZOOM_HARD_CAP;
 
 function clamp(value: number, min: number, max: number): number {
   if (max < min) return min;
@@ -85,9 +85,9 @@ export function idPhotoCropFromFace(
   const clampedFace = clampFaceToImage(face, imageWidth, imageHeight);
   if (!clampedFace) return fallback;
 
-  const maxZoom = options?.maxZoom ?? ID_PHOTO_CROP_MAX_ZOOM;
+  const maxZoom = options?.maxZoom ?? idPhotoMaxZoom(imageWidth, imageHeight);
   const minSide = Math.min(imageWidth, imageHeight);
-  // Never auto-crop below the 600px submit floor when the image is large enough.
+  // Never auto-crop below the 400px submit floor when the image is large enough.
   // Edge-face shrink can still clamp position, but "Use this photo" must remain valid.
   const minCropSide = Math.min(
     minSide,

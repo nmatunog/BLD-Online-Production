@@ -41,15 +41,24 @@ describe('normalizeIdPhoto', () => {
     expect(meta.height).toBe(ID_PHOTO_OUTPUT_SIZE);
   });
 
-  it('rejects images whose shorter side is below 600px', async () => {
-    const src = await solidJpeg(400, 500);
+  it('rejects images whose shorter side is below 400px', async () => {
+    const src = await solidJpeg(399, 500);
     await expect(normalizeIdPhoto(src)).rejects.toBeInstanceOf(IdPhotoTooSmallError);
     await expect(normalizeIdPhoto(src)).rejects.toThrow(ID_PHOTO_TOO_SMALL_MESSAGE);
   });
 
-  it('rejects a square image that is just under 600px', async () => {
-    const src = await solidJpeg(599, 599);
+  it('rejects a square image that is just under 400px', async () => {
+    const src = await solidJpeg(399, 399);
     await expect(normalizeIdPhoto(src)).rejects.toThrow(ID_PHOTO_TOO_SMALL_MESSAGE);
+  });
+
+  it('upscales a 640×480-class crop to 600×600', async () => {
+    const src = await solidJpeg(480, 480);
+    const out = await normalizeIdPhoto(src);
+    const meta = await sharp(out).metadata();
+    expect(meta.format).toBe('jpeg');
+    expect(meta.width).toBe(ID_PHOTO_OUTPUT_SIZE);
+    expect(meta.height).toBe(ID_PHOTO_OUTPUT_SIZE);
   });
 
   it('applies EXIF orientation before 1:1 normalize', async () => {

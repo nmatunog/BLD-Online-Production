@@ -392,6 +392,7 @@ export default function ProfilePage() {
                     currentPhoto={withPhotoCacheBust(member.photoUrl, member.updatedAt)}
                     accentColor="#7c3aed"
                     required
+                    flow="profile"
                     onPhotoProcessed={async (dataUrl) => {
                       if (!dataUrl) return;
                       try {

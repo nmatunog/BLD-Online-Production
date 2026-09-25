@@ -59,6 +59,11 @@ export type WhiteBgResult = {
   applied: boolean;
 };
 
+export type PreparedIdPhoto = {
+  buffer: Buffer;
+  whiteBgApplied: boolean;
+};
+
 let sessionPromise: Promise<unknown> | null = null;
 
 export function isIdPhotoWhiteBgEnabled(): boolean {
@@ -429,22 +434,32 @@ export async function warmupIdPhotoWhiteBg(): Promise<void> {
 
 /**
  * White-BG cleanup (fail-open) then P1 normalize: 1:1 cover crop, 600×600 JPEG ~q82.
+ * If rembg output is scanlined, store the plain crop. Only throw when the crop itself is damaged.
  */
-export async function prepareStoredIdPhoto(
+export async function prepareStoredIdPhotoResult(
   input: Buffer,
   options?: ApplyWhiteBgOptions,
-): Promise<Buffer> {
+): Promise<PreparedIdPhoto> {
   const { buffer, applied } = await applyWhiteBackground(input, options);
   const normalized = await normalizeIdPhoto(buffer);
   if (!(await imageHasScanlineArtifact(normalized))) {
-    return normalized;
+    logger.log(`ID photo prepared: whiteBgApplied=${applied}`);
+    return { buffer: normalized, whiteBgApplied: applied };
   }
   if (applied) {
     const fallback = await normalizeIdPhoto(input);
     if (!(await imageHasScanlineArtifact(fallback))) {
       logger.warn('ID photo rembg output was striped; stored crop without white-BG');
-      return fallback;
+      logger.log('ID photo prepared: whiteBgApplied=false');
+      return { buffer: fallback, whiteBgApplied: false };
     }
   }
   throw new Error(ID_PHOTO_DAMAGED_MESSAGE);
+}
+
+export async function prepareStoredIdPhoto(
+  input: Buffer,
+  options?: ApplyWhiteBgOptions,
+): Promise<Buffer> {
+  return (await prepareStoredIdPhotoResult(input, options)).buffer;
 }

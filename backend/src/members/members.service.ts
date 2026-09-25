@@ -25,7 +25,7 @@ import {
   IdPhotoTooSmallError,
   ID_PHOTO_TOO_SMALL_MESSAGE,
 } from '../common/utils/id-photo-normalize';
-import { prepareStoredIdPhoto, warmupIdPhotoWhiteBg } from '../common/utils/id-photo-white-bg';
+import { prepareStoredIdPhotoResult, warmupIdPhotoWhiteBg } from '../common/utils/id-photo-white-bg';
 
 /** Inputs that map to Cebu (Community ID starts with CEB) */
 const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
@@ -947,7 +947,11 @@ export class MembersService implements OnModuleInit {
 
     let normalized: Buffer;
     try {
-      normalized = await prepareStoredIdPhoto(buffer);
+      const prepared = await prepareStoredIdPhotoResult(buffer);
+      normalized = prepared.buffer;
+      this.logger.log(
+        `ID photo upload member=${memberId} whiteBgApplied=${prepared.whiteBgApplied} bytes=${normalized.length}`,
+      );
     } catch (error) {
       if (error instanceof IdPhotoTooSmallError) {
         throw new BadRequestException(ID_PHOTO_TOO_SMALL_MESSAGE);

@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 
-/** Reject source images whose shorter side is below this (pixels). */
-export const ID_PHOTO_MIN_SHORT_SIDE = 600;
+/** Reject source images whose shorter side is below this (pixels). Server upscales to 600. */
+export const ID_PHOTO_MIN_SHORT_SIDE = 400;
 
 /** Stored ID photo size (square). */
 export const ID_PHOTO_OUTPUT_SIZE = 600;
@@ -20,8 +20,8 @@ export class IdPhotoTooSmallError extends Error {
 
 /**
  * Decode an ID photo, apply EXIF orientation, center-crop to 1:1, resize to
- * 600×600, encode JPEG ~q82. Strips metadata (sharp does not copy EXIF unless
- * withMetadata() is used).
+ * 600×600 (upscales sources as small as 400px on the short side), encode JPEG
+ * ~q82. Strips metadata (sharp does not copy EXIF unless withMetadata() is used).
  *
  * White-BG cleanup runs before this in `prepareStoredIdPhoto`.
  */

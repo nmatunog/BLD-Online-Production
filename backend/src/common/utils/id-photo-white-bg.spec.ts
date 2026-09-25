@@ -168,6 +168,25 @@ describe('applyWhiteBackground', () => {
     expect(buffer).toBe(src);
   });
 
+  it('fail-opens when rembg returns 3-row scanlines', async () => {
+    const src = await rgbJpeg(600, 600, { r: 32, g: 96, b: 176 });
+    const size = 600;
+    const rgb = Buffer.alloc(size * size * 3);
+    const pattern = [255, 255, 224];
+    for (let y = 0; y < size; y++) {
+      rgb.fill(pattern[y % 3], y * size * 3, (y + 1) * size * 3);
+    }
+    const striped = await sharp(rgb, { raw: { width: size, height: size, channels: 3 } })
+      .png()
+      .toBuffer();
+
+    const { buffer, applied } = await applyWhiteBackground(src, {
+      removeBackground: async () => striped,
+    });
+    expect(applied).toBe(false);
+    expect(buffer).toBe(src);
+  });
+
   it('fail-opens when rembg returns a scanlined image', async () => {
     const src = await rgbJpeg(600, 600, { r: 32, g: 96, b: 176 });
     const size = 600;
@@ -244,10 +263,34 @@ describe('prepareStoredIdPhoto', () => {
   });
 
   it('still rejects photos that are too small', async () => {
-    const src = await rgbJpeg(400, 500, { r: 32, g: 96, b: 176 });
+    const src = await rgbJpeg(320, 240, { r: 32, g: 96, b: 176 });
     await expect(
       prepareStoredIdPhoto(src, { removeBackground: colorKeyRedBackground }),
     ).rejects.toThrow(ID_PHOTO_TOO_SMALL_MESSAGE);
+  });
+
+  it('stores the plain crop when rembg returns 3-row scanlines', async () => {
+    const src = await rgbJpeg(640, 480, { r: 32, g: 96, b: 176 });
+    const size = 480;
+    const rgb = Buffer.alloc(size * size * 3);
+    const period3 = [255, 255, 224];
+    for (let y = 0; y < size; y++) {
+      rgb.fill(period3[y % 3], y * size * 3, (y + 1) * size * 3);
+    }
+    const striped = await sharp(rgb, { raw: { width: size, height: size, channels: 3 } })
+      .png()
+      .toBuffer();
+
+    const out = await prepareStoredIdPhoto(src, { removeBackground: async () => striped });
+    const meta = await sharp(out).metadata();
+    expect(meta.width).toBe(ID_PHOTO_OUTPUT_SIZE);
+    expect(meta.height).toBe(ID_PHOTO_OUTPUT_SIZE);
+    const { data, info } = await sharp(out).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    expect(hasHorizontalScanlineArtifact(data, info.width!, info.height!, info.channels ?? 3)).toBe(
+      false,
+    );
+    const px = cornerPixel(data, { width: info.width!, height: info.height!, channels: info.channels ?? 3 }, 10, 10);
+    expect(px.b).toBeGreaterThan(px.r);
   });
 });
 
