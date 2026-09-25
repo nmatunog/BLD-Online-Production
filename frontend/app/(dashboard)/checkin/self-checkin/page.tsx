@@ -330,8 +330,6 @@ function SelfCheckInContent() {
       scannerRef.current = null;
       void stopQrScannerSafely(scanner, document.getElementById(qrCodeRegionId));
     };
-    // Release the camera if the member leaves the page while scanning.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleQRScanSuccess = async (decodedText: string) => {
