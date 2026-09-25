@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BEFORE desktop check-in</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #f9fafb; }
+    header { background: #fff; box-shadow: 0 4px 12px rgba(0,0,0,.12); padding: 24px 32px; }
+    h1 { color: #be123c; font-size: 30px; margin: 0; }
+    nav { display: flex; gap: 4px; background: #f3f4f6; padding: 4px; border-radius: 8px; margin-top: 16px; }
+    nav span { padding: 8px 16px; border-radius: 6px; font-size: 14px; color: #4b5563; }
+    nav .on { background: #fff; color: #be123c; }
+    main { padding: 32px; max-width: 80rem; margin: 0 auto; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .card { background: #fff; border: 2px solid #e5e7eb; border-radius: 12px; padding: 24px; }
+    button { width: 100%; min-height: 56px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>BLD Cebu Community Online Portal</h1>
+    <p>Welcome, Mai Santos!</p>
+    <nav>
+      <span>Dashboard</span><span class="on">Check-in</span><span>Members</span>
+      <span>Events</span><span>Event Registrations</span><span>Reports</span><span>Profile</span>
+    </nav>
+  </header>
+  <main>
+    <h2>Check-In</h2>
+    <p>Scan QR code or manually check in members for events</p>
+    <div class="card" style="margin-bottom:24px;"><strong>Select Event</strong><p>Community Worship — Sep 22, 7:00 PM</p></div>
+    <div class="grid">
+      <div class="card"><strong>QR Code Scanner</strong><p><button style="background:#7c3aed;color:#fff;border:0;border-radius:8px;">Start Scanner</button></p></div>
+      <div class="card"><strong>Manual Check-In</strong><p><button>Can't scan? Enter Community ID</button></p></div>
+    </div>
+  </main>
+</body>
+</html>

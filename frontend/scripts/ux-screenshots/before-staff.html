@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BEFORE staff check-in</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #f9fafb; color: #111827; }
+    header { background: #fff; box-shadow: 0 4px 12px rgba(0,0,0,.12); padding: 16px; }
+    h1 { color: #be123c; font-size: 20px; margin: 0 0 8px; }
+    .welcome { font-size: 14px; color: #4b5563; }
+    nav { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+    nav span { background: #f3f4f6; padding: 12px; border-radius: 8px; font-size: 14px; }
+    nav .on { background: #ffe4e6; color: #be123c; }
+    main { padding: 16px; }
+    h2 { font-size: 30px; margin: 0 0 4px; }
+    .sub { color: #4b5563; font-size: 16px; margin-bottom: 16px; }
+    .card { background: #fff; border: 2px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+    select, button { width: 100%; min-height: 48px; font-size: 16px; }
+    .row { display: grid; gap: 12px; }
+    .purple { background: #7c3aed; color: #fff; border: 0; border-radius: 8px; min-height: 56px; font-size: 18px; }
+    .green { border: 2px solid #86efac; color: #15803d; background: #fff; border-radius: 8px; }
+    .tiny { font-size: 12px; color: #6b7280; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>BLD Cebu Community Online Portal</h1>
+    <p class="welcome">Welcome, Mai Santos! ADMINISTRATOR</p>
+    <nav>
+      <span>Home</span><span class="on">Check-in</span>
+      <span>Members</span><span>Events</span>
+      <span>Registrations</span><span>Reports</span>
+    </nav>
+  </header>
+  <main>
+    <h2>Check-In</h2>
+    <p class="sub">Scan QR code or manually check in members for events</p>
+    <div class="card">
+      <strong>Select Event</strong>
+      <p><select><option>Community Worship — Sep 22, 7:00 PM • BLD Center</option></select></p>
+    </div>
+    <div class="row">
+      <div class="card">
+        <strong>QR Code Scanner</strong>
+        <p><button class="purple">Start Scanner</button></p>
+        <p class="tiny">Point camera at member QR code to check in</p>
+      </div>
+      <div class="card">
+        <strong>Manual Check-In</strong>
+        <p><button class="green">Can't scan? Enter Community ID</button></p>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

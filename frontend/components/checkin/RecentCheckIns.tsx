@@ -106,7 +106,7 @@ export function RecentCheckIns({
           <div className="text-center py-12 border-2 border-dashed border-gray-200 rounded-lg bg-gray-50">
             <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
             <p className="text-base font-semibold text-gray-700 mb-1">No check-ins yet</p>
-            <p className="text-sm text-gray-500">Start checking in members to see them here</p>
+            <p className="text-[1.125rem] font-medium text-gray-800">Start checking in members to see them here</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -124,10 +124,10 @@ export function RecentCheckIns({
                   <div className="flex-1 min-w-0">
                     <p className="text-base font-semibold text-gray-900 mb-1">{displayName}</p>
                     <div className="flex items-center gap-3 flex-wrap">
-                      <span className="text-xs text-gray-600 font-mono bg-gray-100 px-2 py-1 rounded">
+                      <span className="text-[1.125rem] text-gray-900 font-mono font-semibold bg-gray-100 px-2 py-1 rounded">
                         {member.communityId}
                       </span>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-[1.125rem] font-medium text-gray-800">
                         {formatCheckInTime(checkIn.checkInTime)}
                       </span>
                     </div>
@@ -145,11 +145,11 @@ export function RecentCheckIns({
                     {canRemove && onRemove && (
                       <button
                         onClick={() => onRemove(checkIn.id, displayName)}
-                        className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg border-2 border-transparent hover:border-red-200 transition"
+                        className="inline-flex min-h-12 items-center gap-2 px-3 text-[1.125rem] font-semibold text-red-800 hover:text-red-900 hover:bg-red-50 rounded-lg border-2 border-red-300 transition"
                         disabled={loading}
-                        title="Remove check-in"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-4 h-4" aria-hidden />
+                        Remove
                       </button>
                     )}
                   </div>

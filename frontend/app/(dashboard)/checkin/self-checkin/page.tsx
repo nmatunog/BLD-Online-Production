@@ -9,30 +9,38 @@ import {
   CheckCircle,
   X,
   Camera,
-  AlertCircle,
   Loader2,
   UserCheck,
   ArrowLeft,
-  LogIn,
   MessageSquare,
 } from 'lucide-react';
 import { attendanceService, type Attendance } from '@/services/attendance.service';
 import { eventsService, type Event } from '@/services/events.service';
 import { registrationsService, type EventRegistration } from '@/services/registrations.service';
 import { membersService } from '@/services/members.service';
-import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { QRScanner, qrUtils } from '@/lib/qr-scanner-service';
+import { stopQrScannerSafely } from '@/lib/stop-qr-scanner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import CheckInChatbot, { type CheckInChatbotHandle } from '@/components/chatbot/CheckInChatbot';
+import { getErrorMessage } from '@/lib/get-error-message';
+import {
+  formatEventDateManila,
+  resultFromCheckInError,
+  type CheckInResultState,
+} from '@/lib/checkin-ux';
+import {
+  CheckInLoadingState,
+  CheckInResultOverlay,
+  MemberIdQrPanel,
+  MoreOptions,
+} from '@/components/checkin';
 import {
   isOngoingForDisplay,
-  isCompletedPastWindow,
-  isWithin7DaysOfEnd,
   canCheckInToEvent,
   sortEventsNearestFirst,
   isPastEventCategory,
@@ -41,90 +49,6 @@ import {
 import { deviceMemory } from '@/lib/device-memory';
 
 const qrCodeRegionId = 'qr-reader-self';
-
-function normalizeCheckInToken(value?: string | null): string {
-  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-function normalizeCheckInTime(value?: string | null): string {
-  const raw = String(value || '').trim();
-  if (!raw) return '';
-  const parts = raw.split(':');
-  const hour = String(parts[0] || '').padStart(2, '0');
-  const minute = String(parts[1] || '0').padStart(2, '0');
-  return `${hour}:${minute}`;
-}
-
-function manilaDateKey(isoDate: string): string {
-  try {
-    const dt = new Date(isoDate);
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Manila',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(dt);
-  } catch {
-    return isoDate;
-  }
-}
-
-function dedupeCheckInEventsBySlot(list: Event[]): Event[] {
-  const visibleDate = (isoDate: string): string => {
-    try {
-      const date = new Date(isoDate);
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      });
-    } catch {
-      return isoDate;
-    }
-  };
-  const visibleTime = (timeString: string | null): string => {
-    if (!timeString) return '';
-    try {
-      const [hours, minutes] = timeString.split(':');
-      const hour = parseInt(hours, 10);
-      const ampm = hour >= 12 ? 'PM' : 'AM';
-      const displayHour = hour % 12 || 12;
-      return `${displayHour}:${minutes} ${ampm}`;
-    } catch {
-      return timeString;
-    }
-  };
-
-  const byKey = new Map<string, Event>();
-  for (const event of list) {
-    // Deduplicate exactly by what the dropdown displays to users.
-    const key = [
-      normalizeCheckInToken(event.title),
-      normalizeCheckInToken(visibleDate(event.startDate)),
-      normalizeCheckInToken(visibleTime(event.startTime)),
-      normalizeCheckInToken(event.location),
-    ].join('|');
-    const existing = byKey.get(key);
-    if (!existing) {
-      byKey.set(key, event);
-      continue;
-    }
-    const existingScore = (existing._count?.attendances || 0) + (existing._count?.registrations || 0);
-    const nextScore = (event._count?.attendances || 0) + (event._count?.registrations || 0);
-    if (nextScore > existingScore) {
-      byKey.set(key, event);
-      continue;
-    }
-    if (nextScore === existingScore) {
-      const existingUpdated = new Date(existing.updatedAt).getTime();
-      const nextUpdated = new Date(event.updatedAt).getTime();
-      if (nextUpdated > existingUpdated || (nextUpdated === existingUpdated && event.id > existing.id)) {
-        byKey.set(key, event);
-      }
-    }
-  }
-  return Array.from(byKey.values());
-}
 
 function SelfCheckInContent() {
   const router = useRouter();
@@ -149,6 +73,7 @@ function SelfCheckInContent() {
   const [pastSelectValue, setPastSelectValue] = useState<string>('');
   const [showEventPicker, setShowEventPicker] = useState(false);
   const [myAttendances, setMyAttendances] = useState<Attendance[]>([]);
+  const [checkInResult, setCheckInResult] = useState<CheckInResultState | null>(null);
   
   // Device memory for remembered member
   const [rememberedMember, setRememberedMember] = useState<ReturnType<typeof deviceMemory.getRememberedMember>>(null);
@@ -386,12 +311,26 @@ function SelfCheckInContent() {
   };
 
   const stopQRScanner = async () => {
-    if (scannerRef.current) {
-      await scannerRef.current.stop();
-      scannerRef.current = null;
-    }
+    const scanner = scannerRef.current;
+    scannerRef.current = null;
+    await stopQrScannerSafely(scanner, document.getElementById(qrCodeRegionId));
     setIsScanning(false);
   };
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        void stopQRScanner();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      const scanner = scannerRef.current;
+      scannerRef.current = null;
+      void stopQrScannerSafely(scanner, document.getElementById(qrCodeRegionId));
+    };
+  }, []);
 
   const handleQRScanSuccess = async (decodedText: string) => {
     try {
@@ -443,6 +382,14 @@ function SelfCheckInContent() {
         setIsCheckedIn(true);
         setMyAttendances((prev) => [result.data as Attendance, ...prev]);
         await loadEventList();
+        setCheckInResult({
+          kind: 'success',
+          name: currentMember.nickname
+            ? `${currentMember.nickname} ${currentMember.lastName}`
+            : `${currentMember.firstName} ${currentMember.lastName}`.trim(),
+          communityId: currentMember.communityId,
+          message: 'Checked in',
+        });
         toast.success('You’re checked in!');
       }
     } catch (err: unknown) {
@@ -466,16 +413,21 @@ function SelfCheckInContent() {
             setIsCheckedIn(true);
             setMyAttendances((prev) => [retry.data as Attendance, ...prev]);
             await loadEventList();
+            setCheckInResult({
+              kind: 'success',
+              name: currentMember.nickname
+                ? `${currentMember.nickname} ${currentMember.lastName}`
+                : `${currentMember.firstName} ${currentMember.lastName}`.trim(),
+              communityId: currentMember.communityId,
+              message: 'Checked in',
+            });
             toast.success('You’re checked in!');
             return;
           }
         }
       }
-      const msg =
-        err && typeof err === 'object' && 'response' in err && err.response && typeof err.response === 'object' && 'data' in err.response
-          ? (err.response as { data?: { message?: string | string[] } }).data?.message
-          : null;
-      const str = Array.isArray(msg) ? msg.join(', ') : typeof msg === 'string' ? msg : 'Check-in failed.';
+      const str = getErrorMessage(err, 'Check-in failed.');
+      setCheckInResult(resultFromCheckInError(str, undefined, currentMember.communityId));
       toast.error(str);
     } finally {
       setLoading(false);
@@ -530,18 +482,6 @@ function SelfCheckInContent() {
     }
   };
 
-  const formatTime = (timeString: string) => {
-    try {
-      const [h, m] = timeString.split(':');
-      const hour = parseInt(h, 10);
-      const ampm = hour >= 12 ? 'PM' : 'AM';
-      const displayHour = hour % 12 || 12;
-      return `${displayHour}:${m} ${ampm}`;
-    } catch {
-      return timeString;
-    }
-  };
-
   const canCheckIn =
     event &&
     currentMember &&
@@ -549,14 +489,28 @@ function SelfCheckInContent() {
     event.status !== 'CANCELLED' &&
     canCheckInToEvent(event);
 
+  const qrMember = currentMember?.communityId
+    ? {
+        firstName: currentMember.firstName || rememberedMember?.displayName || '',
+        lastName: currentMember.lastName,
+        nickname: currentMember.nickname,
+        communityId: currentMember.communityId,
+      }
+    : rememberedMember
+      ? {
+          firstName: rememberedMember.displayName,
+          lastName: '',
+          communityId: rememberedMember.communityId,
+        }
+      : null;
+
   return (
     <div className="min-h-screen bg-gray-100">
       <DashboardHeader />
-      <div className="p-4 md:p-6 max-w-xl mx-auto">
-        {/* Back: large tap target */}
+      <div className="checkin-screen p-4 md:p-6 max-w-xl mx-auto">
         <Button
           variant="ghost"
-          className="mb-4 min-h-[48px] min-w-[48px] text-lg text-gray-700"
+          className="mb-4 min-h-12 min-w-12 text-[1.125rem] font-semibold text-gray-900"
           onClick={() => router.push('/dashboard')}
           aria-label="Back"
         >
@@ -564,13 +518,11 @@ function SelfCheckInContent() {
           Back
         </Button>
 
-        <h1 className="text-3xl font-bold text-gray-900 mb-1">Self Check-In</h1>
-        <p className="text-lg text-gray-600 mb-6">Tap the green button to check in for today&apos;s event.</p>
+        <h1 className="hidden md:block text-[1.875rem] font-bold text-gray-900 mb-4">Self Check-In</h1>
 
-        {/* Device memory status */}
         {rememberedMember && (
-          <div className="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200">
-            <p className="text-sm text-blue-800 text-center">
+          <div className="mb-4 p-3 rounded-xl bg-blue-50 border-2 border-blue-700">
+            <p className="text-[1.125rem] font-medium text-blue-950 text-center">
               {deviceMemory.getDisplayText()}
               {' · '}
               <button
@@ -583,7 +535,7 @@ function SelfCheckInContent() {
                   });
                   router.push('/login');
                 }}
-                className="text-blue-700 underline font-semibold hover:text-blue-900"
+                className="underline font-semibold text-blue-950"
               >
                 Not you?
               </button>
@@ -591,225 +543,170 @@ function SelfCheckInContent() {
           </div>
         )}
 
-        <Card className="bg-white border-2 border-gray-200 shadow-md">
-          <CardContent className="p-6 space-y-6">
-            {loadingEvents ? (
-              <div className="flex items-center justify-center gap-3 py-8 text-gray-600">
-                <Loader2 className="w-8 h-8 animate-spin" />
-                <span className="text-lg">Loading events…</span>
-              </div>
-            ) : !event && eventList.length === 0 ? (
-              <div className="py-6 text-center">
-                <p className="text-lg text-gray-600">No events right now.</p>
-                <p className="text-base text-gray-500 mt-2">Tap &quot;Need a different event?&quot; below to see past events.</p>
-              </div>
-            ) : eventList.length > 0 && !event ? (
-              <div className="flex items-center justify-center gap-3 py-8 text-gray-600">
-                <Loader2 className="w-8 h-8 animate-spin" />
-                <span className="text-lg">Loading event…</span>
-              </div>
-            ) : event ? (
-              <>
-                {/* Event name: large, clear */}
-                <div className="text-center">
-                  <p className="text-xl font-semibold text-gray-900 leading-tight">{event.title}</p>
-                  <p className="text-base text-gray-600 mt-1">
-                    {formatDate(event.startDate)}
-                    {event.startTime ? ` at ${formatTime(event.startTime)}` : ''}
-                  </p>
-                </div>
+        {loadingEvents ? (
+          <CheckInLoadingState label="Loading events…" />
+        ) : eventList.length > 0 && !event ? (
+          <CheckInLoadingState label="Loading event…" />
+        ) : qrMember ? (
+          <MemberIdQrPanel
+            member={qrMember}
+            event={event}
+            alreadyCheckedIn={isCheckedIn}
+            onPrimaryAction={handleSelfCheckIn}
+            primaryLabel={event?.hasRegistration && !isRegistered ? 'Register & Check In' : 'Check In'}
+            primaryBusy={loading}
+            primaryDisabled={!canCheckIn}
+          />
+        ) : (
+          <p className="rounded-xl border-2 border-gray-400 bg-white p-5 text-center text-[1.125rem] font-medium text-gray-900">
+            Sign in to see your QR code and check in.
+          </p>
+        )}
 
-                {/* One primary action: big Check In or You're checked in */}
-                {loading ? (
-                  <div className="flex items-center justify-center gap-3 py-6 text-gray-600">
-                    <Loader2 className="w-6 h-6 animate-spin" />
-                    <span className="text-lg">Loading…</span>
-                  </div>
-                ) : isCheckedIn ? (
-                  <div
-                    className="flex items-center justify-center gap-3 w-full min-h-[72px] py-4 px-6 rounded-xl bg-green-600 text-white text-xl font-semibold border-2 border-green-700 shadow-md"
-                    aria-live="polite"
-                  >
-                    <CheckCircle className="w-8 h-8 shrink-0" />
-                    You are checked in!
-                  </div>
-                ) : (
-                  <>
-                    {event.hasRegistration && !isRegistered && (
-                      <p className="text-base text-amber-800 bg-amber-50 py-2 px-3 rounded-lg text-center">
-                        This event requires registration. Tap the button below to register and check in.
-                      </p>
-                    )}
-                    <Button
-                      onClick={handleSelfCheckIn}
-                      disabled={!canCheckIn || loading}
-                      className="w-full min-h-[72px] py-4 text-xl font-semibold bg-green-600 hover:bg-green-700 text-white rounded-xl border-2 border-green-700 shadow-md disabled:opacity-60"
-                    >
-                      {loading ? (
-                        <>
-                          <Loader2 className="w-6 h-6 mr-2 animate-spin" />
-                          Checking in…
-                        </>
-                      ) : event.hasRegistration && !isRegistered ? (
-                        <>
-                          <UserCheck className="w-6 h-6 mr-2" />
-                          Register & Check In
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle className="w-6 h-6 mr-2" />
-                          Check In
-                        </>
-                      )}
-                    </Button>
-                  </>
-                )}
-              </>
-            ) : null}
+        {event?.hasRegistration && !isRegistered && !isCheckedIn && (
+          <p className="mt-4 text-[1.125rem] font-medium text-amber-950 bg-amber-50 py-3 px-3 rounded-xl text-center border-2 border-amber-700">
+            This event requires registration. Tap Register & Check In.
+          </p>
+        )}
 
-            {/* Need a different event? — collapsed by default to reduce choices */}
-            <div className="border-t border-gray-200 pt-4">
-              <Button
-                type="button"
-                variant="ghost"
-                className="w-full min-h-[48px] text-base font-medium text-gray-700 hover:bg-gray-100"
-                onClick={() => setShowEventPicker(!showEventPicker)}
-              >
-                {showEventPicker ? 'Hide other events' : 'Need a different event?'}
-              </Button>
-              {showEventPicker && (
-                <div className="mt-3 space-y-3 pl-0">
-                  {eventList.length > 0 && (
-                    <div>
-                      <label className="block text-base font-medium text-gray-700 mb-2">Choose an event</label>
-                      <Select
-                        value={selectedEventId || undefined}
-                        onValueChange={(v) => {
-                          setSelectedEventId(v);
-                          const fromPast = pastEvents.find((e) => e.id === v);
-                          if (fromPast) {
-                            setEventList((prev) => (prev.some((e) => e.id === v) ? prev : [fromPast, ...prev]));
-                          }
-                        }}
-                      >
-                        <SelectTrigger className="w-full min-h-[48px] text-base">
-                          <SelectValue placeholder="Select an event" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {eventList.map((e) => (
-                            <SelectItem key={e.id} value={e.id} className="text-base py-3">
-                              {e.title} — {formatDate(e.startDate)}
-                              {isOngoingForDisplay(e) ? ' · Ongoing' : ''}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  )}
+        {!event && !loadingEvents && (
+          <p className="mt-4 text-center text-[1.125rem] font-medium text-gray-900">
+            No events right now. Open More options to pick a past event.
+          </p>
+        )}
+
+        <MoreOptions className="mt-6">
+          <div>
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full min-h-12 text-[1.125rem] font-semibold text-gray-900 hover:bg-gray-100"
+              onClick={() => setShowEventPicker(!showEventPicker)}
+            >
+              {showEventPicker ? 'Hide other events' : 'Need a different event?'}
+            </Button>
+            {showEventPicker && (
+              <div className="mt-3 space-y-3">
+                {eventList.length > 0 && (
                   <div>
-                    <label className="block text-base font-medium text-gray-700 mb-2">Past events</label>
+                    <label className="block text-[1.125rem] font-semibold text-gray-900 mb-2">Choose an event</label>
                     <Select
-                      onOpenChange={(open) => open && loadPastEvents()}
-                      value={pastSelectValue || undefined}
+                      value={selectedEventId || undefined}
                       onValueChange={(v) => {
-                        if (v && v !== '_none') {
-                          setSelectedEventId(v);
-                          const fromPast = pastEvents.find((e) => e.id === v);
-                          if (fromPast) {
-                            setEventList((prev) => (prev.some((e) => e.id === v) ? prev : [fromPast, ...prev]));
-                          }
-                          setPastSelectValue('');
+                        setSelectedEventId(v);
+                        const fromPast = pastEvents.find((e) => e.id === v);
+                        if (fromPast) {
+                          setEventList((prev) => (prev.some((e) => e.id === v) ? prev : [fromPast, ...prev]));
                         }
                       }}
                     >
-                      <SelectTrigger className="w-full min-h-[48px] text-base text-gray-600">
-                        <SelectValue placeholder="Community Worship / Word Sharing Circle" />
+                      <SelectTrigger className="w-full min-h-12 text-[1.125rem]">
+                        <SelectValue placeholder="Select an event" />
                       </SelectTrigger>
                       <SelectContent>
-                        {pastEvents.map((e) => (
-                          <SelectItem key={e.id} value={e.id} className="text-base py-3">
-                            {e.title} — {formatDate(e.startDate)}
+                        {eventList.map((e) => (
+                          <SelectItem key={e.id} value={e.id} className="text-[1.125rem] py-3">
+                            {e.title} — {formatEventDateManila(e.startDate)}
+                            {isOngoingForDisplay(e) ? ' · Ongoing' : ''}
                           </SelectItem>
                         ))}
-                        {pastEventsLoaded && pastEvents.length === 0 && (
-                          <SelectItem value="_none" disabled>No past events found</SelectItem>
-                        )}
                       </SelectContent>
                     </Select>
                   </div>
-                  {eventList.length === 0 && !pastEvents.length && (
-                    <p className="text-base text-gray-500">No other events right now.</p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Secondary: Scan QR + Get help — large tap targets, visually lighter */}
-            <div className="flex flex-col gap-3 pt-2 border-t border-gray-200">
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full min-h-[52px] text-base border-2"
-                onClick={isScanning ? stopQRScanner : startQRScanner}
-                disabled={!cameraAvailable}
-              >
-                {isScanning ? (
-                  <>
-                    <X className="w-5 h-5 mr-2" />
-                    Stop scanner
-                  </>
-                ) : (
-                  <>
-                    <Camera className="w-5 h-5 mr-2" />
-                    Scan QR code instead
-                  </>
                 )}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                className="w-full min-h-[52px] text-base border-2"
-                onClick={() => checkInChatbotRef.current?.open()}
-              >
-                <MessageSquare className="w-5 h-5 mr-2" />
-                Get help
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        {myAttendances.length > 0 && (
-          <div className="mt-6 pb-4">
-            <h2 className="text-lg font-semibold text-gray-900 mb-3">Events you&apos;ve already checked in to</h2>
-            <ul className="space-y-2">
-              {myAttendances.slice(0, 5).map((a) => (
-                <li
-                  key={a.id}
-                  className="flex items-center gap-2 py-2 px-3 rounded-lg bg-green-50 border border-green-200 text-gray-800"
-                >
-                  <CheckCircle className="w-5 h-5 shrink-0 text-green-600" />
-                  <span className="font-medium">{a.event?.title ?? 'Event'}</span>
-                  <span className="text-gray-600 text-sm">
-                    {a.event?.startDate ? formatDate(a.event.startDate) : ''}
-                    {a.event?.startDate && a.event?.startTime ? ` at ${formatTime(a.event.startTime)}` : ''}
-                  </span>
-                </li>
-              ))}
-            </ul>
+                <div>
+                  <label className="block text-[1.125rem] font-semibold text-gray-900 mb-2">Past events</label>
+                  <Select
+                    onOpenChange={(open) => open && loadPastEvents()}
+                    value={pastSelectValue || undefined}
+                    onValueChange={(v) => {
+                      if (v && v !== '_none') {
+                        setSelectedEventId(v);
+                        const fromPast = pastEvents.find((e) => e.id === v);
+                        if (fromPast) {
+                          setEventList((prev) => (prev.some((e) => e.id === v) ? prev : [fromPast, ...prev]));
+                        }
+                        setPastSelectValue('');
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-full min-h-12 text-[1.125rem] text-gray-900">
+                      <SelectValue placeholder="Community Worship / Word Sharing Circle" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {pastEvents.map((e) => (
+                        <SelectItem key={e.id} value={e.id} className="text-[1.125rem] py-3">
+                          {e.title} — {formatEventDateManila(e.startDate)}
+                        </SelectItem>
+                      ))}
+                      {pastEventsLoaded && pastEvents.length === 0 && (
+                        <SelectItem value="_none" disabled>No past events found</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            )}
           </div>
-        )}
+
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full min-h-12 text-[1.125rem] font-semibold border-2 border-gray-500"
+            onClick={isScanning ? stopQRScanner : startQRScanner}
+            disabled={!cameraAvailable}
+          >
+            {isScanning ? (
+              <>
+                <X className="w-5 h-5 mr-2" />
+                Stop scanner
+              </>
+            ) : (
+              <>
+                <Camera className="w-5 h-5 mr-2" />
+                Scan QR
+              </>
+            )}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full min-h-12 text-[1.125rem] font-semibold border-2 border-gray-500"
+            onClick={() => checkInChatbotRef.current?.open()}
+          >
+            <MessageSquare className="w-5 h-5 mr-2" />
+            Get help
+          </Button>
+
+          {myAttendances.length > 0 && (
+            <div>
+              <h2 className="text-[1.25rem] font-bold text-gray-900 mb-3">Already checked in</h2>
+              <ul className="space-y-2">
+                {myAttendances.slice(0, 5).map((a) => (
+                  <li
+                    key={a.id}
+                    className="flex items-center gap-2 py-3 px-3 rounded-xl bg-green-50 border-2 border-green-800 text-gray-900"
+                  >
+                    <CheckCircle className="w-5 h-5 shrink-0 text-green-800" />
+                    <span className="font-semibold text-[1.125rem]">{a.event?.title ?? 'Event'}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </MoreOptions>
 
         {isScanning && (
-          <Card className="mt-6 bg-white border-2 border-gray-200">
+          <Card className="mt-6 bg-white border-2 border-gray-300">
             <CardHeader className="pb-2">
-              <CardTitle className="text-xl flex items-center gap-2">
-                <QrCode className="w-6 h-6 text-purple-600" />
+              <CardTitle className="text-[1.375rem] flex items-center gap-2 text-gray-900">
+                <QrCode className="w-6 h-6 text-rose-800" />
                 Point your camera at the event QR code
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div id={qrCodeRegionId} className="w-full min-h-[260px] rounded-xl overflow-hidden bg-black" />
-              <p className="text-base text-gray-600 mt-3">Hold the QR code in front of your camera.</p>
+              <p className="text-[1.125rem] font-medium text-gray-900 mt-3">Hold the QR code in front of your camera.</p>
             </CardContent>
           </Card>
         )}
@@ -866,6 +763,7 @@ function SelfCheckInContent() {
           }
         }}
       />
+      <CheckInResultOverlay result={checkInResult} onDismiss={() => setCheckInResult(null)} />
     </div>
   );
 }
