@@ -55,11 +55,11 @@ export function EventPickerBar({
         <Calendar className="mt-1 h-6 w-6 shrink-0 text-rose-800" aria-hidden />
         <div className="min-w-0 flex-1">
           <p className="text-[1.125rem] font-semibold text-gray-800">Event</p>
-          <p className="text-[1.375rem] font-bold leading-tight text-gray-900">
+          <p className="checkin-break text-[1.375rem] font-bold leading-tight text-gray-900">
             {selected?.title || 'Choose an event'}
           </p>
           {selected ? (
-            <p className="mt-1 text-[1.125rem] font-medium text-gray-900">
+            <p className="checkin-break mt-1 text-[1.125rem] font-medium text-gray-900">
               {formatEventWhenManila(selected.startDate, selected.startTime)}
               {selected.location ? ` · ${selected.location}` : ''}
             </p>
@@ -97,8 +97,8 @@ export function EventPickerBar({
                   )}
                 >
                   {active ? <Check className="mt-1 h-5 w-5 shrink-0" aria-hidden /> : <span className="mt-1 w-5" />}
-                  <span>
-                    <span className="block text-[1.125rem] font-bold">{event.title}</span>
+                  <span className="min-w-0">
+                    <span className="checkin-break block text-[1.125rem] font-bold">{event.title}</span>
                     <span className="mt-0.5 block text-[1.125rem] font-medium">
                       {formatEventWhenManila(event.startDate, event.startTime)}
                     </span>

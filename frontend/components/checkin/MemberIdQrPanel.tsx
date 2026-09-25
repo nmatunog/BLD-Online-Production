@@ -70,11 +70,11 @@ export function MemberIdQrPanel({
           <Loader2 className="h-10 w-10 animate-spin text-rose-800 motion-reduce:animate-none" aria-label="Loading QR code" />
         )}
       </div>
-      <p className="mt-5 text-[1.875rem] font-bold leading-tight text-gray-900">{name || 'Member'}</p>
-      <p className="mt-2 text-[1.375rem] font-mono font-bold text-gray-900">{member.communityId}</p>
+      <p className="checkin-break mt-5 text-[1.875rem] font-bold leading-tight text-gray-900">{name || 'Member'}</p>
+      <p className="checkin-break mt-2 text-[1.375rem] font-mono font-bold text-gray-900">{member.communityId}</p>
       {event ? (
         <div className="mt-4">
-          <p className="text-[1.375rem] font-semibold leading-snug text-gray-900">{event.title}</p>
+          <p className="checkin-break text-[1.375rem] font-semibold leading-snug text-gray-900">{event.title}</p>
           <p className="mt-1 text-[1.125rem] font-medium text-gray-900">
             {formatEventWhenManila(event.startDate, event.startTime)}
           </p>

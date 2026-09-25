@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -65,6 +65,7 @@ export default function DashboardHeader() {
   const pathname = usePathname();
   const { user } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   const handleLogout = () => {
     authService.logout();
@@ -160,36 +161,42 @@ export default function DashboardHeader() {
         {/* Mobile Header: hamburger + visible page title */}
         <div className="md:hidden py-3">
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              aria-label="Menu"
-              aria-expanded={mobileMenuOpen}
-              aria-controls="mobile-nav-drawer"
-              onClick={() => setMobileMenuOpen(true)}
-              className="inline-flex min-h-12 min-w-12 shrink-0 items-center justify-center gap-1 rounded-xl border-2 border-gray-400 bg-white px-2 text-gray-900 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-700 focus-visible:ring-offset-2"
-            >
-              <Menu className="h-6 w-6" aria-hidden />
-              <span className="sr-only">Menu</span>
-            </button>
+            <MobileNavDrawer
+              open={mobileMenuOpen}
+              onOpenChange={setMobileMenuOpen}
+              items={navItems}
+              pathname={pathname}
+              displayName={displayName}
+              communityId={communityId}
+              role={user.role}
+              onLogout={handleLogout}
+              triggerRef={menuButtonRef}
+              trigger={
+                <button
+                  ref={menuButtonRef}
+                  type="button"
+                  aria-label="Menu"
+                  aria-expanded={mobileMenuOpen}
+                  aria-controls="mobile-nav-drawer"
+                  className="inline-flex min-h-12 min-w-12 shrink-0 items-center justify-center gap-1 rounded-xl border-2 border-gray-400 bg-white px-2 text-gray-900 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-700 focus-visible:ring-offset-2"
+                >
+                  <Menu className="h-6 w-6" aria-hidden />
+                  <span className="sr-only">Menu</span>
+                </button>
+              }
+            />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-[1.375rem] font-bold leading-tight text-gray-900">{pageTitle}</p>
+              <p
+                id="dashboard-page-title"
+                tabIndex={-1}
+                className="truncate text-[1.375rem] font-bold leading-tight text-gray-900"
+              >
+                {pageTitle}
+              </p>
               <p className="truncate text-[1rem] font-medium text-gray-800">{displayName}</p>
             </div>
           </div>
         </div>
-      </div>
-
-      <div className="md:hidden">
-        <MobileNavDrawer
-          open={mobileMenuOpen}
-          onOpenChange={setMobileMenuOpen}
-          items={navItems}
-          pathname={pathname}
-          displayName={displayName}
-          communityId={communityId}
-          role={user.role}
-          onLogout={handleLogout}
-        />
       </div>
     </header>
   );

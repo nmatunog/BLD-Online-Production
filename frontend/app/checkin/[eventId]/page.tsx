@@ -220,7 +220,7 @@ export default function PublicCheckInPage() {
                 <CardTitle className="text-lg">Choose Your Action</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <p className="text-[1.125rem] font-medium text-gray-900 mb-2">
+                <p className="checkin-break text-[1.125rem] font-medium text-gray-900 mb-2">
                   {deviceMemory.getDisplayText()}
                 </p>
                 
@@ -252,7 +252,7 @@ export default function PublicCheckInPage() {
                     setCheckInMode('staff');
                     toast.success('Device cleared');
                   }}
-                  className="w-full text-sm text-blue-700 underline hover:text-blue-900 py-2 min-h-[44px]"
+                  className="w-full min-h-12 text-lg font-semibold text-blue-900 underline hover:text-blue-950"
                 >
                   Not you?
                 </button>

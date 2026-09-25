@@ -60,6 +60,11 @@
   color: #111827;
 }
 
+.checkin-break {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .checkin-screen :focus-visible {
   outline: 2px solid #9f1239;
   outline-offset: 2px;

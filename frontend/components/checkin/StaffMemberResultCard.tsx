@@ -50,8 +50,8 @@ export function StaffMemberResultCard({
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <p className="text-[1.375rem] font-bold leading-tight text-gray-900">{member.name}</p>
-          <p className="mt-1 text-[1.375rem] font-mono font-semibold text-gray-900">{member.communityId}</p>
+          <p className="checkin-break text-[1.375rem] font-bold leading-tight text-gray-900">{member.name}</p>
+          <p className="checkin-break mt-1 text-[1.375rem] font-mono font-semibold text-gray-900">{member.communityId}</p>
         </div>
       </div>
       {alreadyCheckedIn ? (

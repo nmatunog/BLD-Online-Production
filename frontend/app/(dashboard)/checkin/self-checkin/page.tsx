@@ -24,6 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from 'sonner';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { QRScanner, qrUtils } from '@/lib/qr-scanner-service';
+import { stopQrScannerSafely } from '@/lib/stop-qr-scanner';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import CheckInChatbot, { type CheckInChatbotHandle } from '@/components/chatbot/CheckInChatbot';
 import { getErrorMessage } from '@/lib/get-error-message';
@@ -48,90 +49,6 @@ import {
 import { deviceMemory } from '@/lib/device-memory';
 
 const qrCodeRegionId = 'qr-reader-self';
-
-function normalizeCheckInToken(value?: string | null): string {
-  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-}
-
-function normalizeCheckInTime(value?: string | null): string {
-  const raw = String(value || '').trim();
-  if (!raw) return '';
-  const parts = raw.split(':');
-  const hour = String(parts[0] || '').padStart(2, '0');
-  const minute = String(parts[1] || '0').padStart(2, '0');
-  return `${hour}:${minute}`;
-}
-
-function manilaDateKey(isoDate: string): string {
-  try {
-    const dt = new Date(isoDate);
-    return new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Manila',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(dt);
-  } catch {
-    return isoDate;
-  }
-}
-
-function dedupeCheckInEventsBySlot(list: Event[]): Event[] {
-  const visibleDate = (isoDate: string): string => {
-    try {
-      const date = new Date(isoDate);
-      return date.toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      });
-    } catch {
-      return isoDate;
-    }
-  };
-  const visibleTime = (timeString: string | null): string => {
-    if (!timeString) return '';
-    try {
-      const [hours, minutes] = timeString.split(':');
-      const hour = parseInt(hours, 10);
-      const ampm = hour >= 12 ? 'PM' : 'AM';
-      const displayHour = hour % 12 || 12;
-      return `${displayHour}:${minutes} ${ampm}`;
-    } catch {
-      return timeString;
-    }
-  };
-
-  const byKey = new Map<string, Event>();
-  for (const event of list) {
-    // Deduplicate exactly by what the dropdown displays to users.
-    const key = [
-      normalizeCheckInToken(event.title),
-      normalizeCheckInToken(visibleDate(event.startDate)),
-      normalizeCheckInToken(visibleTime(event.startTime)),
-      normalizeCheckInToken(event.location),
-    ].join('|');
-    const existing = byKey.get(key);
-    if (!existing) {
-      byKey.set(key, event);
-      continue;
-    }
-    const existingScore = (existing._count?.attendances || 0) + (existing._count?.registrations || 0);
-    const nextScore = (event._count?.attendances || 0) + (event._count?.registrations || 0);
-    if (nextScore > existingScore) {
-      byKey.set(key, event);
-      continue;
-    }
-    if (nextScore === existingScore) {
-      const existingUpdated = new Date(existing.updatedAt).getTime();
-      const nextUpdated = new Date(event.updatedAt).getTime();
-      if (nextUpdated > existingUpdated || (nextUpdated === existingUpdated && event.id > existing.id)) {
-        byKey.set(key, event);
-      }
-    }
-  }
-  return Array.from(byKey.values());
-}
 
 function SelfCheckInContent() {
   const router = useRouter();
@@ -394,12 +311,28 @@ function SelfCheckInContent() {
   };
 
   const stopQRScanner = async () => {
-    if (scannerRef.current) {
-      await scannerRef.current.stop();
-      scannerRef.current = null;
-    }
+    const scanner = scannerRef.current;
+    scannerRef.current = null;
+    await stopQrScannerSafely(scanner, document.getElementById(qrCodeRegionId));
     setIsScanning(false);
   };
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        void stopQRScanner();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      const scanner = scannerRef.current;
+      scannerRef.current = null;
+      void stopQrScannerSafely(scanner, document.getElementById(qrCodeRegionId));
+    };
+    // Release the camera if the member leaves the page while scanning.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleQRScanSuccess = async (decodedText: string) => {
     try {

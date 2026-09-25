@@ -73,10 +73,10 @@ export function CheckInResultOverlay({
           {title}
         </h2>
         {result.name ? (
-          <p className="mt-3 text-[1.375rem] font-semibold leading-snug">{result.name}</p>
+          <p className="checkin-break mt-3 text-[1.375rem] font-semibold leading-snug">{result.name}</p>
         ) : null}
         {result.communityId ? (
-          <p className="mt-1 text-[1.375rem] font-mono font-bold">{result.communityId}</p>
+          <p className="checkin-break mt-1 text-[1.375rem] font-mono font-bold">{result.communityId}</p>
         ) : null}
         {result.kind === 'error' && result.message ? (
           <p className="mt-4 text-[1.125rem] font-medium text-red-950">{result.message}</p>

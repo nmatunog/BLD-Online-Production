@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode, RefObject } from 'react';
 import Link from 'next/link';
 import { LogOut, X, type LucideIcon } from 'lucide-react';
 import {
@@ -9,6 +10,7 @@ import {
   SheetDescription,
   SheetHeader,
   SheetTitle,
+  SheetTrigger,
 } from '@/components/ui/sheet';
 import { isNavItemActive, type DashboardNavItem } from '@/lib/nav-items';
 import { cn } from '@/lib/utils';
@@ -26,6 +28,8 @@ export interface MobileNavDrawerProps {
   communityId?: string | null;
   role?: string | null;
   onLogout: () => void;
+  trigger?: ReactNode;
+  triggerRef?: RefObject<HTMLButtonElement | null>;
 }
 
 export function MobileNavDrawer({
@@ -37,31 +41,48 @@ export function MobileNavDrawer({
   communityId,
   role,
   onLogout,
+  trigger,
+  triggerRef,
 }: MobileNavDrawerProps) {
+  const returnFocusToTrigger = (event: Event) => {
+    event.preventDefault();
+    const button = triggerRef?.current;
+    if (button) {
+      button.focus();
+      return;
+    }
+    const title = document.getElementById('dashboard-page-title');
+    title?.focus();
+  };
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
+      {trigger ? <SheetTrigger asChild>{trigger}</SheetTrigger> : null}
       <SheetContent
         side="left"
         id="mobile-nav-drawer"
         className="flex w-[min(100%,22rem)] flex-col bg-white p-0 motion-reduce:transition-none [&>button]:hidden"
+        onCloseAutoFocus={returnFocusToTrigger}
       >
         <SheetHeader className="border-b-2 border-gray-300 p-5 text-left">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <SheetTitle className="text-[1.375rem] font-bold text-gray-900">Menu</SheetTitle>
-              <SheetDescription className="mt-1 text-[1.125rem] font-medium text-gray-800">
+              <SheetTitle className="checkin-break text-[1.375rem] font-bold text-gray-900">Menu</SheetTitle>
+              <SheetDescription className="checkin-break mt-1 text-[1.125rem] font-medium text-gray-800">
                 {displayName}
                 {role ? ` · ${role}` : ''}
               </SheetDescription>
               {communityId ? (
-                <p className="mt-1 text-[1.125rem] font-mono font-semibold text-gray-900">ID: {communityId}</p>
+                <p className="checkin-break mt-1 text-[1.125rem] font-mono font-semibold text-gray-900">
+                  ID: {communityId}
+                </p>
               ) : null}
             </div>
             <SheetClose asChild>
               <button
                 type="button"
                 aria-label="Close menu"
-                className="inline-flex min-h-12 min-w-12 items-center justify-center gap-1 rounded-xl border-2 border-gray-400 px-3 text-[1.125rem] font-semibold text-gray-900 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-700 focus-visible:ring-offset-2"
+                className="inline-flex min-h-12 min-w-12 shrink-0 items-center justify-center gap-1 rounded-xl border-2 border-gray-400 px-3 text-[1.125rem] font-semibold text-gray-900 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-700 focus-visible:ring-offset-2"
               >
                 <X className="h-5 w-5" aria-hidden />
                 Close
@@ -88,7 +109,7 @@ export function MobileNavDrawer({
                     )}
                   >
                     <Icon className="h-6 w-6 shrink-0" aria-hidden />
-                    {item.label}
+                    <span className="checkin-break">{item.label}</span>
                   </Link>
                 </li>
               );

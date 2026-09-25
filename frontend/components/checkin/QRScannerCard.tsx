@@ -11,30 +11,82 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { QRScanner } from '@/lib/qr-scanner-service';
+import { stopQrScannerSafely, type StoppableScanner } from '@/lib/stop-qr-scanner';
+
+export type QrScannerHandle = StoppableScanner & {
+  start: () => Promise<void>;
+  toggleTorch?: () => Promise<boolean>;
+  switchCamera?: () => Promise<boolean>;
+};
 
 export interface QRScannerCardProps {
   onScanSuccess: (decodedText: string) => Promise<void>;
   disabled?: boolean;
   qrCodeRegionId?: string;
   className?: string;
+  createScanner?: (
+    regionId: string,
+    onSuccess: (decodedText: string) => Promise<void>,
+    onError: (errorMessage: string) => void,
+  ) => QrScannerHandle;
 }
 
 export function QRScannerCard({
   onScanSuccess,
   disabled = false,
   qrCodeRegionId = 'qr-scanner-card',
-  className = ''
+  className = '',
+  createScanner = (regionId, onSuccess, onError) =>
+    new QRScanner(regionId, onSuccess, onError, {
+      continuousMode: true,
+      fps: 20,
+      facingMode: 'environment',
+      showTorchButtonIfSupported: true,
+    }),
 }: QRScannerCardProps) {
   const [isScanning, setIsScanning] = useState(false);
   const [cameraAvailable, setCameraAvailable] = useState(false);
   const [continuousMode, setContinuousMode] = useState(true); // Default ON
   const [torchEnabled, setTorchEnabled] = useState(false);
   const [availableCameras, setAvailableCameras] = useState<Array<{ deviceId: string; label: string }>>([]);
-  const scannerRef = useRef<QRScanner | null>(null);
+  const scannerRef = useRef<QrScannerHandle | null>(null);
+  const stoppingRef = useRef(false);
 
   useEffect(() => {
     checkCameraAvailability();
   }, []);
+
+  const releaseScanner = async () => {
+    if (stoppingRef.current) return;
+    stoppingRef.current = true;
+    const scanner = scannerRef.current;
+    scannerRef.current = null;
+    const container =
+      typeof document !== 'undefined' ? document.getElementById(qrCodeRegionId) : null;
+    try {
+      await stopQrScannerSafely(scanner, container);
+    } finally {
+      stoppingRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        void releaseScanner().then(() => {
+          setIsScanning(false);
+          setTorchEnabled(false);
+        });
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      void releaseScanner();
+    };
+    // Stop leftover camera tracks whenever the card unmounts or is hidden.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qrCodeRegionId]);
 
   const checkCameraAvailability = async () => {
     try {
@@ -69,16 +121,10 @@ export function QRScannerCard({
     }
 
     try {
-      scannerRef.current = new QRScanner(
+      scannerRef.current = createScanner(
         qrCodeRegionId,
         handleQRScanSuccess,
         handleQRScanError,
-        {
-          continuousMode,
-          fps: 20,
-          facingMode: 'environment',
-          showTorchButtonIfSupported: true,
-        }
       );
       await scannerRef.current.start();
     } catch (error) {
@@ -89,10 +135,7 @@ export function QRScannerCard({
   };
 
   const stopScanner = async () => {
-    if (scannerRef.current) {
-      await scannerRef.current.stop();
-      scannerRef.current = null;
-    }
+    await releaseScanner();
     setIsScanning(false);
     setTorchEnabled(false);
   };
@@ -163,10 +206,8 @@ export function QRScannerCard({
                 variant="outline"
                 className="min-h-12 w-full text-[1.125rem] font-semibold bg-gray-800 hover:bg-gray-900 text-white border-gray-800"
                 onClick={async () => {
-                  if (scannerRef.current) {
-                    const toggled = await scannerRef.current.toggleTorch();
-                    setTorchEnabled(toggled);
-                  }
+                  const toggled = await scannerRef.current?.toggleTorch?.();
+                  if (typeof toggled === 'boolean') setTorchEnabled(toggled);
                 }}
               >
                 Flashlight {torchEnabled ? 'ON' : 'OFF'}
@@ -178,9 +219,7 @@ export function QRScannerCard({
                   variant="outline"
                   className="min-h-12 w-full text-[1.125rem] font-semibold bg-gray-800 hover:bg-gray-900 text-white border-gray-800"
                   onClick={async () => {
-                    if (scannerRef.current) {
-                      await scannerRef.current.switchCamera();
-                    }
+                    await scannerRef.current?.switchCamera?.();
                   }}
                 >
                   Switch camera

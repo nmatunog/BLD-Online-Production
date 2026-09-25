@@ -27,7 +27,7 @@ export function EventHeader({
   return (
     <Card className={`bg-white border-2 border-gray-300 shadow-sm ${className}`}>
       <CardHeader className="pb-2">
-        <CardTitle className="text-[1.75rem] md:text-[2rem] font-bold leading-tight text-gray-900">{title}</CardTitle>
+        <CardTitle className="checkin-break text-[1.75rem] md:text-[2rem] font-bold leading-tight text-gray-900">{title}</CardTitle>
         {subtitle && <p className="text-[1.125rem] font-medium text-gray-800">{subtitle}</p>}
       </CardHeader>
       <CardContent className="space-y-3">
