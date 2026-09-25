@@ -1,5 +1,6 @@
 import { apiClient } from './api-client';
 import { SESSION_EXPIRED_MESSAGE } from './api-client-token';
+import { asHumanErrorMessage, getErrorMessage } from '@/lib/get-error-message';
 import { ApiResponse } from '@/types/api.types';
 
 /** rembg/normalize often takes 8–15s; keep well above the 10s axios default. */
@@ -55,32 +56,15 @@ export function getMemberApiErrorMessage(error: unknown, fallback: string): stri
   if (error instanceof Error && error.message === SESSION_EXPIRED_MESSAGE) {
     return SESSION_EXPIRED_MESSAGE;
   }
-  if (error && typeof error === 'object') {
-    const axiosErr = error as {
-      response?: { status?: number; data?: { message?: string | string[]; error?: string } };
-      message?: string;
-    };
-    const data = axiosErr.response?.data;
-    if (data) {
-      if (typeof data.message === 'string' && data.message.trim()) {
-        return data.message;
-      }
-      if (Array.isArray(data.message)) {
-        const joined = data.message.filter((item) => typeof item === 'string').join(', ');
-        if (joined) return joined;
-      }
-      if (typeof data.error === 'string' && data.error.trim()) {
-        return data.error;
-      }
+  const axiosErr = error as { response?: { status?: number } };
+  if (axiosErr?.response?.status === 401) {
+    const fromServer = getErrorMessage(error, '');
+    if (fromServer && fromServer !== fallback && !/^Request failed/i.test(fromServer)) {
+      return fromServer;
     }
-    if (axiosErr.response?.status === 401) {
-      return SESSION_EXPIRED_MESSAGE;
-    }
-    if (typeof axiosErr.message === 'string' && axiosErr.message.trim()) {
-      return axiosErr.message;
-    }
+    return SESSION_EXPIRED_MESSAGE;
   }
-  return fallback;
+  return getErrorMessage(error, fallback);
 }
 
 export interface Member {
@@ -262,7 +246,7 @@ class MembersService {
         { timeout: PHOTO_UPLOAD_TIMEOUT_MS },
       );
       if (!response.data.success || !response.data.data?.photoUrl) {
-        throw new Error(response.data.error || 'Failed to upload photo');
+        throw new Error(asHumanErrorMessage(response.data.error, 'Failed to upload photo'));
       }
       return response.data.data.photoUrl;
     } catch (error) {
@@ -279,7 +263,7 @@ class MembersService {
         { timeout: PHOTO_UPLOAD_TIMEOUT_MS },
       );
       if (!response.data.success || !response.data.data?.photoUrl) {
-        throw new Error(response.data.error || 'Failed to upload photo');
+        throw new Error(asHumanErrorMessage(response.data.error, 'Failed to upload photo'));
       }
       return response.data.data.photoUrl;
     } catch (error) {

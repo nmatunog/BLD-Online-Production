@@ -1,10 +1,14 @@
 import sharp from 'sharp';
+import { hasHorizontalScanlineArtifact } from './id-photo-integrity';
 import {
+  applyLumaMaskToRgb,
   applyWhiteBackground,
+  assertLumaMaskSize,
   flattenOnWhite,
   isRembgU2netpModel,
   prepareStoredIdPhoto,
   REMBG_U2NETP_SHA256,
+  resizeLumaMask,
 } from './id-photo-white-bg';
 import { ID_PHOTO_OUTPUT_SIZE, ID_PHOTO_TOO_SMALL_MESSAGE } from './id-photo-normalize';
 
@@ -164,6 +168,24 @@ describe('applyWhiteBackground', () => {
     expect(buffer).toBe(src);
   });
 
+  it('fail-opens when rembg returns a scanlined image', async () => {
+    const src = await rgbJpeg(600, 600, { r: 32, g: 96, b: 176 });
+    const size = 600;
+    const rgb = Buffer.alloc(size * size * 3);
+    for (let y = 0; y < size; y++) {
+      rgb.fill(y % 2 === 0 ? 250 : 30, y * size * 3, (y + 1) * size * 3);
+    }
+    const striped = await sharp(rgb, { raw: { width: size, height: size, channels: 3 } })
+      .png()
+      .toBuffer();
+
+    const { buffer, applied } = await applyWhiteBackground(src, {
+      removeBackground: async () => striped,
+    });
+    expect(applied).toBe(false);
+    expect(buffer).toBe(src);
+  });
+
   it('composites the cut-out subject onto white', async () => {
     const src = await subjectOnRed(640);
     const { buffer, applied } = await applyWhiteBackground(src, {
@@ -201,6 +223,7 @@ describe('prepareStoredIdPhoto', () => {
     expectNearWhite(cornerPixel(data, { width: 600, height: 600, channels: ch }, 595, 4));
     expectNearWhite(cornerPixel(data, { width: 600, height: 600, channels: ch }, 4, 595));
     expectNearWhite(cornerPixel(data, { width: 600, height: 600, channels: ch }, 595, 595));
+    expect(hasHorizontalScanlineArtifact(data, 600, 600, ch)).toBe(false);
   });
 
   it('still normalizes to 600×600 JPEG when rembg fails', async () => {
@@ -225,6 +248,62 @@ describe('prepareStoredIdPhoto', () => {
     await expect(
       prepareStoredIdPhoto(src, { removeBackground: colorKeyRedBackground }),
     ).rejects.toThrow(ID_PHOTO_TOO_SMALL_MESSAGE);
+  });
+});
+
+describe('resizeLumaMask', () => {
+  it('stays 1-channel after resize (sharp default promotes grey to RGB)', async () => {
+    const srcW = 320;
+    const srcH = 320;
+    const destW = 600;
+    const destH = 600;
+    const mask = Buffer.alloc(srcW * srcH);
+    for (let y = 0; y < srcH; y++) {
+      for (let x = 0; x < srcW; x++) {
+        mask[y * srcW + x] = Math.hypot(x - 160, y - 160) < 80 ? 255 : 0;
+      }
+    }
+
+    const out = await resizeLumaMask(mask, srcW, srcH, destW, destH);
+    expect(out.length).toBe(destW * destH);
+
+    const promoted = await sharp(mask, { raw: { width: srcW, height: srcH, channels: 1 } })
+      .resize(destW, destH, { fit: 'fill' })
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    expect(promoted.info.channels).toBe(3);
+    expect(promoted.data.length).toBe(destW * destH * 3);
+  });
+});
+
+describe('assertLumaMaskSize', () => {
+  it('rejects a 3-channel buffer used as alpha (the pre-fix rembg path)', () => {
+    expect(() => assertLumaMaskSize(Buffer.alloc(600 * 600 * 3), 600, 600)).toThrow(/1 channel/);
+  });
+});
+
+describe('applyLumaMaskToRgb', () => {
+  it('keeps RGB intact and does not introduce horizontal scanlines', async () => {
+    const size = 120;
+    const rgb = await sharp({
+      create: { width: size, height: size, channels: 3, background: { r: 200, g: 24, b: 24 } },
+    })
+      .raw()
+      .toBuffer();
+    const mask = Buffer.alloc(size * size, 0);
+    const inner = 40;
+    const origin = Math.round((size - inner) / 2);
+    for (let y = origin; y < origin + inner; y++) {
+      mask.fill(255, y * size + origin, y * size + origin + inner);
+    }
+
+    const png = await applyLumaMaskToRgb(rgb, mask, size, size);
+    const flat = await flattenOnWhite(png);
+    const { data, info } = await sharp(flat).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    expect(
+      hasHorizontalScanlineArtifact(data, info.width!, info.height!, info.channels ?? 3),
+    ).toBe(false);
+    expectNearWhite(cornerPixel(data, { width: info.width!, height: info.height!, channels: info.channels ?? 3 }, 2, 2));
   });
 });
 

@@ -4,6 +4,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import sharp from 'sharp';
+import {
+  ID_PHOTO_DAMAGED_MESSAGE,
+  imageHasScanlineArtifact,
+} from './id-photo-integrity';
 import { normalizeIdPhoto } from './id-photo-normalize';
 
 const logger = new Logger('IdPhotoWhiteBg');
@@ -221,6 +225,101 @@ async function opaquePixelRatio(cutout: Buffer): Promise<number> {
 }
 
 /**
+ * Decode once to tightly packed 8-bit sRGB. Throws if dimensions/channels/length disagree.
+ */
+export async function readRawSrgb(
+  pipeline: sharp.Sharp,
+  expectedChannels: 1 | 3 | 4,
+): Promise<{ data: Buffer; width: number; height: number; channels: number }> {
+  const { data, info } = await pipeline
+    .toColourspace(expectedChannels === 1 ? 'b-w' : 'srgb')
+    .raw({ depth: 'uchar' })
+    .toBuffer({ resolveWithObject: true });
+  const width = info.width ?? 0;
+  const height = info.height ?? 0;
+  const channels = info.channels ?? 0;
+  const expectedLen = width * height * channels;
+  if (!width || !height || data.length !== expectedLen) {
+    throw new Error(
+      `Raw photo buffer mismatch (${data.length} bytes vs ${width}×${height}×${channels})`,
+    );
+  }
+  if (channels !== expectedChannels) {
+    throw new Error(`Expected ${expectedChannels} channel(s), got ${channels}`);
+  }
+  return { data, width, height, channels };
+}
+
+/**
+ * Resize a 1-channel mask and keep it 1-channel.
+ *
+ * Sharp's default `.resize().raw()` on a grey buffer promotes to 3-channel RGB.
+ * Using those RGB bytes as alpha packs each mask row into three output rows and
+ * paints dense horizontal banding across the flattened ID photo.
+ */
+export async function resizeLumaMask(
+  mask: Buffer,
+  srcW: number,
+  srcH: number,
+  destW: number,
+  destH: number,
+): Promise<Buffer> {
+  if (mask.length !== srcW * srcH) {
+    throw new Error(`Luma mask is ${mask.length} bytes, expected ${srcW * srcH}`);
+  }
+  const { data, info } = await sharp(mask, {
+    raw: { width: srcW, height: srcH, channels: 1 },
+  })
+    .resize(destW, destH, { fit: 'fill', kernel: 'lanczos3' })
+    .toColourspace('b-w')
+    .raw({ depth: 'uchar' })
+    .toBuffer({ resolveWithObject: true });
+
+  const width = info.width ?? 0;
+  const height = info.height ?? 0;
+  const channels = info.channels ?? 0;
+  if (width !== destW || height !== destH) {
+    throw new Error(`Mask resize produced ${width}×${height}, expected ${destW}×${destH}`);
+  }
+  if (channels === 1 && data.length === destW * destH) {
+    return data;
+  }
+  if (channels >= 1 && data.length === destW * destH * channels) {
+    const gray = Buffer.alloc(destW * destH);
+    for (let i = 0; i < gray.length; i++) {
+      gray[i] = data[i * channels];
+    }
+    return gray;
+  }
+  throw new Error(`Mask resize buffer mismatch (${data.length} bytes, ${channels} channels)`);
+}
+
+export function assertLumaMaskSize(mask: Buffer, width: number, height: number): void {
+  if (mask.length !== width * height) {
+    throw new Error(
+      `ID photo rembg mask is ${mask.length} bytes, expected ${width * height} (1 channel)`,
+    );
+  }
+}
+
+/** Composite a validated 1-channel mask onto 8-bit RGB via joinChannel (not a raw RGBA loop). */
+export async function applyLumaMaskToRgb(
+  rgb: Buffer,
+  mask: Buffer,
+  width: number,
+  height: number,
+): Promise<Buffer> {
+  if (rgb.length !== width * height * 3) {
+    throw new Error(`RGB buffer mismatch (${rgb.length} vs ${width}×${height}×3)`);
+  }
+  assertLumaMaskSize(mask, width, height);
+  return sharp(rgb, { raw: { width, height, channels: 3 } })
+    .joinChannel(mask, { raw: { width, height, channels: 1 } })
+    .png()
+    .toBuffer();
+}
+
+/**
  * Default OSS rembg: onnxruntime-node + rembg u2netp.
  *
  * Not @imgly/background-removal-node: AGPL + sharp ~0.32.4 native conflict with P1 sharp ^0.34.5.
@@ -229,22 +328,18 @@ export async function u2netpRemoveBackground(input: Buffer): Promise<Buffer> {
   const ort = await loadOrt();
   const session = await getSession();
 
-  const oriented = sharp(input, { failOn: 'none' }).rotate();
-  const { data: rgb, info } = await oriented
-    .clone()
-    .removeAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  const width = info.width ?? 0;
-  const height = info.height ?? 0;
-  if (!width || !height) {
-    throw new Error('Could not read photo for rembg');
-  }
+  const { data: rgb, width, height } = await readRawSrgb(
+    sharp(input, { failOn: 'truncated' }).rotate().removeAlpha(),
+    3,
+  );
 
-  const modelRgb = await sharp(rgb, { raw: { width, height, channels: 3 } })
-    .resize(U2NETP_SIZE, U2NETP_SIZE, { fit: 'fill', kernel: 'lanczos3' })
-    .raw()
-    .toBuffer();
+  const { data: modelRgb } = await readRawSrgb(
+    sharp(rgb, { raw: { width, height, channels: 3 } }).resize(U2NETP_SIZE, U2NETP_SIZE, {
+      fit: 'fill',
+      kernel: 'lanczos3',
+    }),
+    3,
+  );
 
   const tensor = new ort.Tensor('float32', rgbToNchwFloat32(modelRgb, U2NETP_SIZE, U2NETP_SIZE), [
     1,
@@ -265,31 +360,16 @@ export async function u2netpRemoveBackground(input: Buffer): Promise<Buffer> {
   }
   const pred = predRaw.length === plane ? predRaw : predRaw.subarray(0, plane);
   const mask320 = minMaxToUint8(pred);
+  const mask = await resizeLumaMask(mask320, U2NETP_SIZE, U2NETP_SIZE, width, height);
 
-  const mask = await sharp(mask320, {
-    raw: { width: U2NETP_SIZE, height: U2NETP_SIZE, channels: 1 },
-  })
-    .resize(width, height, { fit: 'fill', kernel: 'lanczos3' })
-    .raw()
-    .toBuffer();
-
-  const { data: rgba } = await oriented
-    .clone()
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  for (let i = 0; i < width * height; i++) {
-    rgba[i * 4 + 3] = mask[i];
-  }
-
-  return sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer();
+  return applyLumaMaskToRgb(rgb, mask, width, height);
 }
 
 export async function flattenOnWhite(cutout: Buffer): Promise<Buffer> {
-  return sharp(cutout, { failOn: 'none' })
+  return sharp(cutout, { failOn: 'truncated' })
     .ensureAlpha()
     .flatten({ background: ID_PHOTO_WHITE_BG })
+    .toColourspace('srgb')
     .png()
     .toBuffer();
 }
@@ -323,6 +403,10 @@ export async function applyWhiteBackground(
     }
 
     const flattened = await flattenOnWhite(cutout);
+    if (await imageHasScanlineArtifact(flattened)) {
+      logger.warn('ID photo white-BG cleanup skipped: rembg output had scanline artifacts');
+      return { buffer: input, applied: false };
+    }
     return { buffer: flattened, applied: true };
   } catch (err) {
     logger.warn(
@@ -350,6 +434,17 @@ export async function prepareStoredIdPhoto(
   input: Buffer,
   options?: ApplyWhiteBgOptions,
 ): Promise<Buffer> {
-  const { buffer } = await applyWhiteBackground(input, options);
-  return normalizeIdPhoto(buffer);
+  const { buffer, applied } = await applyWhiteBackground(input, options);
+  const normalized = await normalizeIdPhoto(buffer);
+  if (!(await imageHasScanlineArtifact(normalized))) {
+    return normalized;
+  }
+  if (applied) {
+    const fallback = await normalizeIdPhoto(input);
+    if (!(await imageHasScanlineArtifact(fallback))) {
+      logger.warn('ID photo rembg output was striped; stored crop without white-BG');
+      return fallback;
+    }
+  }
+  throw new Error(ID_PHOTO_DAMAGED_MESSAGE);
 }
