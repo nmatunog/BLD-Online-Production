@@ -6,7 +6,8 @@ You disabled "Wait for CI" setting, which allowed Railway to deploy immediately!
 
 **Why this worked:**
 - Railway was waiting for GitHub Actions CI to complete
-- But you don't have CI configured
+- This repo has no GitHub Actions deploy or CI workflow
+- Production deploys through the native Railway GitHub integration (and Vercel Git integration for the frontend)
 - So it was waiting indefinitely
 - Disabling "Wait for CI" = deploy immediately on push ✅
 

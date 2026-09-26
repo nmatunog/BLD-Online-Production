@@ -23,7 +23,7 @@
 - **Cursor A/B/C** — Implement on `cursor/<descriptive-kebab>` branches
 - **Cursor QA D** — Independent QA gate before PR
 
-**Workflow:** Nilo → BLD Bot → A/B/C implement → QA D → PR → Nilo approval → Nilo merge → CI/CD
+**Workflow:** Nilo → BLD Bot → A/B/C implement → QA D → PR → Nilo approval → Nilo merge → native Railway/Vercel Git deploys
 
 **Timezone:** Asia/Manila (source of truth for all dates/times)
 

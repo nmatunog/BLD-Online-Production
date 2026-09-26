@@ -36,9 +36,9 @@ Before implementing ANY change:
 
 ### Deployment Flow
 
-- **Nilo merges to `main`** → Automatic CI/CD
-- **Vercel** auto-deploys frontend from `main`
-- **Railway** auto-deploys backend from `main`
+- **Nilo merges to `main`** → production deploys through native Git integrations (not GitHub Actions)
+- **Vercel** Git integration auto-deploys the frontend from `main`
+- **Railway** GitHub integration auto-deploys the backend from `main`
 
 ---
 
@@ -92,7 +92,7 @@ Nilo approval (human review)
     ↓
 Nilo merges to main (ONLY Nilo)
     ↓
-CI/CD (Vercel frontend + Railway backend)
+Native Git integrations deploy production (Vercel frontend + Railway backend)
 ```
 
 **Critical Rules:**
