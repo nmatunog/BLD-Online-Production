@@ -285,9 +285,9 @@ The BLD Online AI Delivery Pipeline is a **locked, mandatory process** for all A
                        ↓
 ┌─────────────────────────────────────────────────────────────┐
 │ 10. CI/CD: Automatic Deployment                             │
-│     - Vercel: Frontend auto-deploy from main               │
-│     - Railway: Backend auto-deploy from main               │
-│     - Tests run in CI (GitHub Actions)                     │
+│     - Vercel Git integration auto-deploys frontend from main│
+│     - Railway GitHub integration auto-deploys backend from main│
+│     - No GitHub Actions deploy workflow                    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -450,7 +450,7 @@ export class CommunityWorshipService {
 ### Main Branch (`main`)
 
 - **Protected:** Only Nilo can merge
-- **Always deployable:** CI/CD auto-deploys to production
+- **Always deployable:** native Railway and Vercel Git integrations auto-deploy production from `main`
 - **Source of truth:** All features eventually land here
 
 ### Feature Branches (`cursor/<descriptive-kebab>`)
@@ -559,9 +559,8 @@ Brief description of what this PR does and why.
 
 **Post-Merge:**
 - Feature branch auto-deleted (GitHub setting)
-- Vercel auto-deploys frontend
-- Railway auto-deploys backend
-- CI tests run on `main`
+- Vercel Git integration auto-deploys the frontend from `main`
+- Railway GitHub integration auto-deploys the backend from `main`
 
 ---
 

@@ -377,11 +377,11 @@ Allow WSC on Wednesday 19:00 as alternative slot.
 - Build command: `npm run build`
 - Output: `.next`
 - Root: `frontend/`
-- Auto-deploy on `main` merge
+- Auto-deploy on `main` merge via the native Vercel Git integration (not GitHub Actions)
 
 **Railway Backend:**
 - Start command: `npm run start:prod` (includes `prisma migrate deploy`)
-- Auto-deploy on `main` merge
+- Auto-deploy on `main` merge via the native Railway GitHub integration (not GitHub Actions)
 - Health check: `GET /health` (must exist and return 200)
 
 ---
