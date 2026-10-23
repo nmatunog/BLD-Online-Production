@@ -11,7 +11,7 @@ import {
   IsEnum,
   ValidateIf,
 } from 'class-validator';
-import { EventStatus } from '@prisma/client';
+import { EventSeriesCode, EventStatus } from '@prisma/client';
 
 export class CreateEventDto {
   @IsString()
@@ -58,6 +58,11 @@ export class CreateEventDto {
   @IsString()
   @IsOptional()
   ministry?: string;
+
+  /** Explicit CW / WSC / OTHER marker. Inferred from category/title when omitted. */
+  @IsEnum(EventSeriesCode)
+  @IsOptional()
+  seriesCode?: EventSeriesCode;
 
   @IsEnum(EventStatus)
   @IsOptional()

@@ -88,6 +88,7 @@ export function getDashboardPageTitle(pathname: string): string {
   if (/^\/events\/[^/]+/.test(pathname)) return 'Event';
   if (pathname.startsWith('/events')) return 'Events';
   if (pathname.startsWith('/event-registrations')) return 'Registrations';
+  if (pathname.startsWith('/reports/attendance-monitoring')) return 'Attendance Monitoring';
   if (pathname.startsWith('/reports')) return 'Reports';
   if (pathname.startsWith('/profile')) return 'Profile';
   if (pathname.startsWith('/accounting')) return 'Accounting';

@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useMemo, useCallback, useRef, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
-import { FileText, Download, Calendar, Users, CheckCircle, DollarSign, BarChart3, Loader2, Filter, RefreshCw, X, TrendingUp, Eye, EyeOff, Church, MessageCircle, AlertCircle, ChevronDown, ChevronUp, Search, ZoomIn, LineChart, Clock, ArrowUp, ArrowDown } from 'lucide-react';
+import Link from 'next/link';
+import { FileText, Download, Calendar, Users, CheckCircle, DollarSign, BarChart3, Loader2, Filter, RefreshCw, X, TrendingUp, Eye, EyeOff, Church, MessageCircle, AlertCircle, ChevronDown, ChevronUp, Search, ZoomIn, LineChart, Clock, ArrowUp, ArrowDown, ArrowRight } from 'lucide-react';
 import { reportsService, ReportType, RecurringReportType, PeriodType, type ReportResult, type AttendanceReport, type RegistrationReport, type MemberReport, type EventReport, type RecurringAttendanceReport, type CommunitySummaryRow, type MonthlyAttendanceTrendPoint } from '@/services/reports.service';
 import { eventsService, type Event } from '@/services/events.service';
 import { membersService, type Member } from '@/services/members.service';
@@ -1165,6 +1166,23 @@ export default function ReportsPage() {
               <span className="text-sm font-medium">Loading report data…</span>
             </div>
           )}
+          <Card className="border-slate-200 bg-white shadow-sm">
+            <CardContent className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">Attendance Monitoring</h2>
+                <p className="mt-1 text-base text-slate-600">
+                  Community Worship and WSC by ministry — week dots, monthly %, YTD, PDF and Excel.
+                </p>
+              </div>
+              <Button asChild className="h-12 bg-slate-900 text-base text-white hover:bg-slate-800">
+                <Link href="/reports/attendance-monitoring">
+                  Open report
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+
           {/* Header */}
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6">
             <div>

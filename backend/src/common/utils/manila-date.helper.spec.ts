@@ -12,6 +12,8 @@ import {
   isInBlackoutPeriod,
   isHolyMassTuesday,
   addDaysManila,
+  getManilaDateParts,
+  manilaMonthBounds,
 } from './manila-date.helper';
 
 describe('Manila Date Helpers', () => {
@@ -131,6 +133,14 @@ describe('Manila Date Helpers', () => {
       // Time should still be 19:00 Manila (11:00 UTC)
       expect(tuesday2.getUTCHours()).toBe(11);
       expect(tuesday2.getUTCMinutes()).toBe(0);
+    });
+
+    it('buckets 23:30 Manila on the last day of the month into that month, not UTC November', () => {
+      const late = buildManilaDateTime(2026, 10, 31, 23, 30);
+      expect(getManilaDateParts(late)).toEqual({ year: 2026, month: 10, day: 31 });
+      const { start, end } = manilaMonthBounds(2026, 10);
+      expect(late.getTime()).toBeGreaterThanOrEqual(start.getTime());
+      expect(late.getTime()).toBeLessThanOrEqual(end.getTime());
     });
 
     it('should add multiple weeks correctly', () => {

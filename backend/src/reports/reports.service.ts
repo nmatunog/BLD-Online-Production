@@ -4,7 +4,9 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ReportQueryDto, ReportType } from './dto/report-query.dto';
-import { Prisma } from '@prisma/client';
+import { EventKind, EventSeriesCode, EventStatus, Prisma } from '@prisma/client';
+import { toManilaDateString } from '../common/utils/manila-date.helper';
+import { manilaMonthBounds } from '../common/utils/manila-date.helper';
 
 @Injectable()
 export class ReportsService {
@@ -383,8 +385,8 @@ export class ReportsService {
     const endDate = new Date(query.endDate);
     endDate.setHours(23, 59, 59, 999);
 
-    // Community Worship = number of Tuesdays in period (typically 4–5 per month)
-    const totalCwInPeriod = this.countEventInstances('Community Worship', startDate, endDate);
+    // Community Worship = held CW events in period (not cancelled, at least one check-in)
+    const totalCwInPeriod = await this.countHeldCwEvents(startDate, endDate);
 
     // Community Report: apostolate/ministry summary only (no per-member list). Track CW and WSC % vs registered members for analytics.
     if (query.recurringReportType === 'community') {
@@ -419,7 +421,7 @@ export class ReportsService {
       },
       include: {
         member: true,
-        event: { select: { id: true, title: true, category: true } },
+        event: { select: { id: true, title: true, category: true, seriesCode: true, ministry: true } },
       },
     });
 
@@ -503,11 +505,16 @@ export class ReportsService {
       },
       include: {
         member: { select: { id: true, apostolate: true, ministry: true } },
-        event: { select: { id: true, title: true, category: true } },
+        event: { select: { id: true, title: true, category: true, seriesCode: true, ministry: true } },
       },
     });
 
-    const isCwEvent = (record: { event?: { title?: string; category?: string } | null }) => {
+    const isCwEvent = (record: {
+      event?: { title?: string; category?: string; seriesCode?: string | null } | null;
+    }) => {
+      if (record.event?.seriesCode === EventSeriesCode.CW || record.event?.seriesCode === 'CW') {
+        return true;
+      }
       const t = (record.event?.title || '').toLowerCase();
       const c = (record.event?.category || '').toLowerCase();
       return (
@@ -517,12 +524,20 @@ export class ReportsService {
         c.includes('corporate worship')
       );
     };
-    const isWscForMinistry = (record: { event?: { title?: string } | null }, ministry: string) => {
-      const t = (record.event?.title || '').toLowerCase();
+    const isWscForMinistry = (
+      record: { event?: { title?: string; seriesCode?: string | null; ministry?: string | null } | null },
+      ministry: string,
+    ) => {
       const isWsc =
-        t.includes('word sharing') || t.includes('wsc');
+        record.event?.seriesCode === EventSeriesCode.WSC ||
+        record.event?.seriesCode === 'WSC' ||
+        (record.event?.title || '').toLowerCase().includes('word sharing') ||
+        (record.event?.title || '').toLowerCase().includes('wsc');
       if (!isWsc || !ministry) return false;
-      return t.includes(ministry.toLowerCase());
+      if (record.event?.ministry) {
+        return record.event.ministry === ministry;
+      }
+      return (record.event?.title || '').toLowerCase().includes(ministry.toLowerCase());
     };
 
     const byApostolateMinistry = new Map<
@@ -552,7 +567,7 @@ export class ReportsService {
       const group = byApostolateMinistry.get(key);
       if (!group || !group.memberIds.has(memberId)) continue;
 
-      const dateKey = new Date(rec.checkInTime).toISOString().split('T')[0];
+      const dateKey = toManilaDateString(new Date(rec.checkInTime));
       const eventId = rec.eventId;
       const uk = `${key}|${memberId}|${eventId}|${dateKey}`;
 
@@ -683,24 +698,24 @@ export class ReportsService {
   }
 
   /**
-   * Count event instances for Community Worship (Tuesdays in period)
+   * Count held Community Worship occurrences in the period.
+   * Held = not cancelled and at least one check-in. SERIES templates are excluded.
    */
-  private countEventInstances(eventType: string, startDate: Date, endDate: Date): number {
-    if (eventType === 'Community Worship') {
-      let count = 0;
-      const current = new Date(startDate);
-      while (current <= endDate) {
-        if (current.getDay() === 2) count++;
-        current.setDate(current.getDate() + 1);
-      }
-      return count;
-    }
-    return 0;
+  private async countHeldCwEvents(startDate: Date, endDate: Date): Promise<number> {
+    const events = await this.prisma.event.findMany({
+      where: {
+        startDate: { gte: startDate, lte: endDate },
+        seriesCode: EventSeriesCode.CW,
+        eventKind: { not: EventKind.SERIES },
+        status: { not: EventStatus.CANCELLED },
+      },
+      select: { id: true, _count: { select: { attendances: true } } },
+    });
+    return events.filter((e) => e._count.attendances > 0).length;
   }
 
   /**
-   * Count WSC events per ministry from Event table (ministries have different WSC days).
-   * Events: category contains 'Word Sharing Circle', title contains ministry name, startDate in range.
+   * Count held WSC events per ministry using Event.ministry (not title matching).
    */
   private async getWscEventCountsByMinistry(
     startDate: Date,
@@ -710,43 +725,27 @@ export class ReportsService {
     const events = await this.prisma.event.findMany({
       where: {
         startDate: { gte: startDate, lte: endDate },
-        category: { contains: 'Word Sharing', mode: 'insensitive' },
+        seriesCode: EventSeriesCode.WSC,
+        eventKind: { not: EventKind.SERIES },
+        status: { not: EventStatus.CANCELLED },
+        ...(ministryFilter ? { ministry: ministryFilter } : {}),
       },
-      select: { id: true, title: true },
+      select: {
+        id: true,
+        ministry: true,
+        _count: { select: { attendances: true } },
+      },
     });
 
-    const ministries = this.getKnownMinistries().filter((m) => !ministryFilter || m === ministryFilter);
     const byMinistry = new Map<string, number>();
     for (const e of events) {
-      const title = (e.title || '').toLowerCase();
-      // Assign event to one ministry: longest ministry name that appears in title (e.g. "WSC - Service Ministry -")
-      let best: string | null = null;
-      let bestLen = 0;
-      for (const ministry of ministries) {
-        const slug = ministry.toLowerCase();
-        if (title.includes(slug) && slug.length > bestLen) {
-          best = ministry;
-          bestLen = slug.length;
-        }
-      }
-      if (best) {
-        byMinistry.set(best, (byMinistry.get(best) ?? 0) + 1);
-      }
+      if (e._count.attendances < 1) continue;
+      const key = e.ministry || '';
+      if (ministryFilter && key !== ministryFilter) continue;
+      if (!key) continue;
+      byMinistry.set(key, (byMinistry.get(key) ?? 0) + 1);
     }
     return byMinistry;
-  }
-
-  private getKnownMinistries(): string[] {
-    return [
-      'Pastoral Services', 'Youth Ministry', 'Singles Ministry', 'Solo Parent Ministry', 'Mark 10 Ministry',
-      'Prayer Counseling and Healing Services (PCHS)', 'Marriage Encounter Program', 'Family Encounter Program',
-      'Life in the Spirit Ministry', 'Praise Ministry', 'Liturgy Ministry', 'Post-LSS Group (PLSG)',
-      'Teaching Ministry', 'Intercessory Ministry', 'Discipling Ministry', 'Word Ministry',
-      'Witness Development Ministry', 'Coach Development Ministry', 'Service Ministry', 'Treasury Ministry',
-      'Secretariat Office', 'Management Services', 'Technical Group', 'District Council of Stewards',
-      'Parish Services Ministry', 'Institutional Services Ministry', 'Scholarship of Hope Ministry',
-      'Nazareth Housing Program', 'Mission Homesteads', 'Shepherds of Districts-in-Process',
-    ];
   }
 
   /**
@@ -800,7 +799,7 @@ export class ReportsService {
       const uniqueAttendances = new Map<string, any>();
       memberAttendance.forEach((record) => {
         const checkInTime = new Date(record.checkInTime);
-        const dateKey = checkInTime.toISOString().split('T')[0];
+        const dateKey = toManilaDateString(checkInTime);
         const uniqueKey = `${member.id}|${record.eventId}|${dateKey}`;
         if (!uniqueAttendances.has(uniqueKey)) {
           uniqueAttendances.set(uniqueKey, record);
@@ -814,6 +813,9 @@ export class ReportsService {
       const deduplicated = Array.from(uniqueAttendances.values());
 
       const corporateWorshipAttended = deduplicated.filter((record) => {
+        if (record.event?.seriesCode === EventSeriesCode.CW || record.event?.seriesCode === 'CW') {
+          return true;
+        }
         const title = (record.event?.title || '').toLowerCase();
         const category = (record.event?.category || '').toLowerCase();
         return (
@@ -826,15 +828,18 @@ export class ReportsService {
 
       const memberMinistry = (member.ministry || reportMinistry || '').trim();
       const wordSharingCirclesAttended = deduplicated.filter((record) => {
-        const title = (record.event?.title || '').toLowerCase();
-        const category = (record.event?.category || '').toLowerCase();
         const isWsc =
-          title.includes('word sharing') ||
-          title.includes('wsc') ||
-          category.includes('word sharing');
+          record.event?.seriesCode === EventSeriesCode.WSC ||
+          record.event?.seriesCode === 'WSC' ||
+          (record.event?.title || '').toLowerCase().includes('word sharing') ||
+          (record.event?.title || '').toLowerCase().includes('wsc') ||
+          (record.event?.category || '').toLowerCase().includes('word sharing');
         if (!isWsc) return false;
         if (!memberMinistry) return true;
-        return title.includes(memberMinistry.toLowerCase());
+        if (record.event?.ministry) {
+          return record.event.ministry === memberMinistry;
+        }
+        return (record.event?.title || '').toLowerCase().includes(memberMinistry.toLowerCase());
       }).length;
 
       const wscTotalForMember =
@@ -932,11 +937,9 @@ export class ReportsService {
     const result: Array<{ month: string; monthLabel: string; cwPercentage: number; wscPercentage: number }> = [];
 
     for (let m = 1; m <= 12; m++) {
-      const startDate = new Date(year, m - 1, 1);
-      startDate.setHours(0, 0, 0, 0);
-      const endDate = new Date(year, m, 0, 23, 59, 59, 999);
+      const { start: startDate, end: endDate } = manilaMonthBounds(year, m);
 
-      const totalCwInPeriod = this.countEventInstances('Community Worship', startDate, endDate);
+      const totalCwInPeriod = await this.countHeldCwEvents(startDate, endDate);
       const wscByMinistry = await this.getWscEventCountsByMinistry(startDate, endDate, ministry);
       const totalWscInPeriod = wscByMinistry.get(ministry) ?? 0;
 
@@ -947,7 +950,7 @@ export class ReportsService {
         },
         include: {
           member: true,
-          event: { select: { id: true, title: true, category: true } },
+          event: { select: { id: true, title: true, category: true, seriesCode: true, ministry: true } },
         },
       });
 

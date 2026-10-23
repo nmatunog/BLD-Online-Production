@@ -407,7 +407,115 @@ class ReportsService {
     const name = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`;
     XLSX.writeFile(wb, name);
   }
+
+  async getAttendanceMonitoring(params: {
+    year: number;
+    month?: number;
+    ministry?: string;
+  }): Promise<AttendanceMonitoringReport> {
+    const response = await apiClient.get<AttendanceMonitoringReport>('/reports/attendance-monitoring', {
+      params,
+      timeout: 30000,
+    });
+    return response.data;
+  }
+
+  async downloadAttendanceMonitoringExport(params: {
+    year: number;
+    month?: number;
+    ministry?: string;
+    format: 'xlsx' | 'csv';
+  }): Promise<void> {
+    const response = await apiClient.get<Blob>('/reports/attendance-monitoring/export', {
+      params,
+      responseType: 'blob',
+      timeout: 60000,
+    });
+    const blob = response.data;
+    const period = params.month
+      ? `${params.year}-${String(params.month).padStart(2, '0')}`
+      : String(params.year);
+    const filename = `BLD Attendance Monitoring ${period}.${params.format}`;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
 }
 
 export const reportsService = new ReportsService();
+
+export type WeekMark = 'attended' | 'absent' | 'cancelled' | 'n/a';
+export type SessionStatus = 'held' | 'cancelled' | 'not_held';
+
+export interface AttendanceWeekSlot {
+  week: number;
+  date: string;
+  eventId: string;
+  status: SessionStatus;
+}
+
+export interface AttendanceBlock {
+  attended: number;
+  held: number;
+  pct: number | null;
+  weeks: WeekMark[];
+}
+
+export interface YtdBlock {
+  attended: number;
+  held: number;
+  pct: number | null;
+}
+
+export interface AttendanceMonitoringMemberRow {
+  id: string;
+  name: string;
+  firstName: string;
+  lastName: string;
+  ministry: string | null;
+  cw: AttendanceBlock;
+  wsc: AttendanceBlock;
+  ytdCw: YtdBlock;
+  ytdWsc: YtdBlock;
+  needsFollowUp: boolean;
+}
+
+export interface AttendanceMonitoringGroup {
+  ministry: string;
+  avgCwPct: number | null;
+  avgWscPct: number | null;
+  avgYtdCwPct: number | null;
+  avgYtdWscPct: number | null;
+  members: AttendanceMonitoringMemberRow[];
+}
+
+export interface AttendanceMonitoringReport {
+  year: number;
+  month: number | null;
+  ministry: string | null;
+  timezone: 'Asia/Manila';
+  generatedAt: string;
+  summary: {
+    members: number;
+    ministries: number;
+    avgCwPct: number | null;
+    avgWscPct: number | null;
+    ytdAvgCwPct: number | null;
+    ytdAvgWscPct: number | null;
+    sessionsHeld: number;
+    cwHeld: number;
+    wscHeld: number;
+    cancelled: number;
+  };
+  weeks: {
+    cw: AttendanceWeekSlot[];
+    wscByMinistry: Record<string, AttendanceWeekSlot[]>;
+  };
+  groups: AttendanceMonitoringGroup[];
+}
 
