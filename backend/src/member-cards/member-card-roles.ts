@@ -7,7 +7,7 @@ export const CARD_ADMIN_ROLES: UserRole[] = [
   UserRole.DCS,
 ];
 
-/** Staff roles that may open /verify and run door check-in (same as staff check-in). */
+/** Staff roles that may open /verify and run door check-in. MEMBER is never included, even with a ministry. */
 export const CARD_VERIFY_STAFF_ROLES: UserRole[] = [
   UserRole.SUPER_USER,
   UserRole.ADMINISTRATOR,

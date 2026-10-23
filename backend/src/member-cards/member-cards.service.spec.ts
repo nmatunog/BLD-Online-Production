@@ -74,14 +74,14 @@ describe('MemberCardsService', () => {
       expect(() => service.assertStaffCanVerify(memberUser)).toThrow(ForbiddenException);
     });
 
-    it('allows a MEMBER who is ministry door staff', () => {
+    it('rejects a MEMBER even when they have a ministry', () => {
       expect(() =>
         service.assertStaffCanVerify({
           id: 'm',
           role: UserRole.MEMBER,
           ministry: 'Worship',
         }),
-      ).not.toThrow();
+      ).toThrow(ForbiddenException);
     });
   });
 

@@ -88,9 +88,6 @@ export class MemberCardsService {
     if (isCardVerifyStaffRole(actor.role)) {
       return;
     }
-    if (actor.role === UserRole.MEMBER && actor.ministry?.trim()) {
-      return;
-    }
     throw new ForbiddenException(
       'Only staff can verify member ID cards. Sign in with a staff account.',
     );

@@ -54,13 +54,9 @@ export function isCardAdminRole(role: string | null | undefined): boolean {
   return !!role && (CARD_ADMIN_ROLES as readonly string[]).includes(role);
 }
 
-export function canVerifyMemberCards(
-  role: string | null | undefined,
-  ministry?: string | null,
-): boolean {
-  if (!role) return false;
-  if ((CARD_STAFF_ROLES as readonly string[]).includes(role)) return true;
-  return role === 'MEMBER' && !!ministry?.trim();
+/** Admin and door-staff roles only. Regular MEMBER is never allowed, even with a ministry. */
+export function canVerifyMemberCards(role: string | null | undefined): boolean {
+  return !!role && (CARD_STAFF_ROLES as readonly string[]).includes(role);
 }
 
 export const PRINTER_NFC_HELP = [

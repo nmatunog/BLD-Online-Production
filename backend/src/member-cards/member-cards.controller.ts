@@ -96,9 +96,9 @@ export class MemberCardsController {
 
   @Get('verify/:token')
   @UseGuards(RolesGuard)
-  @Roles(...CARD_VERIFY_STAFF_ROLES, UserRole.MEMBER)
+  @Roles(...CARD_VERIFY_STAFF_ROLES)
   @Header('Cache-Control', 'no-store')
-  @ApiOperation({ summary: 'Verify an NFC card token (staff only; live member data)' })
+  @ApiOperation({ summary: 'Verify an NFC card token (admin/staff only; live member data)' })
   @ApiResponse({ status: 200, description: 'Lookup result' })
   async verify(
     @Param('token') token: string,
@@ -111,7 +111,7 @@ export class MemberCardsController {
 
   @Post('verify/:token/check-in')
   @UseGuards(RolesGuard)
-  @Roles(...CARD_VERIFY_STAFF_ROLES, UserRole.MEMBER)
+  @Roles(...CARD_VERIFY_STAFF_ROLES)
   @Header('Cache-Control', 'no-store')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Check in the card holder using existing attendance rules' })

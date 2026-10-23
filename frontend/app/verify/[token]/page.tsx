@@ -19,7 +19,7 @@ export default function VerifyCardPage() {
   const params = useParams<{ token: string }>();
   const token = decodeURIComponent(params.token || '');
   const { user } = useAuth();
-  const staff = canVerifyMemberCards(user?.role, user?.ministry || user?.member?.ministry);
+  const staff = canVerifyMemberCards(user?.role);
 
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [error, setError] = useState('');

@@ -40,8 +40,11 @@ describe('nfc-card helpers', () => {
   it('limits card admin tools to privileged admins', () => {
     expect(isCardAdminRole('ADMINISTRATOR')).toBe(true);
     expect(isCardAdminRole('MINISTRY_COORDINATOR')).toBe(false);
+    expect(canVerifyMemberCards('SUPER_USER')).toBe(true);
+    expect(canVerifyMemberCards('ADMINISTRATOR')).toBe(true);
+    expect(canVerifyMemberCards('DCS')).toBe(true);
+    expect(canVerifyMemberCards('MINISTRY_COORDINATOR')).toBe(true);
     expect(canVerifyMemberCards('CLASS_SHEPHERD')).toBe(true);
-    expect(canVerifyMemberCards('MEMBER', 'Worship')).toBe(true);
-    expect(canVerifyMemberCards('MEMBER', null)).toBe(false);
+    expect(canVerifyMemberCards('MEMBER')).toBe(false);
   });
 });
