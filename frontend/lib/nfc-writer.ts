@@ -41,12 +41,14 @@ export type NdefReaderLike = {
 
 export type NdefReaderCtor = new () => NdefReaderLike;
 
-export function isWebNfcSupported(globalObj: { NDEFReader?: NdefReaderCtor } = globalThis): boolean {
+type WebNfcGlobal = { NDEFReader?: NdefReaderCtor };
+
+export function isWebNfcSupported(globalObj: WebNfcGlobal = globalThis as WebNfcGlobal): boolean {
   return typeof globalObj.NDEFReader === 'function';
 }
 
 export function createNdefReader(
-  globalObj: { NDEFReader?: NdefReaderCtor } = globalThis,
+  globalObj: WebNfcGlobal = globalThis as WebNfcGlobal,
 ): NdefReaderLike {
   if (typeof globalObj.NDEFReader !== 'function') {
     throw new Error(NFC_UNSUPPORTED_MESSAGE);
