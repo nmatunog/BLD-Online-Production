@@ -12,6 +12,7 @@ describe('getVisibleNavItems', () => {
     expect(hrefs).toContain('/checkin/self-checkin');
     expect(hrefs).not.toContain('/checkin');
     expect(hrefs).not.toContain('/members');
+    expect(hrefs).not.toContain('/cards');
     expect(hrefs).not.toContain('/reports');
     expect(hrefs).toContain('/events');
     expect(hrefs).toContain('/profile');
@@ -22,8 +23,15 @@ describe('getVisibleNavItems', () => {
     const hrefs = items.map((i) => i.href);
     expect(hrefs).toContain('/checkin');
     expect(hrefs).toContain('/members');
+    expect(hrefs).toContain('/cards');
     expect(hrefs).toContain('/reports');
     expect(items.find((i) => i.href === '/checkin')?.label).toBe('Check-In');
+  });
+
+  it('hides NFC Cards from ministry coordinators', () => {
+    const hrefs = getVisibleNavItems('MINISTRY_COORDINATOR').map((i) => i.href);
+    expect(hrefs).toContain('/members');
+    expect(hrefs).not.toContain('/cards');
   });
 });
 
@@ -45,6 +53,7 @@ describe('getDashboardPageTitle', () => {
     expect(getDashboardPageTitle('/events/new')).toBe('Set up an event');
     expect(getDashboardPageTitle('/events/abc')).toBe('Event');
     expect(getDashboardPageTitle('/dashboard')).toBe('Dashboard');
+    expect(getDashboardPageTitle('/cards')).toBe('NFC Cards');
     expect(getDashboardPageTitle('/reports/attendance-monitoring')).toBe('Attendance Monitoring');
   });
 });

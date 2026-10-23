@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
-import { CheckCircle, Home, Users, Calendar, FileText, BarChart3, User, Menu } from 'lucide-react';
+import { CheckCircle, Home, Users, Calendar, FileText, BarChart3, User, Menu, CreditCard } from 'lucide-react';
 import {
   CheckInResultOverlay,
   EventPickerBar,
@@ -42,6 +42,7 @@ const NAV_ICONS = {
   home: Home,
   checkin: CheckCircle,
   members: Users,
+  cards: CreditCard,
   events: Calendar,
   registrations: FileText,
   reports: BarChart3,

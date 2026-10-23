@@ -1,8 +1,9 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { authService } from '@/services/auth.service';
+import { loginUrlWithReturn } from '@/lib/safe-return-path';
 
 export interface AuthUser {
   id: string;
@@ -52,6 +53,7 @@ function loadUserFromStorage(): AuthUser | null {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [user, setUserState] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -61,7 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!authService.isAuthenticated()) {
-      router.replace('/login');
+      router.replace(loginUrlWithReturn(pathname));
       setLoading(false);
       return;
     }
@@ -90,7 +92,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUserState(userData);
     }
     setLoading(false);
-  }, [router]);
+  }, [router, pathname]);
 
   const value: AuthContextValue = { user, loading, setUser };
 
