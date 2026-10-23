@@ -115,7 +115,10 @@ function AttendanceMonitoringContent() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState<'pdf' | 'xlsx' | null>(null);
 
-  const canAccess = !!user?.role && ADMIN_ROLES.includes(user.role);
+  const canAccess =
+    !!user?.role &&
+    ADMIN_ROLES.includes(user.role) &&
+    (user.role !== 'MINISTRY_COORDINATOR' || Boolean(user.ministry?.trim()));
   const coordinatorLocked = user?.role === 'MINISTRY_COORDINATOR';
   const ministries = useMemo(() => {
     const set = new Set(officialMinistries());

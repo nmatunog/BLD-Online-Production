@@ -19,6 +19,7 @@ import {
   needsFollowUp,
   resolveAttendanceMonitoringMinistry,
   sessionStatus,
+  wscEventsForMinistry,
   type SessionEventInput,
 } from './attendance-monitoring.helpers';
 import type { AttendanceMonitoringReport } from './attendance-monitoring.types';
@@ -76,8 +77,18 @@ export class AttendanceMonitoringService {
       this.prisma.event.findMany({
         where: {
           startDate: { gte: start, lte: end },
-          seriesCode: { in: [EventSeriesCode.CW, EventSeriesCode.WSC] },
           eventKind: { not: EventKind.SERIES },
+          ...(ministryFilter
+            ? {
+                OR: [
+                  { seriesCode: EventSeriesCode.CW },
+                  {
+                    seriesCode: EventSeriesCode.WSC,
+                    OR: [{ ministry: ministryFilter }, { ministry: null }],
+                  },
+                ],
+              }
+            : { seriesCode: { in: [EventSeriesCode.CW, EventSeriesCode.WSC] } }),
         },
         select: {
           id: true,
@@ -133,20 +144,22 @@ export class AttendanceMonitoringService {
     for (const m of members) {
       wscMinistries.add(m.ministry?.trim() || UNASSIGNED_MINISTRY);
     }
-    for (const e of periodWscAll) {
-      if (e.ministry) wscMinistries.add(e.ministry);
+    if (!ministryFilter) {
+      for (const e of periodWscAll) {
+        if (e.ministry) wscMinistries.add(e.ministry);
+      }
     }
 
     const wscByMinistrySlots: Record<string, ReturnType<typeof mapMonthWeekSlots>> = {};
-    const wscByMinistryEvents = new Map<string, SessionEventInput[]>();
     for (const ministryName of wscMinistries) {
       const key = ministryName === UNASSIGNED_MINISTRY ? null : ministryName;
-      const dedicated = periodWscAll.filter((e) => e.ministry === key);
-      const fallback = periodWscAll.filter((e) => !e.ministry);
-      const chosen = dedicated.length > 0 ? dedicated : fallback;
-      wscByMinistryEvents.set(ministryName, chosen);
-      wscByMinistrySlots[ministryName] = mapMonthWeekSlots(chosen);
+      wscByMinistrySlots[ministryName] = mapMonthWeekSlots(
+        wscEventsForMinistry(periodWscAll, key),
+      );
     }
+    const periodWscForSummary = ministryFilter
+      ? wscEventsForMinistry(periodWscAll, ministryFilter)
+      : periodWscAll;
 
     const nowParts = getManilaDateParts(generatedAt);
     const ytdThroughMonth = month ?? (nowParts.year === year ? nowParts.month : 12);
@@ -169,10 +182,9 @@ export class AttendanceMonitoringService {
         const wscSlots = wscByMinistrySlots[ministryName] ?? [];
         const ytdWscEvents = (() => {
           const key = ministryName === UNASSIGNED_MINISTRY ? null : ministryName;
-          const dedicated = allWsc.filter((e) => e.ministry === key);
-          const fallback = allWsc.filter((e) => !e.ministry);
-          const chosen = dedicated.length > 0 ? dedicated : fallback;
-          return chosen.filter((e) => getManilaDateParts(e.startDate).month <= ytdThroughMonth);
+          return wscEventsForMinistry(allWsc, key).filter(
+            (e) => getManilaDateParts(e.startDate).month <= ytdThroughMonth,
+          );
         })();
 
         const rows = groupMembers.map((member) => {
@@ -208,7 +220,7 @@ export class AttendanceMonitoringService {
     const allRows = groups.flatMap((g) => g.members);
     const uniqueHeldIds = new Set<string>();
     const uniqueCancelledIds = new Set<string>();
-    for (const e of [...periodCw, ...periodWscAll]) {
+    for (const e of [...periodCw, ...periodWscForSummary]) {
       const status = sessionStatus(e);
       if (status === 'held') uniqueHeldIds.add(e.id);
       if (status === 'cancelled') uniqueCancelledIds.add(e.id);
@@ -230,7 +242,7 @@ export class AttendanceMonitoringService {
         ytdAvgWscPct: averagePct(allRows.map((r) => r.ytdWsc.pct)),
         sessionsHeld: uniqueHeldIds.size,
         cwHeld: periodCw.filter(isSessionHeld).length,
-        wscHeld: periodWscAll.filter(isSessionHeld).length,
+        wscHeld: periodWscForSummary.filter(isSessionHeld).length,
         cancelled: uniqueCancelledIds.size,
       },
       weeks: {

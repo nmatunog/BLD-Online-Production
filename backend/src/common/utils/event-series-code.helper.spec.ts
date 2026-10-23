@@ -7,6 +7,7 @@ describe('inferSeriesCode', () => {
       EventSeriesCode.CW,
     );
     expect(inferSeriesCode({ title: 'Corporate Worship' })).toBe(EventSeriesCode.CW);
+    expect(inferSeriesCode({ title: 'CW', eventType: 'CW' })).toBe(EventSeriesCode.CW);
   });
 
   it('marks Word Sharing Circle as WSC without matching other titles', () => {

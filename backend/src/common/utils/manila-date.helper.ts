@@ -173,10 +173,9 @@ export function getManilaDateParts(d: Date): ManilaDateParts {
  * Inclusive UTC instants covering a Manila calendar year.
  */
 export function manilaYearBounds(year: number): { start: Date; end: Date } {
-  return {
-    start: buildManilaDateTime(year, 1, 1, 0, 0, 0),
-    end: buildManilaDateTime(year, 12, 31, 23, 59, 59),
-  };
+  const start = buildManilaDateTime(year, 1, 1, 0, 0, 0);
+  const nextStart = buildManilaDateTime(year + 1, 1, 1, 0, 0, 0);
+  return { start, end: new Date(nextStart.getTime() - 1) };
 }
 
 /**

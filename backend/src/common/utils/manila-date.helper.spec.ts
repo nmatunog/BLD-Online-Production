@@ -14,6 +14,7 @@ import {
   addDaysManila,
   getManilaDateParts,
   manilaMonthBounds,
+  manilaYearBounds,
 } from './manila-date.helper';
 
 describe('Manila Date Helpers', () => {
@@ -141,6 +142,17 @@ describe('Manila Date Helpers', () => {
       const { start, end } = manilaMonthBounds(2026, 10);
       expect(late.getTime()).toBeGreaterThanOrEqual(start.getTime());
       expect(late.getTime()).toBeLessThanOrEqual(end.getTime());
+    });
+
+    it('keeps Dec 31 23:30 Manila in that year and Jan 1 00:00 in the next', () => {
+      const lateYear = buildManilaDateTime(2026, 12, 31, 23, 30);
+      const newYear = buildManilaDateTime(2027, 1, 1, 0, 0);
+      const { start, end } = manilaYearBounds(2026);
+      expect(lateYear.getTime()).toBeGreaterThanOrEqual(start.getTime());
+      expect(lateYear.getTime()).toBeLessThanOrEqual(end.getTime());
+      expect(newYear.getTime()).toBeGreaterThan(end.getTime());
+      expect(getManilaDateParts(lateYear)).toEqual({ year: 2026, month: 12, day: 31 });
+      expect(getManilaDateParts(newYear)).toEqual({ year: 2027, month: 1, day: 1 });
     });
 
     it('should add multiple weeks correctly', () => {

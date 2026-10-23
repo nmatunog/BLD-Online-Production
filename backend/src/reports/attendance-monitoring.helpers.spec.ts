@@ -221,6 +221,12 @@ describe('attendance-monitoring helpers', () => {
         ministry: null,
         forbidden: false,
       });
+      expect(
+        resolveAttendanceMonitoringMinistry({ role: 'MINISTRY_COORDINATOR', ministry: '  ' }, undefined),
+      ).toEqual({ ministry: null, forbidden: true });
+      expect(
+        resolveAttendanceMonitoringMinistry({ role: 'MINISTRY_COORDINATOR' }, 'Music Ministry'),
+      ).toEqual({ ministry: null, forbidden: true });
     });
   });
 });

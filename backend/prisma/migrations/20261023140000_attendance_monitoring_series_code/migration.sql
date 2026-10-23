@@ -20,7 +20,10 @@ WHERE
   OR lower(coalesce("category", '')) LIKE '%corporate worship%'
   OR lower(coalesce("title", '')) LIKE '%community worship%'
   OR lower(coalesce("title", '')) LIKE '%corporate worship%'
-  OR lower(coalesce("eventType", '')) IN ('community worship', 'corporate worship', 'corporate_worship');
+  OR lower(coalesce("eventType", '')) IN ('community worship', 'corporate worship', 'corporate_worship')
+  OR lower(coalesce("category", '')) ~ '(^|[^a-z])cw([^a-z]|$)'
+  OR lower(coalesce("title", '')) ~ '(^|[^a-z])cw([^a-z]|$)'
+  OR lower(coalesce("eventType", '')) ~ '(^|[^a-z])cw([^a-z]|$)';
 
 -- Backfill WSC from category, title, or eventType (do not overwrite CW)
 UPDATE "Event"

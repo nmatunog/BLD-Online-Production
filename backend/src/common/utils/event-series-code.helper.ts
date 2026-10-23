@@ -16,7 +16,11 @@ export function inferSeriesCode(input: {
     .toLowerCase()
     .replace(/_/g, ' ');
 
-  if (blob.includes('community worship') || blob.includes('corporate worship')) {
+  if (
+    blob.includes('community worship') ||
+    blob.includes('corporate worship') ||
+    /(^|[^a-z])cw([^a-z]|$)/.test(blob)
+  ) {
     return EventSeriesCode.CW;
   }
 

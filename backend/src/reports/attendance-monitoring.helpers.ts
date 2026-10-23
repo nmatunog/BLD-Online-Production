@@ -194,7 +194,12 @@ export function resolveAttendanceMonitoringMinistry(
     return { ministry: null, forbidden: true };
   }
   if (user.role === 'MINISTRY_COORDINATOR') {
-    return { ministry: user.ministry?.trim() || null, forbidden: false };
+    const ministry = user.ministry?.trim() || null;
+    // Fail closed: a coordinator without a ministry must not see all ministries.
+    if (!ministry) {
+      return { ministry: null, forbidden: true };
+    }
+    return { ministry, forbidden: false };
   }
   const trimmed = requestedMinistry?.trim();
   return { ministry: trimmed || null, forbidden: false };
