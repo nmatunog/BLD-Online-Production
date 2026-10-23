@@ -137,6 +137,8 @@ model Member {
   numberOfChildren Int?
   children        Json?    // Array of { name, gender, dateOfBirth }
   dateOfEncounter String?
+  /// Community-level attendance start (Manila day). Null = compute from first check-in, then createdAt.
+  attendanceStartDate DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -145,10 +147,28 @@ model Member {
   registrations   EventRegistration[]
   claimedCandidates EventCandidate[]
   tempCredentials TempCredentialLog[]
+  ministryHistory MemberMinistryHistory[]
 
   @@index([communityId])
   @@index([city])
   @@index([encounterType])
+}
+
+/// Ministry assignment ranges for WSC scoring. endDate null = current assignment.
+/// No backfill: members without rows use implicit current-ministry start = community attendance start.
+model MemberMinistryHistory {
+  id        String    @id @default(uuid())
+  memberId  String
+  ministry  String
+  startDate DateTime
+  endDate   DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  member    Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId, startDate])
+  @@index([ministry, startDate])
 }
 
 model CommunityIdCounter {

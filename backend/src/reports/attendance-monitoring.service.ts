@@ -2,13 +2,15 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 import { EventKind, EventSeriesCode } from '@prisma/client';
 import ExcelJS from 'exceljs';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { getManilaDateParts, manilaYearBounds } from '../common/utils/manila-date.helper';
+import { getManilaDateParts, manilaYearBounds, toManilaDateString } from '../common/utils/manila-date.helper';
 import {
   UNASSIGNED_MINISTRY,
   averagePct,
   compareMinistries,
   countAttendedHeld,
   countAttendedHeldFromEvents,
+  countWscWithCarryover,
+  countYtdWscAcrossMinistries,
   eventsInManilaMonth,
   formatMemberReportName,
   isCwEvent,
@@ -16,10 +18,16 @@ import {
   isSessionHeld,
   isWscEvent,
   mapMonthWeekSlots,
+  memberMinistryNote,
+  ministryAtPeriodEnd,
   needsFollowUp,
+  reportPeriodDateBounds,
   resolveAttendanceMonitoringMinistry,
+  resolveCommunityStartDate,
+  resolveMinistryRanges,
   sessionStatus,
   wscEventsForMinistry,
+  type MemberEligibility,
   type SessionEventInput,
 } from './attendance-monitoring.helpers';
 import type { AttendanceMonitoringReport } from './attendance-monitoring.types';
@@ -59,11 +67,12 @@ export class AttendanceMonitoringService {
     const { start, end } = manilaYearBounds(year);
     const generatedAt = new Date();
 
+    const periodBounds = reportPeriodDateBounds(year, month, generatedAt);
+
     const [members, events] = await Promise.all([
       this.prisma.member.findMany({
         where: {
           user: { isActive: true },
-          ...(ministryFilter ? { ministry: ministryFilter } : {}),
         },
         select: {
           id: true,
@@ -71,6 +80,8 @@ export class AttendanceMonitoringService {
           lastName: true,
           middleName: true,
           ministry: true,
+          attendanceStartDate: true,
+          createdAt: true,
         },
         orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
       }),
@@ -78,17 +89,7 @@ export class AttendanceMonitoringService {
         where: {
           startDate: { gte: start, lte: end },
           eventKind: { not: EventKind.SERIES },
-          ...(ministryFilter
-            ? {
-                OR: [
-                  { seriesCode: EventSeriesCode.CW },
-                  {
-                    seriesCode: EventSeriesCode.WSC,
-                    OR: [{ ministry: ministryFilter }, { ministry: null }],
-                  },
-                ],
-              }
-            : { seriesCode: { in: [EventSeriesCode.CW, EventSeriesCode.WSC] } }),
+          seriesCode: { in: [EventSeriesCode.CW, EventSeriesCode.WSC] },
         },
         select: {
           id: true,
@@ -103,13 +104,30 @@ export class AttendanceMonitoringService {
       }),
     ]);
 
+    const memberIds = members.map((m) => m.id);
     const eventIds = events.map((e) => e.id);
-    const attendanceRows = eventIds.length
-      ? await this.prisma.attendance.findMany({
-          where: { eventId: { in: eventIds } },
-          select: { memberId: true, eventId: true },
-        })
-      : [];
+    const [attendanceRows, earliestCheckIns, historyRows] = await Promise.all([
+      eventIds.length
+        ? this.prisma.attendance.findMany({
+            where: { eventId: { in: eventIds } },
+            select: { memberId: true, eventId: true },
+          })
+        : Promise.resolve([]),
+      memberIds.length
+        ? this.prisma.attendance.groupBy({
+            by: ['memberId'],
+            where: { memberId: { in: memberIds } },
+            _min: { checkInTime: true },
+          })
+        : Promise.resolve([]),
+      memberIds.length
+        ? this.prisma.memberMinistryHistory.findMany({
+            where: { memberId: { in: memberIds } },
+            select: { memberId: true, ministry: true, startDate: true, endDate: true },
+            orderBy: { startDate: 'asc' },
+          })
+        : Promise.resolve([]),
+    ]);
 
     const attendedByMember = new Map<string, Set<string>>();
     for (const row of attendanceRows) {
@@ -120,6 +138,47 @@ export class AttendanceMonitoringService {
       }
       set.add(row.eventId);
     }
+
+    const earliestByMember = new Map<string, Date>();
+    for (const row of earliestCheckIns) {
+      if (row._min.checkInTime) {
+        earliestByMember.set(row.memberId, row._min.checkInTime);
+      }
+    }
+
+    const historyByMember = new Map<string, typeof historyRows>();
+    for (const row of historyRows) {
+      const list = historyByMember.get(row.memberId) ?? [];
+      list.push(row);
+      historyByMember.set(row.memberId, list);
+    }
+
+    const eligibilityByMember = new Map<string, MemberEligibility>();
+    for (const member of members) {
+      const communityStart = resolveCommunityStartDate({
+        attendanceStartDate: member.attendanceStartDate,
+        earliestCheckIn: earliestByMember.get(member.id) ?? null,
+        createdAt: member.createdAt,
+      });
+      eligibilityByMember.set(member.id, {
+        communityStart,
+        ranges: resolveMinistryRanges({
+          currentMinistry: member.ministry,
+          history: historyByMember.get(member.id) ?? [],
+          communityStart,
+        }),
+      });
+    }
+
+    const scopedMembers = members.filter((member) => {
+      const eligibility = eligibilityByMember.get(member.id);
+      const current = ministryAtPeriodEnd(
+        eligibility?.ranges ?? [],
+        periodBounds.end,
+        member.ministry,
+      );
+      return ministryFilter ? current === ministryFilter : true;
+    });
 
     const sessions: SessionEventInput[] = events.map((e) => ({
       id: e.id,
@@ -141,8 +200,20 @@ export class AttendanceMonitoringService {
     const cwWeekSlots = mapMonthWeekSlots(periodCw);
 
     const wscMinistries = new Set<string>();
-    for (const m of members) {
-      wscMinistries.add(m.ministry?.trim() || UNASSIGNED_MINISTRY);
+    if (ministryFilter) {
+      wscMinistries.add(ministryFilter);
+    }
+    for (const m of scopedMembers) {
+      const eligibility = eligibilityByMember.get(m.id);
+      const current = ministryAtPeriodEnd(
+        eligibility?.ranges ?? [],
+        periodBounds.end,
+        m.ministry,
+      );
+      wscMinistries.add(current);
+      for (const range of eligibility?.ranges ?? []) {
+        wscMinistries.add(range.ministry);
+      }
     }
     if (!ministryFilter) {
       for (const e of periodWscAll) {
@@ -168,37 +239,70 @@ export class AttendanceMonitoringService {
       return parts.month <= ytdThroughMonth;
     });
 
-    const groupsMap = new Map<string, typeof members>();
-    for (const member of members) {
-      const key = member.ministry?.trim() || UNASSIGNED_MINISTRY;
+    const groupsMap = new Map<string, typeof scopedMembers>();
+    for (const member of scopedMembers) {
+      const eligibility = eligibilityByMember.get(member.id);
+      const key = ministryAtPeriodEnd(
+        eligibility?.ranges ?? [],
+        periodBounds.end,
+        member.ministry,
+      );
       const list = groupsMap.get(key) ?? [];
       list.push(member);
       groupsMap.set(key, list);
     }
 
+    const periodWscForMemberPct = month ? periodWscAll : allWsc.filter((e) => {
+      return getManilaDateParts(e.startDate).month <= ytdThroughMonth;
+    });
+    const ytdWscEvents = allWsc.filter((e) => getManilaDateParts(e.startDate).month <= ytdThroughMonth);
+
     const groups = [...groupsMap.entries()]
       .sort(([a], [b]) => compareMinistries(a, b))
       .map(([ministryName, groupMembers]) => {
         const wscSlots = wscByMinistrySlots[ministryName] ?? [];
-        const ytdWscEvents = (() => {
-          const key = ministryName === UNASSIGNED_MINISTRY ? null : ministryName;
-          return wscEventsForMinistry(allWsc, key).filter(
-            (e) => getManilaDateParts(e.startDate).month <= ytdThroughMonth,
-          );
-        })();
+        const ytdCwEvents = ytdCw;
 
         const rows = groupMembers.map((member) => {
           const attended = attendedByMember.get(member.id) ?? new Set<string>();
-          const cw = countAttendedHeld(cwWeekSlots, attended);
-          const wsc = countAttendedHeld(wscSlots, attended);
-          const ytdCwStats = countAttendedHeldFromEvents(ytdCw, attended);
-          const ytdWscStats = countAttendedHeldFromEvents(ytdWscEvents, attended);
+          const eligibility = eligibilityByMember.get(member.id) ?? {
+            communityStart: toManilaDateString(member.createdAt),
+            ranges: [],
+          };
+          const note = memberMinistryNote(eligibility.ranges, ministryName, periodBounds.start);
+          const cw = countAttendedHeld(cwWeekSlots, attended, {
+            communityStart: eligibility.communityStart,
+          });
+          const wsc = countWscWithCarryover(
+            wscSlots,
+            wscByMinistrySlots,
+            attended,
+            eligibility.ranges,
+            ministryName,
+            eligibility.communityStart,
+            periodWscForMemberPct,
+          );
+          const ytdCwStats = countAttendedHeldFromEvents(ytdCwEvents, attended, {
+            communityStart: eligibility.communityStart,
+          });
+          const ytdWscStats = countYtdWscAcrossMinistries(
+            ytdWscEvents,
+            attended,
+            eligibility.ranges,
+            eligibility.communityStart,
+          );
           return {
             id: member.id,
             name: formatMemberReportName(member),
             firstName: member.firstName,
             lastName: member.lastName,
             ministry: member.ministry,
+            attendanceStartDate: member.attendanceStartDate
+              ? toManilaDateString(member.attendanceStartDate)
+              : null,
+            effectiveCommunityStart: eligibility.communityStart,
+            joinedMinistryOn: note.joinedMinistryOn,
+            ministryNote: note.ministryNote,
             cw,
             wsc,
             ytdCw: ytdCwStats,
@@ -247,7 +351,9 @@ export class AttendanceMonitoringService {
       },
       weeks: {
         cw: cwWeekSlots,
-        wscByMinistry: wscByMinistrySlots,
+        wscByMinistry: Object.fromEntries(
+          groups.map((group) => [group.ministry, wscByMinistrySlots[group.ministry] ?? []]),
+        ),
       },
       groups,
     };
@@ -286,11 +392,15 @@ export class AttendanceMonitoringService {
   }
 
   private formatPct(pct: number | null): string {
-    return pct == null ? 'n/a' : `${pct}%`;
+    return pct == null ? '—' : `${pct}%`;
   }
 
   private formatAttHeld(attended: number, held: number): string {
-    return held === 0 ? 'n/a' : `${attended}/${held}`;
+    return held === 0 ? '—' : `${attended}/${held}`;
+  }
+
+  private memberExportName(member: { name: string; ministryNote: string | null }): string {
+    return member.ministryNote ? `${member.name} (${member.ministryNote})` : member.name;
   }
 
   private toCsv(report: AttendanceMonitoringReport): string {
@@ -310,7 +420,7 @@ export class AttendanceMonitoringService {
       for (const member of group.members) {
         lines.push(
           [
-            csvCell(member.name),
+            csvCell(this.memberExportName(member)),
             csvCell(group.ministry),
             csvCell(this.formatAttHeld(member.cw.attended, member.cw.held)),
             csvCell(this.formatPct(member.cw.pct)),
@@ -387,7 +497,7 @@ export class AttendanceMonitoringService {
     for (const group of report.groups) {
       for (const member of group.members) {
         const row = sheet.addRow([
-          member.name,
+          this.memberExportName(member),
           group.ministry,
           this.formatAttHeld(member.cw.attended, member.cw.held),
           this.formatPct(member.cw.pct),
@@ -425,7 +535,7 @@ export class AttendanceMonitoringService {
 
     sheet.addRow([]);
     sheet.addRow([
-      'Legend: % = attended ÷ sessions held; cancelled sessions are excluded. YTD = January to date. Orange = below 50% (follow-up suggested).',
+      'Legend: % = attended ÷ sessions held after the community attendance start. Attendance follows the member to their current ministry. WSC denominator on each date = held WSC of the ministry they belonged to that day. YTD WSC % uses the same rule across the year. Sessions before the community start are not counted (— if none eligible). Orange = below 50% (follow-up suggested).',
     ]);
     sheet.mergeCells(`A${sheet.lastRow!.number}:H${sheet.lastRow!.number}`);
 

@@ -5,6 +5,8 @@ export interface AttendanceBlock {
   held: number;
   pct: number | null;
   weeks: WeekMark[];
+  /** Previous ministry name when that week was scored against a prior assignment. */
+  weekMinistries?: Array<string | null>;
 }
 
 export interface YtdBlock {
@@ -19,6 +21,10 @@ export interface AttendanceMonitoringMemberRow {
   firstName: string;
   lastName: string;
   ministry: string | null;
+  attendanceStartDate: string | null;
+  effectiveCommunityStart: string;
+  joinedMinistryOn: string | null;
+  ministryNote: string | null;
   cw: AttendanceBlock;
   wsc: AttendanceBlock;
   ytdCw: YtdBlock;

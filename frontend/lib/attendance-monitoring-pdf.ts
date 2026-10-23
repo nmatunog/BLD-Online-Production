@@ -17,7 +17,7 @@ function addFooter(doc: jsPDF, page: number, total: number, period: string) {
   doc.setTextColor(...SLATE);
   doc.setFont('helvetica', 'normal');
   doc.text(
-    '% = attended ÷ sessions held; cancelled sessions are excluded. YTD = January to date. Orange = below 50% (follow-up suggested).',
+    '% = attended ÷ held after community start. Attendance follows the member. WSC each date uses the ministry they belonged to that day. YTD WSC same rule. — = no eligible sessions. Orange = below 50%.',
     MARGIN,
     y - 4,
     { maxWidth: PAGE_WIDTH - MARGIN * 2 },
@@ -48,7 +48,7 @@ export function downloadAttendanceMonitoringPdf(report: AttendanceMonitoringRepo
         lowCw: member.cw.pct != null && member.cw.pct < 50,
         lowWsc: member.wsc.pct != null && member.wsc.pct < 50,
         cells: [
-          member.name,
+          member.ministryNote ? `${member.name} (${member.ministryNote})` : member.name,
           group.ministry,
           formatAttendedHeld(member.cw.attended, member.cw.held),
           formatPct(member.cw.pct),

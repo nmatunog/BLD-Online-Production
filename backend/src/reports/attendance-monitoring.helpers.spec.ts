@@ -5,12 +5,18 @@ import {
   averagePct,
   countAttendedHeld,
   countAttendedHeldFromEvents,
+  countWscWithCarryover,
+  countYtdWscAcrossMinistries,
   eventsInManilaMonth,
   formatMemberReportName,
   isSessionHeld,
   mapMonthWeekSlots,
+  memberMinistryNote,
+  ministryAtPeriodEnd,
   needsFollowUp,
   resolveAttendanceMonitoringMinistry,
+  resolveCommunityStartDate,
+  resolveMinistryRanges,
   sessionStatus,
   weekMarkForMember,
   wscEventsForMinistry,
@@ -183,6 +189,191 @@ describe('attendance-monitoring helpers', () => {
         status: 'not_held' as const,
       };
       expect(weekMarkForMember(slot, new Set())).toBe('n/a');
+    });
+  });
+
+  describe('community and ministry eligibility', () => {
+    const oct6 = {
+      week: 1,
+      date: '2026-10-06',
+      eventId: 'cw-1',
+      status: 'held' as const,
+    };
+    const oct13 = {
+      week: 2,
+      date: '2026-10-13',
+      eventId: 'cw-2',
+      status: 'held' as const,
+    };
+
+    it('uses attendanceStartDate, then earliest check-in, then createdAt', () => {
+      expect(
+        resolveCommunityStartDate({
+          attendanceStartDate: buildManilaDateTime(2026, 6, 2, 0, 0),
+          earliestCheckIn: buildManilaDateTime(2025, 3, 4, 19, 0),
+          createdAt: buildManilaDateTime(2024, 1, 1, 8, 0),
+        }),
+      ).toBe('2026-06-02');
+      expect(
+        resolveCommunityStartDate({
+          attendanceStartDate: null,
+          earliestCheckIn: buildManilaDateTime(2026, 3, 3, 23, 30),
+          createdAt: buildManilaDateTime(2026, 1, 6, 8, 0),
+        }),
+      ).toBe('2026-03-03');
+      expect(
+        resolveCommunityStartDate({
+          attendanceStartDate: null,
+          earliestCheckIn: null,
+          createdAt: buildManilaDateTime(2026, 8, 1, 8, 0),
+        }),
+      ).toBe('2026-08-01');
+    });
+
+    it('uses implicit current-ministry start = community start when history is empty', () => {
+      expect(
+        resolveMinistryRanges({
+          currentMinistry: 'Music Ministry',
+          history: [],
+          communityStart: '2026-06-02',
+        }),
+      ).toEqual([{ ministry: 'Music Ministry', startDate: '2026-06-02', endDate: null }]);
+    });
+
+    it('marks sessions before the community start as not yet a member, not absent', () => {
+      expect(weekMarkForMember(oct6, new Set(), { communityStart: '2026-10-13' })).toBe(
+        'not_yet_member',
+      );
+      const stats = countAttendedHeld([oct6, oct13], new Set(), { communityStart: '2026-10-13' });
+      expect(stats.weeks).toEqual(['not_yet_member', 'absent']);
+      expect(stats.held).toBe(1);
+      expect(stats.attended).toBe(0);
+      expect(stats.pct).toBe(0);
+    });
+
+    it('includes the session on the community start date', () => {
+      const stats = countAttendedHeld([oct6, oct13], new Set(['cw-1']), {
+        communityStart: '2026-10-06',
+      });
+      expect(stats.weeks[0]).toBe('attended');
+      expect(stats.held).toBe(2);
+    });
+
+    it('carries prior-ministry WSC weeks as normal attended/absent with a tooltip ministry', () => {
+      const ranges = [
+        { ministry: 'Music Ministry', startDate: '2026-01-06', endDate: '2026-10-06' },
+        { ministry: 'Praise Ministry', startDate: '2026-10-07', endDate: null },
+      ];
+      const praiseSlots = [
+        { week: 1, date: '2026-10-06', eventId: 'wsc-praise-1', status: 'held' as const },
+        { week: 2, date: '2026-10-13', eventId: 'wsc-praise-2', status: 'held' as const },
+      ];
+      const musicSlots = [
+        { week: 1, date: '2026-10-05', eventId: 'wsc-music-1', status: 'held' as const },
+        { week: 2, date: '2026-10-12', eventId: 'wsc-music-2', status: 'held' as const },
+      ];
+      const periodEvents: SessionEventInput[] = [
+        session({
+          id: 'wsc-music-1',
+          startDate: buildManilaDateTime(2026, 10, 5, 19, 0),
+          seriesCode: EventSeriesCode.WSC,
+          ministry: 'Music Ministry',
+        }),
+        session({
+          id: 'wsc-praise-2',
+          startDate: buildManilaDateTime(2026, 10, 13, 19, 0),
+          seriesCode: EventSeriesCode.WSC,
+          ministry: 'Praise Ministry',
+        }),
+      ];
+      const stats = countWscWithCarryover(
+        praiseSlots,
+        { 'Praise Ministry': praiseSlots, 'Music Ministry': musicSlots },
+        new Set(['wsc-music-1']),
+        ranges,
+        'Praise Ministry',
+        '2026-01-06',
+        periodEvents,
+      );
+      expect(stats.weeks).toEqual(['attended', 'absent']);
+      expect(stats.weekMinistries).toEqual(['Music Ministry', null]);
+      expect(stats.held).toBe(2);
+      expect(stats.attended).toBe(1);
+      expect(stats.pct).toBe(50);
+    });
+
+    it('counts YTD WSC across ministries the member belonged to on each session date', () => {
+      const ranges = [
+        { ministry: 'Music Ministry', startDate: '2026-01-06', endDate: '2026-06-01' },
+        { ministry: 'Praise Ministry', startDate: '2026-06-02', endDate: null },
+      ];
+      const events: SessionEventInput[] = [
+        session({
+          id: 'wsc-music',
+          startDate: buildManilaDateTime(2026, 3, 4, 19, 0),
+          seriesCode: EventSeriesCode.WSC,
+          ministry: 'Music Ministry',
+        }),
+        session({
+          id: 'wsc-praise-before',
+          startDate: buildManilaDateTime(2026, 3, 11, 19, 0),
+          seriesCode: EventSeriesCode.WSC,
+          ministry: 'Praise Ministry',
+        }),
+        session({
+          id: 'wsc-praise-after',
+          startDate: buildManilaDateTime(2026, 6, 3, 19, 0),
+          seriesCode: EventSeriesCode.WSC,
+          ministry: 'Praise Ministry',
+        }),
+      ];
+      const stats = countYtdWscAcrossMinistries(
+        events,
+        new Set(['wsc-music', 'wsc-praise-after']),
+        ranges,
+      );
+      expect(stats.held).toBe(2);
+      expect(stats.attended).toBe(2);
+      expect(stats.pct).toBe(100);
+    });
+
+    it('shows em-dash percent and no follow-up when the member has zero eligible sessions', () => {
+      const stats = countAttendedHeld([oct6], new Set(), { communityStart: '2026-10-20' });
+      expect(stats.held).toBe(0);
+      expect(stats.pct).toBeNull();
+      expect(needsFollowUp(stats.pct, null)).toBe(false);
+    });
+
+    it('does not treat an imported first check-in as a ministry transfer start', () => {
+      const communityStart = resolveCommunityStartDate({
+        attendanceStartDate: null,
+        earliestCheckIn: buildManilaDateTime(2025, 2, 4, 19, 0),
+        createdAt: buildManilaDateTime(2026, 9, 1, 8, 0),
+      });
+      expect(communityStart).toBe('2025-02-04');
+      const ranges = resolveMinistryRanges({
+        currentMinistry: 'Praise Ministry',
+        history: [
+          { ministry: 'Music Ministry', startDate: '2025-02-04', endDate: '2026-06-01' },
+          { ministry: 'Praise Ministry', startDate: '2026-06-02', endDate: null },
+        ],
+        communityStart,
+      });
+      expect(ranges[1].startDate).toBe('2026-06-02');
+      expect(ranges[0].startDate).toBe('2025-02-04');
+    });
+
+    it('notes a transfer under the current ministry and overlap for the old ministry', () => {
+      const ranges = [
+        { ministry: 'Music Ministry', startDate: '2026-01-06', endDate: '2026-10-14' },
+        { ministry: 'Praise Ministry', startDate: '2026-10-15', endDate: null },
+      ];
+      expect(memberMinistryNote(ranges, 'Praise Ministry', '2026-10-01')).toEqual({
+        joinedMinistryOn: '2026-10-15',
+        ministryNote: 'Joined Praise Ministry on October 15, 2026',
+      });
+      expect(ministryAtPeriodEnd(ranges, '2026-10-31', 'Praise Ministry')).toBe('Praise Ministry');
+      expect(ministryAtPeriodEnd(ranges, '2026-10-14', 'Music Ministry')).toBe('Music Ministry');
     });
   });
 

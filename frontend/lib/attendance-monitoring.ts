@@ -25,11 +25,29 @@ export function manilaTodayParts(): { year: number; month: number; day: number }
 }
 
 export function formatPct(pct: number | null): string {
-  return pct == null ? 'n/a' : `${pct}%`;
+  return pct == null ? '—' : `${pct}%`;
 }
 
 export function formatAttendedHeld(attended: number, held: number): string {
-  return held === 0 ? 'n/a' : `${attended}/${held}`;
+  return held === 0 ? '—' : `${attended}/${held}`;
+}
+
+/** YYYY-MM-DD in Asia/Manila for date inputs. */
+export function toManilaDateInput(value?: string | Date | null): string {
+  if (!value) return '';
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+
+export function manilaTodayDateInput(): string {
+  return toManilaDateInput(new Date());
 }
 
 export function periodLabel(year: number, month: number | null): string {

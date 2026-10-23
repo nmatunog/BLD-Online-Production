@@ -26,6 +26,13 @@ import {
   ID_PHOTO_TOO_SMALL_MESSAGE,
 } from '../common/utils/id-photo-normalize';
 import { prepareStoredIdPhotoResult, warmupIdPhotoWhiteBg } from '../common/utils/id-photo-white-bg';
+import {
+  manilaTodayDateString,
+  parseManilaDateInput,
+  toManilaDateString,
+} from '../common/utils/manila-date.helper';
+import { planMinistryHistorySync } from './member-ministry-history.helpers';
+import { resolveCommunityStartDate } from '../reports/attendance-monitoring.helpers';
 
 /** Inputs that map to Cebu (Community ID starts with CEB) */
 const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
@@ -282,6 +289,9 @@ export class MembersService implements OnModuleInit {
               ministry: true,
             },
           },
+          ministryHistory: {
+            orderBy: { startDate: 'asc' },
+          },
         },
         orderBy: orderBy,
         skip,
@@ -313,6 +323,9 @@ export class MembersService implements OnModuleInit {
             role: true,
             isActive: true,
           },
+        },
+        ministryHistory: {
+          orderBy: { startDate: 'asc' },
         },
         attendances: {
           take: 10,
@@ -482,7 +495,7 @@ export class MembersService implements OnModuleInit {
   async update(
     id: string,
     updateMemberDto: UpdateMemberDto,
-    options?: { allowCommunityId?: boolean },
+    options?: { allowCommunityId?: boolean; allowAttendanceAdminFields?: boolean },
   ) {
     const member = await this.findOne(id); // Verify member exists
 
@@ -605,6 +618,20 @@ export class MembersService implements OnModuleInit {
     if (updateMemberDto.dateOfEncounter !== undefined) {
       updateData.dateOfEncounter = updateMemberDto.dateOfEncounter ? String(updateMemberDto.dateOfEncounter).trim() || null : null;
     }
+    if (options?.allowAttendanceAdminFields && updateMemberDto.attendanceStartDate !== undefined) {
+      const raw = updateMemberDto.attendanceStartDate
+        ? String(updateMemberDto.attendanceStartDate).trim()
+        : '';
+      if (!raw) {
+        updateData.attendanceStartDate = null;
+      } else {
+        const parsed = parseManilaDateInput(raw);
+        if (!parsed) {
+          throw new BadRequestException('Attendance start date must be YYYY-MM-DD.');
+        }
+        updateData.attendanceStartDate = parsed;
+      }
+    }
 
     // Update user fields (email and phone); normalize email to lowercase for consistent uniqueness
     if (updateMemberDto.email !== undefined) {
@@ -660,23 +687,92 @@ export class MembersService implements OnModuleInit {
           });
         }
 
-        // Update member
-        return tx.member.update({
+        const userInclude = {
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            role: true,
+            isActive: true,
+            shepherdEncounterType: true,
+            shepherdClassNumber: true,
+            ministry: true,
+          },
+        };
+
+        const updated = await tx.member.update({
           where: { id },
           data: updateData,
-          include: {
-            user: {
-              select: {
-                id: true,
-                email: true,
-                phone: true,
-                role: true,
-                isActive: true,
-                shepherdEncounterType: true,
-                shepherdClassNumber: true,
-                ministry: true,
-              },
+          include: { user: userInclude },
+        });
+
+        const nextMinistry =
+          updateMemberDto.ministry !== undefined
+            ? (ministry ?? (updateMemberDto.ministry || null))
+            : member.ministry;
+        const adminStart =
+          options?.allowAttendanceAdminFields && updateMemberDto.ministryStartDate
+            ? String(updateMemberDto.ministryStartDate).trim()
+            : '';
+        const earliest = await tx.attendance.findFirst({
+          where: { memberId: id },
+          orderBy: { checkInTime: 'asc' },
+          select: { checkInTime: true },
+        });
+        const communityStart = resolveCommunityStartDate({
+          attendanceStartDate: updated.attendanceStartDate,
+          earliestCheckIn: earliest?.checkInTime ?? null,
+          createdAt: updated.createdAt,
+        });
+        const existingHistory = await tx.memberMinistryHistory.findMany({
+          where: { memberId: id },
+          orderBy: { startDate: 'asc' },
+        });
+        const plan = planMinistryHistorySync({
+          existing: existingHistory.map((row) => ({
+            id: row.id,
+            ministry: row.ministry,
+            startDate: toManilaDateString(row.startDate),
+            endDate: row.endDate ? toManilaDateString(row.endDate) : null,
+          })),
+          previousMinistry: member.ministry,
+          nextMinistry,
+          requestedStart: adminStart || null,
+          communityStart,
+          today: manilaTodayDateString(),
+        });
+        for (const row of plan.update) {
+          await tx.memberMinistryHistory.update({
+            where: { id: row.id },
+            data: {
+              ...(row.ministry ? { ministry: row.ministry } : {}),
+              ...(row.startDate ? { startDate: parseManilaDateInput(row.startDate) } : {}),
+              ...(row.endDate !== undefined
+                ? { endDate: row.endDate ? parseManilaDateInput(row.endDate) : null }
+                : {}),
             },
+          });
+        }
+        for (const row of plan.create) {
+          const startDate = parseManilaDateInput(row.startDate);
+          if (!startDate) {
+            throw new BadRequestException('Ministry start date must be YYYY-MM-DD.');
+          }
+          await tx.memberMinistryHistory.create({
+            data: {
+              memberId: id,
+              ministry: row.ministry,
+              startDate,
+              endDate: row.endDate ? parseManilaDateInput(row.endDate) : null,
+            },
+          });
+        }
+
+        return tx.member.findUniqueOrThrow({
+          where: { id },
+          include: {
+            user: userInclude,
+            ministryHistory: { orderBy: { startDate: 'asc' } },
           },
         });
       });

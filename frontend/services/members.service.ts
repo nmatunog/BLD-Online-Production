@@ -94,6 +94,13 @@ export interface Member {
   numberOfChildren?: number | null;
   children?: Array<{ name?: string; gender?: string; dateOfBirth?: string }> | null;
   dateOfEncounter?: string | null;
+  attendanceStartDate?: string | null;
+  ministryHistory?: Array<{
+    id: string;
+    ministry: string;
+    startDate: string;
+    endDate: string | null;
+  }>;
   createdAt: string;
   updatedAt: string;
   user: {
@@ -174,6 +181,8 @@ export interface UpdateMemberRequest {
   numberOfChildren?: number;
   children?: Array<{ name?: string; gender?: string; dateOfBirth?: string }>;
   dateOfEncounter?: string;
+  attendanceStartDate?: string | null;
+  ministryStartDate?: string | null;
 }
 
 class MembersService {

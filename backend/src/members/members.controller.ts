@@ -242,6 +242,8 @@ export class MembersController {
       });
       const member = await this.membersService.findMe(user.id);
       const allowCommunityId = user.role === UserRole.SUPER_USER;
+      delete updateMemberDto.attendanceStartDate;
+      delete updateMemberDto.ministryStartDate;
       const updatedMember = await this.membersService.update(member.id, updateMemberDto, { allowCommunityId });
       return {
         success: true,
@@ -417,7 +419,10 @@ export class MembersController {
       data: undefined,
     });
     const allowCommunityId = user.role === UserRole.SUPER_USER;
-    const updatedMember = await this.membersService.update(id, updateMemberDto, { allowCommunityId });
+    const updatedMember = await this.membersService.update(id, updateMemberDto, {
+      allowCommunityId,
+      allowAttendanceAdminFields: true,
+    });
     return {
       success: true,
       data: updatedMember,
