@@ -742,15 +742,18 @@ export class MembersService implements OnModuleInit {
           today: manilaTodayDateString(),
         });
         for (const row of plan.update) {
+          const data: { ministry?: string; startDate?: Date; endDate?: Date | null } = {};
+          if (row.ministry) data.ministry = row.ministry;
+          if (row.startDate) {
+            const startDate = parseManilaDateInput(row.startDate);
+            if (startDate) data.startDate = startDate;
+          }
+          if (row.endDate !== undefined) {
+            data.endDate = row.endDate ? parseManilaDateInput(row.endDate) : null;
+          }
           await tx.memberMinistryHistory.update({
             where: { id: row.id },
-            data: {
-              ...(row.ministry ? { ministry: row.ministry } : {}),
-              ...(row.startDate ? { startDate: parseManilaDateInput(row.startDate) } : {}),
-              ...(row.endDate !== undefined
-                ? { endDate: row.endDate ? parseManilaDateInput(row.endDate) : null }
-                : {}),
-            },
+            data,
           });
         }
         for (const row of plan.create) {

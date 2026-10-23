@@ -240,7 +240,10 @@ describe('AttendanceMonitoringService start date and transfers', () => {
         },
       ],
       events: [cwJan, cwOct, wscMusicOct],
-      attendance: [{ memberId: 'm-new', eventId: 'cw-oct', checkInTime: buildManilaDateTime(2026, 10, 6, 19, 0) }],
+      attendance: [
+        { memberId: 'm-new', eventId: 'cw-oct', checkInTime: buildManilaDateTime(2026, 10, 6, 19, 0) },
+        { memberId: 'm-new', eventId: 'wsc-music-oct', checkInTime: buildManilaDateTime(2026, 10, 5, 19, 0) },
+      ],
     });
     const service = new AttendanceMonitoringService(prisma as never);
     const report = await service.getReport(
