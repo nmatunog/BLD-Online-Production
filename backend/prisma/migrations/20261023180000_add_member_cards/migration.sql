@@ -1,4 +1,6 @@
 -- Additive MemberCard table for NFC ID verification.
+-- Timestamp 20261023180000 so this applies AFTER
+-- 20261023160000_attendance_start_and_ministry_history (#59).
 -- Safe for `prisma migrate deploy` on Railway (create-only; no destructive changes).
 
 -- CreateEnum

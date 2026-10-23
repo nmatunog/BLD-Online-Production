@@ -53,7 +53,8 @@ describe('MemberCardsService', () => {
   let service: MemberCardsService;
 
   beforeEach(() => {
-    process.env.JWT_SECRET = SECRET;
+    process.env.MEMBER_CARD_TOKEN_SECRET = SECRET;
+    process.env.JWT_SECRET = 'unrelated-jwt-secret';
     jest.resetAllMocks();
     prisma.$transaction.mockImplementation(async (fn: (tx: typeof prisma) => unknown) =>
       fn(prisma),
@@ -196,6 +197,7 @@ describe('MemberCardsService', () => {
       prisma.memberCard.findUnique.mockResolvedValue({
         id: 'card-1',
         memberId: 'member-1',
+        tokenHash: hashCardToken(token),
         status: MemberCardStatus.ENCODED,
         member: {
           ...publicMember(),
@@ -218,6 +220,7 @@ describe('MemberCardsService', () => {
       prisma.memberCard.findUnique.mockResolvedValueOnce({
         id: 'card-1',
         memberId: 'member-1',
+        tokenHash: hashCardToken(token),
         status: MemberCardStatus.REVOKED,
         member: publicMember(),
       });
@@ -230,6 +233,21 @@ describe('MemberCardsService', () => {
       const missing = await service.verify(generateCardToken(), admin, '2.2.2.2');
       expect(missing.status).toBe('NOT_FOUND');
       expect(missing.member).toBeNull();
+    });
+
+    it('treats a stored hash mismatch as not found', async () => {
+      const token = generateCardToken();
+      prisma.memberCard.findUnique.mockResolvedValue({
+        id: 'card-1',
+        memberId: 'member-1',
+        tokenHash: hashCardToken(generateCardToken()),
+        status: MemberCardStatus.ACTIVE,
+        member: publicMember(),
+      });
+
+      const result = await service.verify(token, admin, '4.4.4.4');
+      expect(result.status).toBe('NOT_FOUND');
+      expect(result.member).toBeNull();
     });
 
     it('rate-limits noisy lookup IPs', async () => {
@@ -247,6 +265,7 @@ describe('MemberCardsService', () => {
       prisma.memberCard.findUnique.mockResolvedValue({
         id: 'card-1',
         memberId: 'member-1',
+        tokenHash: hashCardToken(token),
         status: MemberCardStatus.ACTIVE,
         member: publicMember(),
       });
@@ -270,6 +289,7 @@ describe('MemberCardsService', () => {
       prisma.memberCard.findUnique.mockResolvedValue({
         id: 'card-1',
         memberId: 'member-1',
+        tokenHash: hashCardToken(token),
         status: MemberCardStatus.REVOKED,
         member: publicMember(),
       });
@@ -286,6 +306,7 @@ describe('MemberCardsService', () => {
       prisma.memberCard.findUnique.mockResolvedValue({
         id: 'card-1',
         memberId: 'member-1',
+        tokenHash: hashCardToken(token),
         status: MemberCardStatus.ACTIVE,
         member: publicMember(),
       });

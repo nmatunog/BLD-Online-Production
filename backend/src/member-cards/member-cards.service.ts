@@ -2,6 +2,8 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -13,6 +15,7 @@ import { CreateAttendanceDto } from '../attendance/dto/create-attendance.dto';
 import { isCardVerifyStaffRole } from './member-card-roles';
 import {
   buildNfcUrl,
+  cardTokenHashesEqual,
   decryptCardToken,
   encryptCardToken,
   generateCardToken,
@@ -441,7 +444,10 @@ export class MemberCardsService {
   }> {
     this.assertStaffCanVerify(actor);
     if (this.isRateLimited(ip)) {
-      throw new BadRequestException('Too many card lookups. Please wait a moment and try again.');
+      throw new HttpException(
+        'Too many card lookups. Please wait a moment and try again.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
 
     const token = (rawToken || '').trim();
@@ -450,12 +456,13 @@ export class MemberCardsService {
       return { status: 'NOT_FOUND', cardStatus: null, member: null, cardId: null };
     }
 
+    const presentedHash = hashCardToken(token);
     const card = await this.prisma.memberCard.findUnique({
-      where: { tokenHash: hashCardToken(token) },
+      where: { tokenHash: presentedHash },
       include: { member: { select: MEMBER_PUBLIC_SELECT } },
     });
 
-    if (!card) {
+    if (!card || !cardTokenHashesEqual(card.tokenHash, presentedHash)) {
       this.logLookup({ result: 'NOT_FOUND', userId: actor.id, ip });
       return { status: 'NOT_FOUND', cardStatus: null, member: null, cardId: null };
     }

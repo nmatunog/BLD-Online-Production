@@ -251,6 +251,7 @@ npm run lint             # ESLint check
 ### Backend (Railway)
 - `DATABASE_URL` — PostgreSQL connection
 - `JWT_SECRET` — Auth token signing
+- `MEMBER_CARD_TOKEN_SECRET` — AES-GCM key for NFC card tokens (required on Railway; do not reuse JWT_SECRET)
 - `BUNNYCDN_ACCESS_KEY` — BunnyCDN upload key
 - `BUNNYCDN_STORAGE_ZONE` — `bld-idphotos`
 - `BUNNYCDN_CDN_URL` — `https://bld-idphotos.b-cdn.net`

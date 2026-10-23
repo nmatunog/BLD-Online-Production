@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Param,
@@ -56,6 +57,7 @@ export class MemberCardsController {
   @Get('export')
   @UseGuards(RolesGuard)
   @Roles(...CARD_ADMIN_ROLES)
+  @Header('Cache-Control', 'no-store')
   @ApiOperation({ summary: 'Export printer rows including NFC URLs (admin only)' })
   async export(@Query() query: ExportCardsDto): Promise<ApiResponseDto<unknown>> {
     const data = await this.memberCardsService.exportRows(query);
@@ -65,6 +67,7 @@ export class MemberCardsController {
   @Post('issue')
   @UseGuards(RolesGuard)
   @Roles(...CARD_ADMIN_ROLES)
+  @Header('Cache-Control', 'no-store')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Issue NFC cards for one or more members' })
   async issue(
@@ -78,6 +81,7 @@ export class MemberCardsController {
   @Post('issue-for-write')
   @UseGuards(RolesGuard)
   @Roles(...CARD_ADMIN_ROLES)
+  @Header('Cache-Control', 'no-store')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Issue a token at write time if needed and return the NFC URL once',
@@ -93,6 +97,7 @@ export class MemberCardsController {
   @Get('verify/:token')
   @UseGuards(RolesGuard)
   @Roles(...CARD_VERIFY_STAFF_ROLES, UserRole.MEMBER)
+  @Header('Cache-Control', 'no-store')
   @ApiOperation({ summary: 'Verify an NFC card token (staff only; live member data)' })
   @ApiResponse({ status: 200, description: 'Lookup result' })
   async verify(
@@ -107,6 +112,7 @@ export class MemberCardsController {
   @Post('verify/:token/check-in')
   @UseGuards(RolesGuard)
   @Roles(...CARD_VERIFY_STAFF_ROLES, UserRole.MEMBER)
+  @Header('Cache-Control', 'no-store')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Check in the card holder using existing attendance rules' })
   async checkIn(
@@ -141,6 +147,7 @@ export class MemberCardsController {
   @Post(':id/reissue')
   @UseGuards(RolesGuard)
   @Roles(...CARD_ADMIN_ROLES)
+  @Header('Cache-Control', 'no-store')
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Revoke the previous card and issue a new token' })
   async reissue(

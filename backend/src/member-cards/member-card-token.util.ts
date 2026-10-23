@@ -1,9 +1,16 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+  timingSafeEqual,
+} from 'crypto';
 
 /** 256 bits of entropy — well above the 128-bit minimum. */
 export const CARD_TOKEN_BYTES = 32;
 
 const AES_IV_BYTES = 12;
+const SHA256_HEX_BYTES = 32;
 const TOKEN_FORMAT = /^[A-Za-z0-9_-]{22,}$/;
 
 export function generateCardToken(): string {
@@ -12,6 +19,20 @@ export function generateCardToken(): string {
 
 export function hashCardToken(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('hex');
+}
+
+/** Constant-time compare of SHA-256 hex hashes (32 bytes). */
+export function cardTokenHashesEqual(storedHex: string, presentedHex: string): boolean {
+  try {
+    const stored = Buffer.from(storedHex, 'hex');
+    const presented = Buffer.from(presentedHex, 'hex');
+    if (stored.length !== SHA256_HEX_BYTES || presented.length !== SHA256_HEX_BYTES) {
+      return false;
+    }
+    return timingSafeEqual(stored, presented);
+  } catch {
+    return false;
+  }
 }
 
 export function isValidTokenFormat(token: string): boolean {
@@ -23,14 +44,37 @@ export function tokenEntropyBits(token: string): number {
   return Math.floor(token.length * 6);
 }
 
+function isProductionSecretRequired(env: NodeJS.ProcessEnv): boolean {
+  return env.NODE_ENV === 'production' || !!env.RAILWAY_ENVIRONMENT;
+}
+
+/**
+ * AES-GCM key for stored card tokens. Production/Railway MUST set
+ * MEMBER_CARD_TOKEN_SECRET (do not reuse JWT_SECRET — rotating JWT would
+ * make tokenEncrypted undecryptable and block export/re-write).
+ */
 export function resolveCardTokenSecret(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  const secret = env.MEMBER_CARD_TOKEN_SECRET || env.JWT_SECRET;
-  if (!secret) {
-    throw new Error('MEMBER_CARD_TOKEN_SECRET or JWT_SECRET is required to protect card tokens');
+  const dedicated = env.MEMBER_CARD_TOKEN_SECRET?.trim();
+  if (dedicated) {
+    return dedicated;
   }
-  return secret;
+
+  if (isProductionSecretRequired(env)) {
+    throw new Error(
+      'MEMBER_CARD_TOKEN_SECRET is required in production. Do not reuse JWT_SECRET — rotating JWT_SECRET would make stored card tokens undecryptable. Set MEMBER_CARD_TOKEN_SECRET on the Railway backend service to a long random string (32+ bytes).',
+    );
+  }
+
+  const fallback = env.JWT_SECRET?.trim();
+  if (fallback) {
+    return fallback;
+  }
+
+  throw new Error(
+    'MEMBER_CARD_TOKEN_SECRET is required to protect card tokens (JWT_SECRET is allowed only in development/test).',
+  );
 }
 
 function aesKey(secret: string): Buffer {

@@ -1,6 +1,7 @@
 import {
   buildNfcUrl,
   CARD_TOKEN_BYTES,
+  cardTokenHashesEqual,
   decryptCardToken,
   encryptCardToken,
   generateCardToken,
@@ -53,12 +54,28 @@ describe('member-card-token.util', () => {
     );
   });
 
-  it('requires a secret from env', () => {
-    expect(() => resolveCardTokenSecret({})).toThrow(/JWT_SECRET|MEMBER_CARD_TOKEN_SECRET/);
-    expect(resolveCardTokenSecret({ JWT_SECRET: 'jwt' })).toBe('jwt');
-    expect(resolveCardTokenSecret({ MEMBER_CARD_TOKEN_SECRET: 'card', JWT_SECRET: 'jwt' })).toBe(
-      'card',
-    );
+  it('compares token hashes in constant time', () => {
+    const hash = hashCardToken(generateCardToken());
+    expect(cardTokenHashesEqual(hash, hash)).toBe(true);
+    expect(cardTokenHashesEqual(hash, hashCardToken(generateCardToken()))).toBe(false);
+    expect(cardTokenHashesEqual('not-hex', hash)).toBe(false);
+  });
+
+  it('requires MEMBER_CARD_TOKEN_SECRET in production and does not fall back to JWT_SECRET', () => {
+    expect(() =>
+      resolveCardTokenSecret({ NODE_ENV: 'production', JWT_SECRET: 'jwt' }),
+    ).toThrow(/MEMBER_CARD_TOKEN_SECRET is required in production/);
+    expect(() =>
+      resolveCardTokenSecret({ RAILWAY_ENVIRONMENT: 'production', JWT_SECRET: 'jwt' }),
+    ).toThrow(/MEMBER_CARD_TOKEN_SECRET is required in production/);
+    expect(
+      resolveCardTokenSecret({ MEMBER_CARD_TOKEN_SECRET: 'card', JWT_SECRET: 'jwt' }),
+    ).toBe('card');
+  });
+
+  it('allows JWT_SECRET fallback only outside production', () => {
+    expect(resolveCardTokenSecret({ NODE_ENV: 'test', JWT_SECRET: 'jwt' })).toBe('jwt');
+    expect(() => resolveCardTokenSecret({})).toThrow(/MEMBER_CARD_TOKEN_SECRET/);
   });
 
   it('rejects short or unsafe token formats', () => {
