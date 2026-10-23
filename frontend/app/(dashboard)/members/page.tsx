@@ -37,6 +37,7 @@ import {
   resolveCityCode,
   getCityLabel,
 } from '@/lib/member-constants';
+import { manilaTodayDateInput, toManilaDateInput } from '@/lib/attendance-monitoring';
 import { generateMemberQR, downloadQRCode, type MemberData } from '@/lib/qr-service';
 import { getErrorMessage } from '@/lib/get-error-message';
 import jsPDF from 'jspdf';
@@ -69,6 +70,8 @@ interface EditFormData {
   children: Array<{ name: string; gender: string; dateOfBirth: string }>;
   // Encounter Information
   dateOfEncounter: string;
+  attendanceStartDate: string;
+  ministryStartDate: string;
 }
 
 export default function MembersPage() {
@@ -130,6 +133,8 @@ export default function MembersPage() {
     numberOfChildren: 0,
     children: [],
     dateOfEncounter: '',
+    attendanceStartDate: '',
+    ministryStartDate: '',
   });
 
   // Page-size choices for the manual selector. Default tuned for snappy table rendering
@@ -716,6 +721,10 @@ export default function MembersPage() {
       numberOfChildren: member.numberOfChildren ?? 0,
       children: Array.isArray(member.children) ? member.children.map((c: { name?: string; gender?: string; dateOfBirth?: string }) => ({ name: c?.name || '', gender: c?.gender || '', dateOfBirth: c?.dateOfBirth || '' })) : [],
       dateOfEncounter: member.dateOfEncounter || '',
+      attendanceStartDate: toManilaDateInput(member.attendanceStartDate),
+      ministryStartDate: toManilaDateInput(
+        member.ministryHistory?.find((row) => !row.endDate)?.startDate ?? '',
+      ),
     });
     setPendingPhotoDataUrl(null);
     setShowEditDialog(true);
@@ -755,6 +764,8 @@ export default function MembersPage() {
       numberOfChildren: editForm.numberOfChildren,
       children: editForm.children?.length ? editForm.children : [],
       dateOfEncounter: editForm.dateOfEncounter?.trim() || null,
+      attendanceStartDate: editForm.attendanceStartDate?.trim() || null,
+      ministryStartDate: editForm.ministryStartDate?.trim() || null,
     };
     if (userRole === 'SUPER_USER' && editForm.communityId?.trim()) {
       updateData.communityId = editForm.communityId.trim();
@@ -1624,7 +1635,16 @@ export default function MembersPage() {
                     <Label htmlFor="edit-ministry" className="block text-sm font-medium text-gray-700 mb-2">Ministry *</Label>
                     <Select
                       value={editForm.ministry}
-                      onValueChange={(value) => setEditForm({...editForm, ministry: value})}
+                      onValueChange={(value) => {
+                        const transferred = value !== (editingMember?.ministry || '');
+                        setEditForm({
+                          ...editForm,
+                          ministry: value,
+                          ministryStartDate: transferred
+                            ? editForm.ministryStartDate || manilaTodayDateInput()
+                            : editForm.ministryStartDate,
+                        });
+                      }}
                       disabled={!editForm.apostolate}
                     >
                       <SelectTrigger id="edit-ministry">
@@ -1636,6 +1656,41 @@ export default function MembersPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-attendance-start" className="block text-base font-semibold text-gray-800 mb-2">
+                      Attendance start date
+                    </Label>
+                    <Input
+                      id="edit-attendance-start"
+                      name="attendanceStartDate"
+                      type="date"
+                      value={editForm.attendanceStartDate}
+                      onChange={(e) => setEditForm({ ...editForm, attendanceStartDate: e.target.value })}
+                      className="h-12 text-lg"
+                    />
+                    <p className="mt-2 text-base text-gray-600">
+                      When this member should start being counted for Community Worship. Leave blank to use
+                      their first check-in, or the date they were added if they have none yet.
+                    </p>
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-ministry-start" className="block text-base font-semibold text-gray-800 mb-2">
+                      Joined this ministry on
+                    </Label>
+                    <Input
+                      id="edit-ministry-start"
+                      name="ministryStartDate"
+                      type="date"
+                      value={editForm.ministryStartDate}
+                      onChange={(e) => setEditForm({ ...editForm, ministryStartDate: e.target.value })}
+                      className="h-12 text-lg"
+                    />
+                    <p className="mt-2 text-base text-gray-600">
+                      If they transferred from another ministry, set the date they started here. Their
+                      attendance record moves with them. Changing ministry closes the old assignment the day
+                      before this date.
+                    </p>
                   </div>
                   <div>
                     <Label htmlFor="edit-service-area" className="block text-sm font-medium text-gray-700 mb-2">

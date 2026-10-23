@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { formatAttendedHeld, formatPct, isLowPct, periodLabel } from './attendance-monitoring';
 
 describe('attendance monitoring display helpers', () => {
-  it('shows n/a when no sessions were held', () => {
-    expect(formatPct(null)).toBe('n/a');
-    expect(formatAttendedHeld(0, 0)).toBe('n/a');
+  it('shows an em dash when no eligible sessions were held', () => {
+    expect(formatPct(null)).toBe('—');
+    expect(formatAttendedHeld(0, 0)).toBe('—');
     expect(formatAttendedHeld(3, 4)).toBe('3/4');
   });
 

@@ -449,7 +449,7 @@ class ReportsService {
 
 export const reportsService = new ReportsService();
 
-export type WeekMark = 'attended' | 'absent' | 'cancelled' | 'n/a';
+export type WeekMark = 'attended' | 'absent' | 'cancelled' | 'n/a' | 'not_yet_member';
 export type SessionStatus = 'held' | 'cancelled' | 'not_held';
 
 export interface AttendanceWeekSlot {
@@ -464,6 +464,7 @@ export interface AttendanceBlock {
   held: number;
   pct: number | null;
   weeks: WeekMark[];
+  weekMinistries?: Array<string | null>;
 }
 
 export interface YtdBlock {
@@ -478,6 +479,10 @@ export interface AttendanceMonitoringMemberRow {
   firstName: string;
   lastName: string;
   ministry: string | null;
+  attendanceStartDate?: string | null;
+  effectiveCommunityStart?: string;
+  joinedMinistryOn?: string | null;
+  ministryNote?: string | null;
   cw: AttendanceBlock;
   wsc: AttendanceBlock;
   ytdCw: YtdBlock;

@@ -197,3 +197,52 @@ export function manilaYtdBounds(year: number, throughMonth: number): { start: Da
   const monthEnd = manilaMonthBounds(year, throughMonth).end;
   return { start: yearStart, end: monthEnd };
 }
+
+/** Today's calendar date in Asia/Manila as YYYY-MM-DD. */
+export function manilaTodayDateString(now: Date = new Date()): string {
+  return toManilaDateString(now);
+}
+
+/**
+ * Parse an admin-entered YYYY-MM-DD as midnight Asia/Manila.
+ * Returns null for blank or malformed values.
+ */
+export function parseManilaDateInput(value?: string | null): Date | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return buildManilaDateTime(year, month, day, 0, 0, 0);
+}
+
+/** Add calendar days to a YYYY-MM-DD string without timezone shift. */
+export function addCalendarDays(yyyyMmDd: string, days: number): string {
+  const [year, month, day] = yyyyMmDd.split('-').map(Number);
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  utc.setUTCDate(utc.getUTCDate() + days);
+  return utc.toISOString().slice(0, 10);
+}
+
+export function dayBeforeDateString(yyyyMmDd: string): string {
+  return addCalendarDays(yyyyMmDd, -1);
+}
+
+/** Last Manila calendar day of a month as YYYY-MM-DD. */
+export function lastManilaDateOfMonth(year: number, month: number): string {
+  return toManilaDateString(manilaMonthBounds(year, month).end);
+}
+
+/** Senior-friendly long date, e.g. "October 15, 2026". */
+export function formatManilaLongDate(yyyyMmDd: string): string {
+  const [year, month, day] = yyyyMmDd.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day, 12)).toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}

@@ -31,20 +31,31 @@ function officialMinistries(): string[] {
   return Object.values(MINISTRIES_BY_APOSTOLATE).flat();
 }
 
-function WeekDots({ marks, label }: { marks: WeekMark[]; label: string }) {
+function WeekDots({
+  marks,
+  label,
+  weekMinistries,
+}: {
+  marks: WeekMark[];
+  label: string;
+  weekMinistries?: Array<string | null>;
+}) {
   return (
     <div className="flex items-center gap-1.5" aria-label={label}>
       {marks.length === 0 ? (
         <span className="text-base text-slate-500">—</span>
       ) : (
         marks.map((mark, i) => {
-          const title = `${label} week ${i + 1}: ${mark}`;
+          const prior = weekMinistries?.[i];
+          const title = prior
+            ? `${label} week ${i + 1}: ${mark} (while in ${prior})`
+            : `${label} week ${i + 1}: ${mark === 'not_yet_member' ? 'not yet a member' : mark}`;
           if (mark === 'attended') {
             return (
               <span
                 key={`${mark}-${i}`}
                 title={title}
-                className="inline-block h-3.5 w-3.5 rounded-full bg-blue-600"
+                className={`inline-block h-3.5 w-3.5 rounded-full bg-blue-600 ${prior ? 'ring-2 ring-offset-1 ring-slate-400' : ''}`}
                 aria-label={title}
               />
             );
@@ -54,7 +65,17 @@ function WeekDots({ marks, label }: { marks: WeekMark[]; label: string }) {
               <span
                 key={`${mark}-${i}`}
                 title={title}
-                className="inline-block h-3.5 w-3.5 rounded-full border-2 border-slate-400 bg-white"
+                className={`inline-block h-3.5 w-3.5 rounded-full border-2 border-slate-400 bg-white ${prior ? 'ring-2 ring-offset-1 ring-slate-300' : ''}`}
+                aria-label={title}
+              />
+            );
+          }
+          if (mark === 'not_yet_member') {
+            return (
+              <span
+                key={`${mark}-${i}`}
+                title={title}
+                className="inline-block h-3.5 w-3.5 rounded-full border border-dashed border-slate-400 bg-slate-50"
                 aria-label={title}
               />
             );
@@ -370,10 +391,14 @@ function AttendanceMonitoringContent() {
               <LegendDot className="bg-blue-600" label="attended" />
               <LegendDot className="border-2 border-slate-400 bg-white" label="absent" />
               <LegendDot className="bg-slate-300" label="cancelled (not counted)" />
+              <LegendDot className="border border-dashed border-slate-400 bg-slate-50" label="not yet a member" />
               <span>CW = Community Worship</span>
             </div>
             <p className="text-base text-slate-600">
-              Percent = attended ÷ sessions held this {month ? 'month' : 'year'}. Cancelled sessions are excluded.
+              Percent = attended ÷ sessions held after the member’s community start. Attendance follows the
+              member to their current ministry. WSC on each date uses the ministry they belonged to that day
+              (hover a ringed dot to see a previous ministry). YTD WSC uses the same rule. No eligible
+              sessions = —. Cancelled sessions are excluded.
             </p>
 
             <div className="space-y-6 print:space-y-4">
@@ -394,6 +419,9 @@ function AttendanceMonitoringContent() {
                       <div key={member.id} className="grid grid-cols-[minmax(12rem,1.2fr)_1.4fr_1.4fr_8rem] items-center gap-4 px-4 py-4">
                         <div>
                           <p className="text-lg font-semibold text-slate-900">{member.name}</p>
+                          {member.ministryNote && (
+                            <p className="mt-0.5 text-sm font-medium text-slate-600">{member.ministryNote}</p>
+                          )}
                           {member.needsFollowUp && (
                             <span className="mt-1 inline-block rounded-full bg-orange-50 px-2 py-0.5 text-sm font-medium text-orange-700">
                               needs follow-up
@@ -413,6 +441,7 @@ function AttendanceMonitoringContent() {
                           held={member.wsc.held}
                           pct={member.wsc.pct}
                           weeks={member.wsc.weeks}
+                          weekMinistries={member.wsc.weekMinistries}
                         />
                         <p className="text-right text-sm font-medium text-slate-600">
                           year to date
@@ -427,7 +456,12 @@ function AttendanceMonitoringContent() {
                     {group.members.map((member) => (
                       <article key={member.id} className="space-y-3 p-4">
                         <div className="flex items-start justify-between gap-3">
-                          <h3 className="text-xl font-semibold text-slate-900">{member.name}</h3>
+                          <div>
+                            <h3 className="text-xl font-semibold text-slate-900">{member.name}</h3>
+                            {member.ministryNote && (
+                              <p className="mt-0.5 text-sm font-medium text-slate-600">{member.ministryNote}</p>
+                            )}
+                          </div>
                           {member.needsFollowUp && (
                             <span className="rounded-full bg-orange-50 px-2 py-0.5 text-sm font-medium text-orange-700">
                               needs follow-up
@@ -447,6 +481,7 @@ function AttendanceMonitoringContent() {
                           held={member.wsc.held}
                           pct={member.wsc.pct}
                           weeks={member.wsc.weeks}
+                          weekMinistries={member.wsc.weekMinistries}
                         />
                         <p className="text-base text-slate-600">
                           Year to date · CW {formatPct(member.ytdCw.pct)} · WSC {formatPct(member.ytdWsc.pct)}
@@ -498,12 +533,14 @@ function Track({
   held,
   pct,
   weeks,
+  weekMinistries,
 }: {
   label: string;
   attended: number;
   held: number;
   pct: number | null;
   weeks: WeekMark[];
+  weekMinistries?: Array<string | null>;
 }) {
   const low = isLowPct(pct);
   return (
@@ -514,7 +551,7 @@ function Track({
       </div>
       <PctBar pct={pct} low={low} />
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-        <WeekDots marks={weeks} label={label} />
+        <WeekDots marks={weeks} label={label} weekMinistries={weekMinistries} />
         <span className="text-sm text-slate-500">{formatAttendedHeld(attended, held)}</span>
       </div>
     </div>

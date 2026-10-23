@@ -6,6 +6,8 @@ import {
   IsInt,
   IsIn,
   Min,
+  Matches,
+  ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { IsValidApostolate, IsValidMinistryForApostolate } from '../../common/validators/ministry-validator';
@@ -119,4 +121,16 @@ export class UpdateMemberDto {
   @IsString()
   @IsOptional()
   dateOfEncounter?: string;
+
+  /** Community-level attendance start (YYYY-MM-DD, Asia/Manila). Null/blank clears to computed fallback. */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== '')
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Attendance start date must be YYYY-MM-DD' })
+  attendanceStartDate?: string | null;
+
+  /** Start date of the current ministry assignment (YYYY-MM-DD, Asia/Manila). */
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== '')
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Ministry start date must be YYYY-MM-DD' })
+  ministryStartDate?: string | null;
 }
