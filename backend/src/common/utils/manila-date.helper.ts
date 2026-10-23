@@ -154,3 +154,46 @@ export function addDaysManila(date: Date, days: number): Date {
   
   return buildManilaDateTime(newYear, newMonth, newDay, hour, minute, second);
 }
+
+export interface ManilaDateParts {
+  year: number;
+  month: number;
+  day: number;
+}
+
+/**
+ * Calendar year/month/day in Asia/Manila for a stored UTC timestamp.
+ */
+export function getManilaDateParts(d: Date): ManilaDateParts {
+  const [year, month, day] = toManilaDateString(d).split('-').map(Number);
+  return { year, month, day };
+}
+
+/**
+ * Inclusive UTC instants covering a Manila calendar year.
+ */
+export function manilaYearBounds(year: number): { start: Date; end: Date } {
+  const start = buildManilaDateTime(year, 1, 1, 0, 0, 0);
+  const nextStart = buildManilaDateTime(year + 1, 1, 1, 0, 0, 0);
+  return { start, end: new Date(nextStart.getTime() - 1) };
+}
+
+/**
+ * Inclusive UTC instants covering a Manila calendar month (1–12).
+ */
+export function manilaMonthBounds(year: number, month: number): { start: Date; end: Date } {
+  const start = buildManilaDateTime(year, month, 1, 0, 0, 0);
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextStart = buildManilaDateTime(nextYear, nextMonth, 1, 0, 0, 0);
+  return { start, end: new Date(nextStart.getTime() - 1) };
+}
+
+/**
+ * Inclusive UTC instants from 1 Jan Manila through the last Manila day of `throughMonth`.
+ */
+export function manilaYtdBounds(year: number, throughMonth: number): { start: Date; end: Date } {
+  const yearStart = manilaYearBounds(year).start;
+  const monthEnd = manilaMonthBounds(year, throughMonth).end;
+  return { start: yearStart, end: monthEnd };
+}

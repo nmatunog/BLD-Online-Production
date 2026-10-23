@@ -11,7 +11,7 @@ import { UpdateEventScopeDto, OverwriteScope } from './dto/update-event-scope.dt
 import { EventQueryDto } from './dto/event-query.dto';
 import { AssignClassShepherdDto } from './dto/assign-class-shepherd.dto';
 import { CancelEventDto } from './dto/cancel-event.dto';
-import { Prisma, EventStatus, UserRole, EventAuditAction, EventKind } from '@prisma/client';
+import { Prisma, EventStatus, UserRole, EventAuditAction, EventKind, EventSeriesCode } from '@prisma/client';
 import QRCode from 'qrcode';
 import { BunnyCDNService } from '../common/services/bunnycdn.service';
 import { MINISTRIES_BY_APOSTOLATE } from '../common/constants/organization.constants';
@@ -23,6 +23,7 @@ import {
   isInBlackoutPeriod,
   isHolyMassTuesday,
 } from '../common/utils/manila-date.helper';
+import { inferSeriesCode } from '../common/utils/event-series-code.helper';
 
 /** Number of weeks ahead to auto-create recurring occurrence rows */
 const RECURRING_OCCURRENCE_WEEKS_AHEAD = 24;
@@ -327,6 +328,13 @@ export class EventsService implements OnModuleInit {
         monthlyDayOfWeek: createEventDto.monthlyDayOfWeek || null,
         ministry: createEventDto.ministry?.trim() || null,
         eventKind: eventKind,
+        seriesCode:
+          createEventDto.seriesCode ??
+          inferSeriesCode({
+            category: createEventDto.category,
+            title: createEventDto.title,
+            eventType: createEventDto.eventType,
+          }),
         createdById: createdById || null,
       },
       include: {
@@ -533,6 +541,13 @@ export class EventsService implements OnModuleInit {
                 // BLD Event Standards v1 fields
                 eventKind: EventKind.OCCURRENCE,
                 occurrenceSubtype: occurrenceSubtype,
+                seriesCode:
+                  template.seriesCode ??
+                  inferSeriesCode({
+                    category: template.category,
+                    title: template.title,
+                    eventType: template.eventType,
+                  }),
               },
             });
             count++;
@@ -1115,6 +1130,17 @@ export class EventsService implements OnModuleInit {
         ...(updateEventDto.monthlyWeekOfMonth !== undefined && { monthlyWeekOfMonth: updateEventDto.monthlyWeekOfMonth || null }),
         ...(updateEventDto.monthlyDayOfWeek !== undefined && { monthlyDayOfWeek: updateEventDto.monthlyDayOfWeek || null }),
         ...(updateEventDto.ministry !== undefined && { ministry: updateEventDto.ministry?.trim() || null }),
+        ...(updateEventDto.seriesCode
+          ? { seriesCode: updateEventDto.seriesCode }
+          : updateEventDto.title || updateEventDto.category || updateEventDto.eventType
+            ? {
+                seriesCode: inferSeriesCode({
+                  category: updateEventDto.category ?? existingEvent.category,
+                  title: updateEventDto.title ?? existingEvent.title,
+                  eventType: updateEventDto.eventType ?? existingEvent.eventType,
+                }),
+              }
+            : {}),
       },
       include: {
         _count: {
@@ -2257,6 +2283,7 @@ export class EventsService implements OnModuleInit {
           recurrenceDays: ['tuesday'],
           recurrenceInterval: 1,
           eventKind: EventKind.SERIES,
+          seriesCode: EventSeriesCode.CW,
           createdById: createdById || null,
         },
       });
@@ -2400,6 +2427,7 @@ export class EventsService implements OnModuleInit {
         recurrenceDays: schedule.recurrenceDays,
         recurrenceInterval: 1,
         eventKind: EventKind.SERIES,
+        seriesCode: EventSeriesCode.WSC,
         createdById,
       },
     });

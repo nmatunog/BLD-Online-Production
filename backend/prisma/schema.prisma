@@ -34,6 +34,12 @@ enum EventKind {
   ONE_OFF
 }
 
+enum EventSeriesCode {
+  CW
+  WSC
+  OTHER
+}
+
 enum CheckInMethod {
   QR_CODE
   MANUAL
@@ -197,6 +203,8 @@ model Event {
   eventKind         EventKind?   // SERIES (template), OCCURRENCE (instance of series), or ONE_OFF (standalone)
   occurrenceSubtype String?      // e.g. "Holy Mass" for CW 1st/3rd Tuesday
   serialNumber      Int?         // For encounters/LSS/seminars (no year in title)
+  /// Explicit CW vs WSC marker. Do not classify by title at query time.
+  seriesCode        EventSeriesCode @default(OTHER)
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
   createdById       String?
@@ -216,6 +224,7 @@ model Event {
   @@index([ministry])
   @@index([recurrenceTemplateId])
   @@index([eventKind])
+  @@index([seriesCode, startDate])
 }
 
 model TempCredentialLog {
@@ -274,6 +283,8 @@ model Attendance {
   sessionSlot String        @default("")
   checkInTime DateTime      @default(now())
   method      CheckInMethod @default(MANUAL)
+  /// Optional provenance for later Google Sheets history import (phase 2).
+  importedFrom String?
   createdAt   DateTime      @default(now())
 
   member      Member        @relation(fields: [memberId], references: [id], onDelete: Cascade)

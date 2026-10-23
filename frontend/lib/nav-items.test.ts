@@ -45,5 +45,6 @@ describe('getDashboardPageTitle', () => {
     expect(getDashboardPageTitle('/events/new')).toBe('Set up an event');
     expect(getDashboardPageTitle('/events/abc')).toBe('Event');
     expect(getDashboardPageTitle('/dashboard')).toBe('Dashboard');
+    expect(getDashboardPageTitle('/reports/attendance-monitoring')).toBe('Attendance Monitoring');
   });
 });
