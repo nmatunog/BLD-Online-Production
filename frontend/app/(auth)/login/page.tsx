@@ -27,6 +27,7 @@ import { parseAuthError } from '@/utils/error-handler';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { QRScanner, qrUtils } from '@/lib/qr-scanner-service';
 import { deviceMemory } from '@/lib/device-memory';
+import { postLoginPathFromSearch } from '@/lib/safe-return-path';
 
 const QR_LOGIN_REGION_ID = 'qr-reader-login';
 
@@ -153,8 +154,8 @@ export default function LoginPage() {
         }
       }
       
-      toast.success('Signed in successfully', { description: 'Redirecting to dashboard...' });
-      router.push('/dashboard');
+      toast.success('Signed in successfully', { description: 'Continuing…' });
+      router.push(postLoginPathFromSearch(window.location.search));
     } catch (error) {
       const parsed = parseAuthError(error);
       toast.error(parsed.title, { description: parsed.message, duration: 8000 });
@@ -227,8 +228,8 @@ export default function LoginPage() {
         }
       }
       
-      toast.success('Signed in successfully', { description: 'Redirecting to dashboard...' });
-      router.push('/dashboard');
+      toast.success('Signed in successfully', { description: 'Continuing…' });
+      router.push(postLoginPathFromSearch(window.location.search));
     } catch (error) {
       const parsed = parseAuthError(error);
       toast.error(parsed.title, { description: parsed.message, duration: 8000 });

@@ -148,6 +148,7 @@ model Member {
   claimedCandidates EventCandidate[]
   tempCredentials TempCredentialLog[]
   ministryHistory MemberMinistryHistory[]
+  cards           MemberCard[]
 
   @@index([communityId])
   @@index([city])
@@ -573,5 +574,36 @@ model EventClassShepherd {
   @@index([eventId])
   @@index([userId])
   @@index([encounterType, classNumber])
+}
+
+enum MemberCardStatus {
+  ACTIVE
+  ENCODED
+  REVOKED
+}
+
+/// Physical NFC member ID card. Token is stored hashed for lookup and encrypted for printer/write export.
+/// Verify always reads live Member fields (ministry is never baked into the card).
+model MemberCard {
+  id              String           @id @default(uuid())
+  memberId        String
+  tokenHash       String           @unique
+  tokenEncrypted  String
+  status          MemberCardStatus @default(ACTIVE)
+  issuedAt        DateTime         @default(now())
+  revokedAt       DateTime?
+  encodedAt       DateTime?
+  lastVerifiedAt  DateTime?
+  issuedByUserId  String?
+  revokedByUserId String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  member Member @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([memberId, status])
+  @@index([status])
+  @@index([lastVerifiedAt])
+  @@index([encodedAt])
 }
 

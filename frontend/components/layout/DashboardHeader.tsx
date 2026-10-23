@@ -13,6 +13,7 @@ import {
   Menu,
   User,
   BarChart3,
+  CreditCard,
   type LucideIcon,
 } from 'lucide-react';
 import { authService } from '@/services/auth.service';
@@ -31,6 +32,7 @@ const NAV_ICONS: Record<NavIconKey, LucideIcon> = {
   home: Home,
   checkin: CheckCircle,
   members: Users,
+  cards: CreditCard,
   events: Calendar,
   registrations: FileText,
   reports: BarChart3,

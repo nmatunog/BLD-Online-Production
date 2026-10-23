@@ -9,6 +9,7 @@ import {
   type RetryableRequestConfig,
 } from './api-client-retry';
 import { describeRefreshFailure, runEnsureFreshToken } from './api-client-token';
+import { loginUrlWithReturn } from '@/lib/safe-return-path';
 
 // Log API URL for debugging (only in development)
 // This will be logged when ApiClient is instantiated
@@ -142,7 +143,7 @@ class ApiClient {
             this.clearToken();
             localStorage.removeItem('authData');
             if (!isOnAuthPage) {
-              window.location.href = '/login';
+              window.location.href = loginUrlWithReturn(window.location.pathname);
             }
           }
         }

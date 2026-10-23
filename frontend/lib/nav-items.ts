@@ -6,6 +6,7 @@ export type NavIconKey =
   | 'home'
   | 'checkin'
   | 'members'
+  | 'cards'
   | 'events'
   | 'registrations'
   | 'reports'
@@ -33,6 +34,12 @@ export function isMemberRole(role: string | null | undefined): boolean {
   return role === 'MEMBER';
 }
 
+const CARD_ADMIN_ROLES = ['SUPER_USER', 'ADMINISTRATOR', 'DCS'];
+
+export function isCardAdminRole(role: string | null | undefined): boolean {
+  return !!role && CARD_ADMIN_ROLES.includes(role);
+}
+
 export function getVisibleNavItems(role: string | null | undefined): DashboardNavItem[] {
   const member = isMemberRole(role);
   const admin = isAdminRole(role);
@@ -46,6 +53,7 @@ export function getVisibleNavItems(role: string | null | undefined): DashboardNa
       show: true,
     },
     { href: '/members', label: 'Members', iconKey: 'members', show: admin },
+    { href: '/cards', label: 'NFC Cards', iconKey: 'cards', show: isCardAdminRole(role) },
     { href: '/events', label: 'Events', iconKey: 'events', show: true },
     {
       href: '/event-registrations',
@@ -84,6 +92,7 @@ export function getDashboardPageTitle(pathname: string): string {
   if (pathname.startsWith('/candidate-checkin')) return 'Candidate Check-In';
   if (pathname.startsWith('/checkin')) return 'Check-In';
   if (pathname.startsWith('/members')) return 'Members';
+  if (pathname.startsWith('/cards')) return 'NFC Cards';
   if (pathname.startsWith('/events/new')) return 'Set up an event';
   if (/^\/events\/[^/]+/.test(pathname)) return 'Event';
   if (pathname.startsWith('/events')) return 'Events';
