@@ -17,6 +17,20 @@ export function buildNfcUrl(token: string, origin = PUBLIC_NFC_ORIGIN): string {
   return `${origin.replace(/\/$/, '')}/verify/${token}`;
 }
 
+export function resolveMemberMinistry(member: {
+  ministry?: string | null;
+  ministryHistory?: Array<{ ministry?: string | null; endDate?: string | Date | null }>;
+  user?: { ministry?: string | null } | null;
+}): string | null {
+  const fromMember = member.ministry?.trim();
+  if (fromMember) return fromMember;
+  const currentHistory = member.ministryHistory?.find((row) => row.endDate == null);
+  const fromHistory = currentHistory?.ministry?.trim();
+  if (fromHistory) return fromHistory;
+  const fromUser = member.user?.ministry?.trim();
+  return fromUser || null;
+}
+
 export function printerMemberName(member: {
   firstName?: string | null;
   lastName?: string | null;

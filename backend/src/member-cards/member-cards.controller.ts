@@ -20,7 +20,7 @@ import { RolesGuard } from '../auth/guards/roles.guard';
 import { ApiResponse as ApiResponseDto } from '../common/interfaces/api-response.interface';
 import { CARD_ADMIN_ROLES, CARD_VERIFY_STAFF_ROLES } from './member-card-roles';
 import { MemberCardsService, type CardActor } from './member-cards.service';
-import { CardQueryDto, ExportCardsDto } from './dto/card-query.dto';
+import { CardQueryDto, ExportCardsDto, MemberIdsQueryDto } from './dto/card-query.dto';
 import { CheckInByCardDto, IssueCardsDto, IssueForWriteDto } from './dto/issue-cards.dto';
 
 function clientIp(req: Request): string {
@@ -54,13 +54,34 @@ export class MemberCardsController {
     return { success: true, data, message: 'Cards retrieved successfully' };
   }
 
+  @Get('member-ids')
+  @UseGuards(RolesGuard)
+  @Roles(...CARD_ADMIN_ROLES)
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({ summary: 'List all matching active member IDs for Select all (admin only)' })
+  async memberIds(@Query() query: MemberIdsQueryDto): Promise<ApiResponseDto<unknown>> {
+    const data = await this.memberCardsService.listMemberIds(query);
+    return { success: true, data, message: 'Member IDs retrieved successfully' };
+  }
+
   @Get('export')
   @UseGuards(RolesGuard)
   @Roles(...CARD_ADMIN_ROLES)
   @Header('Cache-Control', 'no-store')
-  @ApiOperation({ summary: 'Export printer rows including NFC URLs (admin only)' })
+  @ApiOperation({ summary: 'Export printer rows for selected or all members (admin only)' })
   async export(@Query() query: ExportCardsDto): Promise<ApiResponseDto<unknown>> {
     const data = await this.memberCardsService.exportRows(query);
+    return { success: true, data, message: 'Card export ready' };
+  }
+
+  @Post('export')
+  @UseGuards(RolesGuard)
+  @Roles(...CARD_ADMIN_ROLES)
+  @Header('Cache-Control', 'no-store')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Export printer rows for selected or all members (admin only)' })
+  async exportPost(@Body() dto: ExportCardsDto): Promise<ApiResponseDto<unknown>> {
+    const data = await this.memberCardsService.exportRows(dto);
     return { success: true, data, message: 'Card export ready' };
   }
 
