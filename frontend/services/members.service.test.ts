@@ -15,6 +15,7 @@ vi.mock('./api-client', () => ({
 
 import {
   buildMemberPhotoUploadBody,
+  canBulkPermanentDelete,
   getMemberApiErrorMessage,
   membersService,
   PHOTO_UPLOAD_TIMEOUT_MS,
@@ -186,6 +187,58 @@ describe('membersService photo upload', () => {
 
     await expect(membersService.uploadMemberPhoto('member-1', PHOTO_DATA_URL)).rejects.toThrow(
       'Could not process photo',
+    );
+  });
+});
+
+describe('canBulkPermanentDelete', () => {
+  it('is limited to Super User and Administrator', () => {
+    expect(canBulkPermanentDelete('SUPER_USER')).toBe(true);
+    expect(canBulkPermanentDelete('ADMINISTRATOR')).toBe(true);
+    expect(canBulkPermanentDelete('DCS')).toBe(false);
+    expect(canBulkPermanentDelete('MEMBER')).toBe(false);
+  });
+});
+
+describe('membersService.bulkPermanentDelete', () => {
+  const memberId = '11111111-1111-4111-8111-111111111111';
+
+  beforeEach(() => {
+    post.mockReset();
+  });
+
+  it('posts memberIds to /members/bulk-permanent-delete', async () => {
+    post.mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          deletedCount: 1,
+          communityIds: ['CEB-ME9902'],
+          results: [
+            { memberId, communityId: 'CEB-ME9902', name: 'Ada Reyes', status: 'deleted' },
+          ],
+        },
+      },
+    });
+
+    await expect(membersService.bulkPermanentDelete([memberId])).resolves.toMatchObject({
+      deletedCount: 1,
+      communityIds: ['CEB-ME9902'],
+    });
+    expect(post).toHaveBeenCalledWith('/members/bulk-permanent-delete', { memberIds: [memberId] });
+  });
+
+  it('surfaces the server message via getMemberApiErrorMessage', async () => {
+    post.mockRejectedValue({
+      response: {
+        status: 400,
+        data: { message: 'memberIds must be a UUID' },
+      },
+      message: 'Request failed with status code 400',
+    });
+
+    await expect(membersService.bulkPermanentDelete(['not-a-uuid'])).rejects.toThrow(
+      'memberIds must be a UUID',
     );
   });
 });

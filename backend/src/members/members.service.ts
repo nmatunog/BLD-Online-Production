@@ -33,6 +33,28 @@ import {
 } from '../common/utils/manila-date.helper';
 import { planMinistryHistorySync } from './member-ministry-history.helpers';
 import { resolveCommunityStartDate } from '../reports/attendance-monitoring.helpers';
+import { MAX_BULK_PERMANENT_DELETE } from './dto/bulk-permanent-delete.dto';
+
+export type BulkPermanentDeleteItemResult = {
+  memberId: string;
+  communityId: string;
+  name: string;
+  status: 'deleted';
+};
+
+export type BulkPermanentDeleteResult = {
+  deletedCount: number;
+  communityIds: string[];
+  results: BulkPermanentDeleteItemResult[];
+};
+
+const BULK_PERMANENT_DELETE_ROLES: UserRole[] = [
+  UserRole.SUPER_USER,
+  UserRole.ADMINISTRATOR,
+];
+
+export const BULK_PERMANENT_DELETE_TX_MAX_WAIT_MS = 10_000;
+export const BULK_PERMANENT_DELETE_TX_TIMEOUT_MS = 30_000;
 
 /** Inputs that map to Cebu (Community ID starts with CEB) */
 const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
@@ -843,13 +865,115 @@ export class MembersService implements OnModuleInit {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      // Delete member first (cascades Attendance; EventRegistration.memberId set null by schema)
-      await tx.member.delete({ where: { id } });
-      // Then delete user (cascades Session, EventClassShepherd)
-      await tx.user.delete({ where: { id: member.userId } });
+      await this.deleteMemberAndUserAccount(tx, id, member.userId);
     });
 
     return { message: 'Member and account permanently removed.' };
+  }
+
+  /**
+   * Deactivate then permanently delete many members in one transaction.
+   * Any failure (missing id, self, SUPER_USER) rolls the entire batch back.
+   */
+  async bulkPermanentDelete(
+    memberIds: string[],
+    currentUser: { id: string; role: UserRole | string },
+  ): Promise<BulkPermanentDeleteResult> {
+    if (
+      !BULK_PERMANENT_DELETE_ROLES.includes(currentUser.role as UserRole)
+    ) {
+      throw new ForbiddenException(
+        'Only Super Users and Administrators can permanently delete members in bulk.',
+      );
+    }
+
+    const uniqueIds = [...new Set(memberIds.map((id) => id.trim()).filter(Boolean))];
+    if (uniqueIds.length === 0) {
+      throw new BadRequestException('At least one member id is required.');
+    }
+    if (uniqueIds.length > MAX_BULK_PERMANENT_DELETE) {
+      throw new BadRequestException(
+        `You can permanently delete at most ${MAX_BULK_PERMANENT_DELETE} members at a time.`,
+      );
+    }
+
+    const results = await this.prisma.$transaction(
+      async (tx) => {
+        const batch: BulkPermanentDeleteItemResult[] = [];
+
+        for (const id of uniqueIds) {
+          const member = await tx.member.findUnique({
+            where: { id },
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  role: true,
+                  isActive: true,
+                },
+              },
+            },
+          });
+
+          if (!member) {
+            throw new NotFoundException(`Member with ID "${id}" not found`);
+          }
+
+          if (member.userId === currentUser.id) {
+            throw new ForbiddenException('You cannot permanently delete your own account.');
+          }
+
+          if (member.user?.role === UserRole.SUPER_USER) {
+            throw new ForbiddenException('SUPER_USER accounts cannot be permanently deleted.');
+          }
+
+          await tx.user.update({
+            where: { id: member.userId },
+            data: { isActive: false },
+          });
+          await this.deleteMemberAndUserAccount(tx, member.id, member.userId);
+
+          const name = [member.firstName, member.lastName].filter(Boolean).join(' ').trim();
+          batch.push({
+            memberId: member.id,
+            communityId: member.communityId,
+            name,
+            status: 'deleted',
+          });
+        }
+
+        return batch;
+      },
+      {
+        maxWait: BULK_PERMANENT_DELETE_TX_MAX_WAIT_MS,
+        timeout: BULK_PERMANENT_DELETE_TX_TIMEOUT_MS,
+      },
+    );
+
+    const communityIds = results.map((row) => row.communityId);
+    this.logger.log(
+      `AUDIT bulk-permanent-delete admin=${currentUser.id} deletedCommunityIds=${communityIds.join(',')}`,
+    );
+
+    return {
+      deletedCount: results.length,
+      communityIds,
+      results,
+    };
+  }
+
+  /**
+   * Shared cascade: delete member first (Attendance / cards / ministry history cascade;
+   * EventRegistration.memberId and EventCandidate.memberId set null), then user
+   * (Session, EventClassShepherd cascade).
+   */
+  private async deleteMemberAndUserAccount(
+    tx: Prisma.TransactionClient,
+    memberId: string,
+    userId: string,
+  ): Promise<void> {
+    await tx.member.delete({ where: { id: memberId } });
+    await tx.user.delete({ where: { id: userId } });
   }
 
   async regenerateQRCode(id: string) {

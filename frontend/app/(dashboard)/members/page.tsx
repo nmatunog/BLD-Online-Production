@@ -4,7 +4,8 @@ import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Search, Users, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Loader2, RefreshCw, Download, Save, ChevronUp, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
-import { membersService, type Member, type MemberQueryParams, type UpdateMemberRequest } from '@/services/members.service';
+import { membersService, canBulkPermanentDelete, MAX_BULK_PERMANENT_DELETE, type Member, type MemberQueryParams, type UpdateMemberRequest } from '@/services/members.service';
+import { BulkPermanentDeleteDialog } from '@/components/members/BulkPermanentDeleteDialog';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -142,7 +143,10 @@ export default function MembersPage() {
   const PAGE_SIZE_OPTIONS = [25, 50, 100, 200] as const;
   const [pageSize, setPageSize] = useState<number>(25);
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const loadMembersRequestIdRef = useRef(0);
+  const canBulkDelete = canBulkPermanentDelete(userRole);
 
   // Load user role and data (auth redirect handled by dashboard layout)
   useEffect(() => {
@@ -264,6 +268,14 @@ export default function MembersPage() {
     void loadMembersPage(page);
   }, [page, loadMembersPage]);
 
+  useEffect(() => {
+    const visibleIds = new Set(members.map((member) => member.id));
+    setSelectedMemberIds((prev) => {
+      const next = prev.filter((id) => visibleIds.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [members]);
+
   // Show a quick back-to-top shortcut on long scrolls.
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -375,6 +387,59 @@ export default function MembersPage() {
            userRole === 'ADMINISTRATOR' || 
            userRole === 'DCS' ||
            userRole === 'MINISTRY_COORDINATOR';
+  };
+
+  const memberRowDisplayName = (member: Member): string =>
+    member.nickname
+      ? `${member.nickname} ${member.lastName}`
+      : `${member.firstName} ${getMiddleInitial(member.middleName) ? getMiddleInitial(member.middleName) + ' ' : ''}${member.lastName}`;
+
+  const isProtectedFromBulkDelete = (member: Member): boolean =>
+    member.userId === currentUserId || member.user?.role === 'SUPER_USER';
+
+  const selectableMembers = filteredMembers.filter((member) => !isProtectedFromBulkDelete(member));
+  const selectedMembers = members.filter((member) => selectedMemberIds.includes(member.id));
+  const allSelectableSelected =
+    selectableMembers.length > 0 &&
+    selectableMembers.every((member) => selectedMemberIds.includes(member.id));
+  const tableColSpan = canBulkDelete ? 7 : 6;
+
+  const toggleSelectedMember = (memberId: string, checked: boolean) => {
+    setSelectedMemberIds((prev) => {
+      if (checked) {
+        if (prev.includes(memberId)) return prev;
+        if (prev.length >= MAX_BULK_PERMANENT_DELETE) {
+          toast.error('Too many selected', {
+            description: `Select at most ${MAX_BULK_PERMANENT_DELETE} members at a time.`,
+          });
+          return prev;
+        }
+        return [...prev, memberId];
+      }
+      return prev.filter((id) => id !== memberId);
+    });
+  };
+
+  const toggleSelectAllOnPage = (checked: boolean) => {
+    const pageIds = new Set(filteredMembers.map((member) => member.id));
+    if (!checked) {
+      setSelectedMemberIds((prev) => prev.filter((id) => !pageIds.has(id)));
+      return;
+    }
+    setSelectedMemberIds((prev) => {
+      const next = [...prev];
+      for (const member of selectableMembers) {
+        if (next.includes(member.id)) continue;
+        if (next.length >= MAX_BULK_PERMANENT_DELETE) {
+          toast.error('Too many selected', {
+            description: `Select at most ${MAX_BULK_PERMANENT_DELETE} members at a time.`,
+          });
+          break;
+        }
+        next.push(member.id);
+      }
+      return next;
+    });
   };
 
   // Handle input changes with proper capitalization
@@ -999,12 +1064,43 @@ export default function MembersPage() {
             )}
           </div>
 
+          {canBulkDelete && (
+            <div className="mb-4 flex flex-col gap-3 rounded-lg border border-red-200 bg-red-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-base font-medium text-gray-800">
+                {selectedMemberIds.length === 0
+                  ? 'Select members with the checkboxes, then remove them permanently.'
+                  : `${selectedMemberIds.length} member${selectedMemberIds.length === 1 ? '' : 's'} selected`}
+              </p>
+              <Button
+                type="button"
+                className="h-12 w-full bg-red-700 text-lg text-white hover:bg-red-800 sm:w-auto"
+                disabled={selectedMemberIds.length === 0}
+                onClick={() => setShowBulkDeleteDialog(true)}
+              >
+                Remove selected permanently
+              </Button>
+            </div>
+          )}
+
           {/* Members Table */}
           <div className="bg-gray-50 rounded-lg overflow-hidden">
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-gray-200">
+                    {canBulkDelete && (
+                      <TableHead className="w-16 px-3 py-3 text-left text-sm font-medium text-gray-700">
+                        <label className="flex min-h-12 min-w-12 items-center justify-center">
+                          <input
+                            type="checkbox"
+                            className="h-7 w-7 rounded border-gray-400 text-red-700 focus:ring-red-600"
+                            checked={allSelectableSelected}
+                            onChange={(event) => toggleSelectAllOnPage(event.target.checked)}
+                            aria-label="Select all members on this page"
+                          />
+                        </label>
+                      </TableHead>
+                    )}
                     <TableHead className="px-4 py-3 text-left text-sm font-medium text-gray-700">Name</TableHead>
                     <TableHead className="px-4 py-3 text-left text-sm font-medium text-gray-700">Community ID</TableHead>
                     <TableHead className="px-4 py-3 text-left text-sm font-medium text-gray-700">Ministry/Apostolate</TableHead>
@@ -1016,13 +1112,13 @@ export default function MembersPage() {
                 <TableBody className="divide-y divide-gray-200">
                   {membersLoading ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                      <TableCell colSpan={tableColSpan} className="px-4 py-8 text-center text-gray-500">
                         Loading members...
                       </TableCell>
                     </TableRow>
                   ) : filteredMembers.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                      <TableCell colSpan={tableColSpan} className="px-4 py-8 text-center text-gray-500">
                         {searchTerm.trim() || filterRole !== 'ALL' || filterStatus !== 'ALL' || filterMinistry !== 'ALL'
                           ? 'No members match your filters'
                           : 'No members found'}
@@ -1030,12 +1126,32 @@ export default function MembersPage() {
                     </TableRow>
                   ) : (
                     filteredMembers.map((member) => {
-                      const displayName = member.nickname
-                        ? `${member.nickname} ${member.lastName}`
-                        : `${member.firstName} ${getMiddleInitial(member.middleName) ? getMiddleInitial(member.middleName) + ' ' : ''}${member.lastName}`;
+                      const displayName = memberRowDisplayName(member);
+                      const protectedFromBulk = isProtectedFromBulkDelete(member);
                       
                       return (
                         <TableRow key={member.id} className="hover:bg-gray-100">
+                          {canBulkDelete && (
+                            <TableCell className="px-3 py-3">
+                              <label className="flex min-h-12 min-w-12 items-center justify-center">
+                                <input
+                                  type="checkbox"
+                                  className="h-7 w-7 rounded border-gray-400 text-red-700 focus:ring-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+                                  checked={selectedMemberIds.includes(member.id)}
+                                  disabled={protectedFromBulk}
+                                  onChange={(event) => toggleSelectedMember(member.id, event.target.checked)}
+                                  aria-label={`Select ${displayName} ${member.communityId}`}
+                                  title={
+                                    member.userId === currentUserId
+                                      ? 'You cannot remove your own account'
+                                      : member.user?.role === 'SUPER_USER'
+                                        ? 'SUPER_USER accounts cannot be removed'
+                                        : `Select ${displayName}`
+                                  }
+                                />
+                              </label>
+                            </TableCell>
+                          )}
                           <TableCell className="px-4 py-3">
                             <div className="flex items-center gap-3">
                               {member.photoUrl ? (
@@ -1954,6 +2070,27 @@ export default function MembersPage() {
               </div>
             </DialogContent>
           </Dialog>
+        )}
+
+        {canBulkDelete && (
+          <BulkPermanentDeleteDialog
+            open={showBulkDeleteDialog}
+            members={selectedMembers.map((member) => ({
+              id: member.id,
+              name: memberRowDisplayName(member),
+              communityId: member.communityId,
+            }))}
+            onOpenChange={setShowBulkDeleteDialog}
+            onConfirm={() => membersService.bulkPermanentDelete(selectedMemberIds)}
+            onCompleted={() => {
+              const removed = selectedMemberIds.length;
+              setSelectedMemberIds([]);
+              reloadCurrentPage();
+              toast.success('Accounts removed', {
+                description: `Permanently removed ${removed} member account(s).`,
+              });
+            }}
+          />
         )}
       </div>
     </div>

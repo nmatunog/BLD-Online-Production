@@ -141,6 +141,28 @@ export interface MembersResponse {
   };
 }
 
+export const MAX_BULK_PERMANENT_DELETE = 50;
+
+export const BULK_PERMANENT_DELETE_ROLES = ['SUPER_USER', 'ADMINISTRATOR'] as const;
+
+export function canBulkPermanentDelete(role: string | null | undefined): boolean {
+  return !!role && (BULK_PERMANENT_DELETE_ROLES as readonly string[]).includes(role);
+}
+
+export interface BulkPermanentDeleteItemResult {
+  memberId: string;
+  communityId: string;
+  name: string;
+  status: 'deleted' | 'failed';
+  error?: string;
+}
+
+export interface BulkPermanentDeleteResponse {
+  deletedCount: number;
+  communityIds: string[];
+  results: BulkPermanentDeleteItemResult[];
+}
+
 export interface CreateMemberRequest {
   firstName: string;
   lastName: string;
@@ -292,6 +314,26 @@ class MembersService {
     const response = await apiClient.delete<ApiResponse<unknown>>(`/members/${id}/permanent`);
     if (!response.data.success) {
       throw new Error(response.data.error || 'Failed to permanently remove member');
+    }
+  }
+
+  /** Deactivate then permanently remove up to 50 members in one transaction. */
+  async bulkPermanentDelete(memberIds: string[]): Promise<BulkPermanentDeleteResponse> {
+    try {
+      const response = await apiClient.post<ApiResponse<BulkPermanentDeleteResponse>>(
+        '/members/bulk-permanent-delete',
+        { memberIds },
+      );
+      if (!response.data.success || !response.data.data) {
+        throw new Error(
+          asHumanErrorMessage(response.data.error, 'Failed to permanently remove selected members'),
+        );
+      }
+      return response.data.data;
+    } catch (error) {
+      throw new Error(
+        getMemberApiErrorMessage(error, 'Failed to permanently remove selected members'),
+      );
     }
   }
 
