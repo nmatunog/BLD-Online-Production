@@ -94,9 +94,9 @@ export function BulkPermanentDeleteDialog({
             memberId: member.id,
             name: member.name,
             communityId: member.communityId,
-            status: 'pending' as const,
+            status: 'pending',
           }))).map((row) => (
-            <li key={'memberId' in row ? row.memberId : row.communityId} className="text-lg text-gray-900">
+            <li key={row.memberId} className="text-lg text-gray-900">
               <p className="font-semibold">{row.name}</p>
               <p className="font-mono text-base text-gray-700">{row.communityId}</p>
               {results ? (

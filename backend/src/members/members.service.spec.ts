@@ -20,16 +20,13 @@ function seedMember(
   overrides: Partial<StoredMember> & Pick<StoredMember, 'id' | 'userId' | 'communityId'>,
 ): StoredMember {
   return {
-    firstName: 'Test',
-    lastName: 'Account',
+    firstName: overrides.firstName ?? 'Test',
+    lastName: overrides.lastName ?? 'Account',
+    id: overrides.id,
+    userId: overrides.userId,
+    communityId: overrides.communityId,
     user: {
-      id: overrides.userId,
-      role: UserRole.MEMBER,
-      isActive: true,
-    },
-    ...overrides,
-    user: {
-      id: overrides.userId,
+      id: overrides.user?.id ?? overrides.userId,
       role: overrides.user?.role ?? UserRole.MEMBER,
       isActive: overrides.user?.isActive ?? true,
     },
