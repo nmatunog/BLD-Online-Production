@@ -36,7 +36,7 @@ function publicMember(overrides: Partial<{
 
 describe('MemberCardsService', () => {
   const prisma = {
-    member: { findUnique: jest.fn() },
+    member: { findUnique: jest.fn(), findMany: jest.fn(), update: jest.fn() },
     memberCard: {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
@@ -351,21 +351,118 @@ describe('MemberCardsService', () => {
 
     it('includes the NFC URL only in export rows', async () => {
       const token = generateCardToken();
+      prisma.member.findMany.mockResolvedValue([
+        {
+          ...publicMember(),
+          ministryHistory: [],
+          user: { ministry: null },
+          cards: [
+            {
+              id: 'card-1',
+              status: MemberCardStatus.ACTIVE,
+              tokenEncrypted: encryptCardToken(token, SECRET),
+              issuedAt: new Date(),
+              encodedAt: null,
+            },
+          ],
+        },
+      ]);
+
+      const rows = await service.exportRows({ all: true });
+      expect(rows[0].nfcUrl).toBe(`https://app.bldcebu.com/verify/${token}`);
+      expect(rows[0].token).toBe(token);
+      expect(rows[0].cardStatus).toBe(MemberCardStatus.ACTIVE);
+    });
+
+    it('exports members without cards when all=true or memberIds are set', async () => {
+      prisma.member.findMany.mockResolvedValue([
+        {
+          ...publicMember({ id: 'member-2', ministry: null }),
+          ministryHistory: [{ ministry: 'Music Ministry', endDate: null }],
+          user: { ministry: 'Service' },
+          cards: [],
+        },
+      ]);
+
+      const allRows = await service.exportRows({ all: true });
+      expect(allRows).toHaveLength(1);
+      expect(allRows[0].nfcUrl).toBe('');
+      expect(allRows[0].cardStatus).toBe('');
+      expect(allRows[0].ministry).toBe('Music Ministry');
+
+      prisma.member.findMany.mockResolvedValue([
+        {
+          ...publicMember({ id: 'member-3', ministry: null }),
+          ministryHistory: [],
+          user: { ministry: 'Intercessory' },
+          cards: [],
+        },
+      ]);
+      const selected = await service.exportRows({ memberIds: ['member-3'] });
+      expect(prisma.member.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          where: { id: { in: ['member-3'] } },
+        }),
+      );
+      expect(selected[0].ministry).toBe('Intercessory');
+      expect(selected[0].nfcUrl).toBe('');
+    });
+
+    it('lists all matching member IDs for Select all', async () => {
+      prisma.member.findMany.mockResolvedValue([
+        {
+          id: 'member-1',
+          firstName: 'Juan',
+          lastName: 'Dela Cruz',
+          nickname: 'Juan',
+          communityId: 'CEB-ME01-0001',
+        },
+        {
+          id: 'member-2',
+          firstName: 'Maria',
+          lastName: 'Santos',
+          nickname: null,
+          communityId: 'CEB-ME01-0002',
+        },
+      ]);
+
+      const result = await service.listMemberIds({ search: 'Juan' });
+      expect(result.ids).toEqual(['member-1', 'member-2']);
+      expect(result.total).toBe(2);
+      expect(prisma.member.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            user: { isActive: true },
+          }),
+        }),
+      );
+    });
+
+    it('resolves ministry fallback on card list items without writing', async () => {
       prisma.memberCard.findMany.mockResolvedValue([
         {
           id: 'card-1',
           memberId: 'member-1',
-          tokenEncrypted: encryptCardToken(token, SECRET),
+          tokenHash: 'abc',
+          tokenEncrypted: 'enc',
           status: MemberCardStatus.ACTIVE,
           issuedAt: new Date(),
+          revokedAt: null,
           encodedAt: null,
-          member: publicMember(),
+          lastVerifiedAt: null,
+          member: {
+            ...publicMember({ ministry: null }),
+            ministryHistory: [{ ministry: 'Praise Ministry' }],
+            user: { ministry: 'Service' },
+          },
         },
       ]);
+      prisma.memberCard.count.mockResolvedValue(1);
 
-      const rows = await service.exportRows({});
-      expect(rows[0].nfcUrl).toBe(`https://app.bldcebu.com/verify/${token}`);
-      expect(rows[0].token).toBe(token);
+      const listed = await service.list({});
+      expect(listed.data[0].member.ministry).toBe('Praise Ministry');
+      expect(prisma.member.update).not.toHaveBeenCalled();
+      expect(prisma.memberCard.update).not.toHaveBeenCalled();
     });
 
     it('list items never include tokens or hashes', async () => {

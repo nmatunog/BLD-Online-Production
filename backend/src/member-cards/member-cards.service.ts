@@ -23,6 +23,7 @@ import {
   isValidTokenFormat,
   resolveCardTokenSecret,
 } from './member-card-token.util';
+import { resolveDisplayMinistry, type MinistrySourceMember } from './member-card-ministry';
 
 const VALID_CARD_STATUSES: MemberCardStatus[] = [
   MemberCardStatus.ACTIVE,
@@ -58,7 +59,18 @@ const MEMBER_PUBLIC_SELECT = {
   communityId: true,
   ministry: true,
   photoUrl: true,
+  ministryHistory: {
+    where: { endDate: null },
+    select: { ministry: true },
+    orderBy: { startDate: 'desc' as const },
+    take: 1,
+  },
+  user: {
+    select: { ministry: true },
+  },
 } as const;
+
+type MemberPublicRecord = PublicCardMember & MinistrySourceMember;
 
 @Injectable()
 export class MemberCardsService {
@@ -97,14 +109,14 @@ export class MemberCardsService {
     return resolveCardTokenSecret();
   }
 
-  private toPublicMember(member: PublicCardMember): PublicCardMember {
+  private toPublicMember(member: MemberPublicRecord): PublicCardMember {
     return {
       id: member.id,
       firstName: member.firstName,
       lastName: member.lastName,
       nickname: member.nickname,
       communityId: member.communityId,
-      ministry: member.ministry,
+      ministry: resolveDisplayMinistry(member),
       photoUrl: member.photoUrl,
     };
   }
@@ -117,7 +129,7 @@ export class MemberCardsService {
     revokedAt: Date | null;
     encodedAt: Date | null;
     lastVerifiedAt: Date | null;
-    member: PublicCardMember;
+    member: MemberPublicRecord;
   }) {
     return {
       id: card.id,
@@ -134,7 +146,7 @@ export class MemberCardsService {
   private async issueOne(memberId: string, issuedByUserId: string) {
     const member = await this.prisma.member.findUnique({
       where: { id: memberId },
-      select: { ...MEMBER_PUBLIC_SELECT, user: { select: { isActive: true } } },
+      select: { ...MEMBER_PUBLIC_SELECT, user: { select: { isActive: true, ministry: true } } },
     });
     if (!member) {
       throw new NotFoundException('Member not found');
@@ -371,41 +383,95 @@ export class MemberCardsService {
     };
   }
 
-  async exportRows(query: { search?: string; status?: MemberCardStatus }) {
-    const where: Prisma.MemberCardWhereInput = {
-      status: query.status ?? { in: VALID_CARD_STATUSES },
+  private activeMemberWhere(search?: string): Prisma.MemberWhereInput {
+    const where: Prisma.MemberWhereInput = {
+      user: { isActive: true },
     };
-    if (query.search?.trim()) {
-      const q = query.search.trim();
-      where.member = {
-        OR: [
-          { firstName: { contains: q, mode: 'insensitive' } },
-          { lastName: { contains: q, mode: 'insensitive' } },
-          { communityId: { contains: q, mode: 'insensitive' } },
-        ],
-      };
+    if (search?.trim()) {
+      const q = search.trim();
+      where.OR = [
+        { firstName: { contains: q, mode: 'insensitive' } },
+        { lastName: { contains: q, mode: 'insensitive' } },
+        { nickname: { contains: q, mode: 'insensitive' } },
+        { communityId: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+    return where;
+  }
+
+  async listMemberIds(query: { search?: string }) {
+    const rows = await this.prisma.member.findMany({
+      where: this.activeMemberWhere(query.search),
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        nickname: true,
+        communityId: true,
+      },
+    });
+    return {
+      ids: rows.map((row) => row.id),
+      total: rows.length,
+      members: rows,
+    };
+  }
+
+  async exportRows(query: {
+    search?: string;
+    status?: MemberCardStatus;
+    memberIds?: string[];
+    all?: boolean;
+  }) {
+    const uniqueIds = [...new Set((query.memberIds ?? []).filter(Boolean))];
+    if (uniqueIds.length > 2000) {
+      throw new BadRequestException('Too many member IDs for export');
     }
 
-    const rows = await this.prisma.memberCard.findMany({
+    const where: Prisma.MemberWhereInput =
+      uniqueIds.length > 0 && query.all !== true
+        ? { id: { in: uniqueIds } }
+        : this.activeMemberWhere(query.search);
+
+    const rows = await this.prisma.member.findMany({
       where,
-      orderBy: [{ member: { lastName: 'asc' } }, { member: { firstName: 'asc' } }],
-      include: { member: { select: MEMBER_PUBLIC_SELECT } },
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      select: {
+        ...MEMBER_PUBLIC_SELECT,
+        cards: {
+          orderBy: { issuedAt: 'desc' },
+          select: {
+            id: true,
+            status: true,
+            tokenEncrypted: true,
+            issuedAt: true,
+            encodedAt: true,
+          },
+        },
+      },
     });
 
     return rows.map((row) => {
-      const token = decryptCardToken(row.tokenEncrypted, this.tokenSecret());
+      const liveCard = row.cards.find((card) => VALID_CARD_STATUSES.includes(card.status));
+      const latestCard = liveCard ?? row.cards[0];
+      const token =
+        liveCard && latestCard
+          ? decryptCardToken(latestCard.tokenEncrypted, this.tokenSecret())
+          : '';
       return {
-        cardId: row.id,
-        memberId: row.memberId,
-        name: `${row.member.firstName} ${row.member.lastName}`.trim(),
-        communityId: row.member.communityId,
-        ministry: row.member.ministry ?? '',
-        photoUrl: row.member.photoUrl ?? '',
-        nfcUrl: buildNfcUrl(token),
+        cardId: latestCard?.id ?? '',
+        memberId: row.id,
+        name: `${row.firstName} ${row.lastName}`.trim(),
+        communityId: row.communityId,
+        ministry: resolveDisplayMinistry(row) ?? '',
+        photoUrl: row.photoUrl ?? '',
+        nfcUrl: token ? buildNfcUrl(token) : '',
+        cardStatus: latestCard?.status ?? '',
         token,
-        status: row.status,
-        issuedAt: row.issuedAt,
-        encodedAt: row.encodedAt,
+        status: latestCard?.status ?? '',
+        issuedAt: latestCard?.issuedAt ?? null,
+        encodedAt: latestCard?.encodedAt ?? null,
       };
     });
   }

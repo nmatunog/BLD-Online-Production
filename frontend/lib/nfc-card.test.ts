@@ -7,6 +7,7 @@ import {
   isCardAdminRole,
   isValidDoorCard,
   printerMemberName,
+  resolveMemberMinistry,
 } from './nfc-card';
 
 describe('nfc-card helpers', () => {
@@ -35,6 +36,31 @@ describe('nfc-card helpers', () => {
     expect(adminCardStatusLabel('REVOKED', null)).toBe('Revoked');
     expect(isValidDoorCard('ACTIVE')).toBe(true);
     expect(isValidDoorCard('REVOKED')).toBe(false);
+  });
+
+  it('resolves ministry from member, then current history, then user', () => {
+    expect(
+      resolveMemberMinistry({
+        ministry: 'Worship',
+        ministryHistory: [{ ministry: 'Music', endDate: null }],
+        user: { ministry: 'Service' },
+      }),
+    ).toBe('Worship');
+    expect(
+      resolveMemberMinistry({
+        ministry: null,
+        ministryHistory: [{ ministry: 'Praise Ministry', endDate: null }],
+        user: { ministry: 'Service' },
+      }),
+    ).toBe('Praise Ministry');
+    expect(
+      resolveMemberMinistry({
+        ministry: '  ',
+        ministryHistory: [{ ministry: 'Closed', endDate: '2026-01-01' }],
+        user: { ministry: 'Intercessory' },
+      }),
+    ).toBe('Intercessory');
+    expect(resolveMemberMinistry({ ministry: null })).toBeNull();
   });
 
   it('limits card admin tools to privileged admins', () => {

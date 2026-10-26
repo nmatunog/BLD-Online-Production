@@ -66,10 +66,25 @@ export interface PrinterExportRow {
   ministry: string;
   photoUrl: string;
   nfcUrl: string;
+  cardStatus: string;
   token: string;
-  status: MemberCardStatus;
-  issuedAt: string;
+  status: MemberCardStatus | '';
+  issuedAt: string | null;
   encodedAt: string | null;
+}
+
+export interface SelectableMember {
+  id: string;
+  firstName: string;
+  lastName: string;
+  nickname: string | null;
+  communityId: string;
+}
+
+export interface MemberIdsResult {
+  ids: string[];
+  total: number;
+  members: SelectableMember[];
 }
 
 class MemberCardsService {
@@ -123,9 +138,18 @@ class MemberCardsService {
 
   async exportRows(params?: {
     search?: string;
-    status?: MemberCardStatus;
+    memberIds?: string[];
+    all?: boolean;
   }): Promise<ApiResponse<PrinterExportRow[]>> {
-    const response = await apiClient.get<ApiResponse<PrinterExportRow[]>>('/member-cards/export', {
+    const response = await apiClient.post<ApiResponse<PrinterExportRow[]>>(
+      '/member-cards/export',
+      params ?? { all: true },
+    );
+    return ensureBody(response);
+  }
+
+  async listMemberIds(params?: { search?: string }): Promise<ApiResponse<MemberIdsResult>> {
+    const response = await apiClient.get<ApiResponse<MemberIdsResult>>('/member-cards/member-ids', {
       params,
     });
     return ensureBody(response);

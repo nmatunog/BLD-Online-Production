@@ -9,12 +9,14 @@ import { membersService, type Member } from '@/services/members.service';
 import {
   memberCardsService,
   type MemberCardListItem,
+  type SelectableMember,
 } from '@/services/member-cards.service';
 import {
   adminCardStatusLabel,
   isCardAdminRole,
   PRINTER_NFC_HELP,
   printerMemberName,
+  resolveMemberMinistry,
 } from '@/lib/nfc-card';
 import {
   buildPrinterCsv,
@@ -48,7 +50,10 @@ export default function MemberCardsPage() {
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'ENCODED' | 'REVOKED'>('ALL');
   const [cards, setCards] = useState<MemberCardListItem[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [memberTotal, setMemberTotal] = useState(0);
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
+  const [memberIndex, setMemberIndex] = useState<Record<string, SelectableMember>>({});
+  const [selectAllLoading, setSelectAllLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [writeQueue, setWriteQueue] = useState<WriteTarget[]>([]);
   const [writeIndex, setWriteIndex] = useState(0);
@@ -94,9 +99,25 @@ export default function MemberCardsPage() {
         sortOrder: 'asc',
         limit: 50,
       });
-      setMembers(result.data ?? []);
+      const loaded = result.data ?? [];
+      setMembers(loaded);
+      setMemberTotal(result.pagination?.total ?? loaded.length);
+      setMemberIndex((current) => {
+        const next = { ...current };
+        for (const member of loaded) {
+          next[member.id] = {
+            id: member.id,
+            firstName: member.firstName,
+            lastName: member.lastName,
+            nickname: member.nickname ?? null,
+            communityId: member.communityId,
+          };
+        }
+        return next;
+      });
     } catch {
       setMembers([]);
+      setMemberTotal(0);
     }
   }, [search]);
 
@@ -116,10 +137,63 @@ export default function MemberCardsPage() {
     return map;
   }, [cards]);
 
+  useEffect(() => {
+    setSelectedMemberIds([]);
+  }, [search]);
+
+  const allSelected = memberTotal > 0 && selectedMemberIds.length === memberTotal;
+
+  const rememberMembers = (rows: SelectableMember[]) => {
+    setMemberIndex((current) => {
+      const next = { ...current };
+      for (const member of rows) {
+        next[member.id] = member;
+      }
+      return next;
+    });
+  };
+
   const toggleMember = (id: string) => {
     setSelectedMemberIds((current) =>
       current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
     );
+  };
+
+  const toggleSelectAll = async () => {
+    if (allSelected) {
+      setSelectedMemberIds([]);
+      return;
+    }
+    setSelectAllLoading(true);
+    try {
+      const result = await memberCardsService.listMemberIds({
+        search: search || undefined,
+      });
+      const ids = result.data?.ids ?? [];
+      rememberMembers(result.data?.members ?? []);
+      setMemberTotal(result.data?.total ?? ids.length);
+      setSelectedMemberIds(ids);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Could not select all members'));
+    } finally {
+      setSelectAllLoading(false);
+    }
+  };
+
+  const writeTargetsForSelection = (): WriteTarget[] => {
+    const targets: WriteTarget[] = [];
+    for (const id of selectedMemberIds) {
+      const member = memberIndex[id] ?? members.find((item) => item.id === id);
+      if (!member) continue;
+      targets.push({
+        memberId: member.id,
+        firstName: member.firstName,
+        lastName: member.lastName,
+        nickname: member.nickname,
+        communityId: member.communityId,
+      });
+    }
+    return targets;
   };
 
   const issueSelected = async () => {
@@ -151,19 +225,20 @@ export default function MemberCardsPage() {
 
   const exportPrinter = async (format: 'csv' | 'xlsx') => {
     try {
-      const result = await memberCardsService.exportRows({
-        search: search || undefined,
-        status: statusFilter === 'REVOKED' ? 'REVOKED' : undefined,
-      });
+      const result = await memberCardsService.exportRows(
+        selectedMemberIds.length === 0 || allSelected
+          ? { all: true, search: search || undefined }
+          : { memberIds: selectedMemberIds },
+      );
       const rows = toPrinterRows(result.data ?? []);
       if (rows.length === 0) {
-        toast.error('No cards to export');
+        toast.error('No members to export');
         return;
       }
       if (format === 'csv') {
-        downloadBytes('bld-nfc-cards.csv', buildPrinterCsv(rows), 'text/csv;charset=utf-8');
+        await downloadBytes('bld-nfc-cards.csv', buildPrinterCsv(rows), 'text/csv;charset=utf-8');
       } else {
-        downloadBytes(
+        await downloadBytes(
           'bld-nfc-cards.xlsx',
           buildPrinterWorkbook(rows),
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -225,19 +300,7 @@ export default function MemberCardsPage() {
           </button>
           <button
             type="button"
-            onClick={() =>
-              startWriteForMembers(
-                members
-                  .filter((member) => selectedMemberIds.includes(member.id))
-                  .map((member) => ({
-                    memberId: member.id,
-                    firstName: member.firstName,
-                    lastName: member.lastName,
-                    nickname: member.nickname,
-                    communityId: member.communityId,
-                  })),
-              )
-            }
+            onClick={() => startWriteForMembers(writeTargetsForSelection())}
             className="inline-flex min-h-14 items-center gap-2 rounded-2xl bg-rose-700 px-5 text-lg font-bold text-white"
           >
             <Smartphone className="h-5 w-5" />
@@ -271,6 +334,28 @@ export default function MemberCardsPage() {
 
         <section className="mb-8 rounded-3xl bg-white p-4 shadow">
           <h2 className="mb-3 text-2xl font-bold">Select members</h2>
+          <label className="mb-4 flex min-h-16 cursor-pointer items-center gap-4 rounded-2xl bg-slate-100 px-4 py-3">
+            <input
+              type="checkbox"
+              className="h-8 w-8 shrink-0"
+              checked={allSelected}
+              disabled={selectAllLoading}
+              onChange={() => void toggleSelectAll()}
+              aria-label="Select all members"
+            />
+            <span className="text-xl font-bold text-gray-900">
+              Select all
+              <span className="ml-2 font-semibold text-gray-700">
+                {selectAllLoading
+                  ? 'Loading all members…'
+                  : selectedMemberIds.length > 0
+                    ? `${selectedMemberIds.length} selected`
+                    : memberTotal > 0
+                      ? `${memberTotal} members`
+                      : ''}
+              </span>
+            </span>
+          </label>
           <ul className="divide-y">
             {members.map((member) => {
               const existing = cardByMember.get(member.id);
@@ -286,7 +371,7 @@ export default function MemberCardsPage() {
                   <div className="min-w-0 flex-1">
                     <p className="text-xl font-bold">{printerMemberName(member)}</p>
                     <p className="text-base text-gray-600">
-                      {member.communityId} · {member.ministry || 'No ministry'}
+                      {member.communityId} · {resolveMemberMinistry(member) || 'No ministry'}
                       {existing
                         ? ` · ${adminCardStatusLabel(existing.status, existing.encodedAt)}`
                         : ' · No card'}
@@ -339,7 +424,7 @@ export default function MemberCardsPage() {
                       {printerMemberName(card.member)}
                     </td>
                     <td className="py-3 pr-3">{card.member.communityId}</td>
-                    <td className="py-3 pr-3">{card.member.ministry || '—'}</td>
+                    <td className="py-3 pr-3">{resolveMemberMinistry(card.member) || '—'}</td>
                     <td className="py-3 pr-3">
                       {adminCardStatusLabel(card.status, card.encodedAt)}
                     </td>

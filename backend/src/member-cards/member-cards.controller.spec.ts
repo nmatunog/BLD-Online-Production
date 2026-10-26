@@ -52,6 +52,32 @@ describe('MemberCardsController verify auth', () => {
     expect(service.verify).toHaveBeenCalled();
   });
 
+  it('restricts export and member-ids to card admins', () => {
+    const exportContext = (role: UserRole): ExecutionContext =>
+      ({
+        getHandler: () => MemberCardsController.prototype.export,
+        getClass: () => MemberCardsController,
+        switchToHttp: () => ({
+          getRequest: () => ({ user: { id: 'user-1', role } }),
+        }),
+      }) as unknown as ExecutionContext;
+    const memberIdsContext = (role: UserRole): ExecutionContext =>
+      ({
+        getHandler: () => MemberCardsController.prototype.memberIds,
+        getClass: () => MemberCardsController,
+        switchToHttp: () => ({
+          getRequest: () => ({ user: { id: 'user-1', role } }),
+        }),
+      }) as unknown as ExecutionContext;
+
+    expect(guard.canActivate(exportContext(UserRole.ADMINISTRATOR))).toBe(true);
+    expect(guard.canActivate(exportContext(UserRole.DCS))).toBe(true);
+    expect(guard.canActivate(exportContext(UserRole.MEMBER))).toBe(false);
+    expect(guard.canActivate(exportContext(UserRole.MINISTRY_COORDINATOR))).toBe(false);
+    expect(guard.canActivate(memberIdsContext(UserRole.SUPER_USER))).toBe(true);
+    expect(guard.canActivate(memberIdsContext(UserRole.MEMBER))).toBe(false);
+  });
+
   it('allows only admin and door-staff roles on verify', () => {
     expect(CARD_VERIFY_STAFF_ROLES).toEqual([
       UserRole.SUPER_USER,
