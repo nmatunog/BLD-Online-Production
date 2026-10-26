@@ -15,6 +15,7 @@ vi.mock('./api-client', () => ({
 
 import {
   buildMemberPhotoUploadBody,
+  canBulkPermanentDelete,
   getMemberApiErrorMessage,
   membersService,
   PHOTO_UPLOAD_TIMEOUT_MS,
@@ -187,5 +188,41 @@ describe('membersService photo upload', () => {
     await expect(membersService.uploadMemberPhoto('member-1', PHOTO_DATA_URL)).rejects.toThrow(
       'Could not process photo',
     );
+  });
+});
+
+describe('canBulkPermanentDelete', () => {
+  it('is limited to Super User and Administrator', () => {
+    expect(canBulkPermanentDelete('SUPER_USER')).toBe(true);
+    expect(canBulkPermanentDelete('ADMINISTRATOR')).toBe(true);
+    expect(canBulkPermanentDelete('DCS')).toBe(false);
+    expect(canBulkPermanentDelete('MEMBER')).toBe(false);
+  });
+});
+
+describe('membersService.bulkPermanentDelete', () => {
+  beforeEach(() => {
+    post.mockReset();
+  });
+
+  it('posts memberIds to /members/bulk-permanent-delete', async () => {
+    post.mockResolvedValue({
+      data: {
+        success: true,
+        data: {
+          deletedCount: 1,
+          communityIds: ['CEB-ME9902'],
+          results: [
+            { memberId: 'm1', communityId: 'CEB-ME9902', name: 'Ada Reyes', status: 'deleted' },
+          ],
+        },
+      },
+    });
+
+    await expect(membersService.bulkPermanentDelete(['m1'])).resolves.toMatchObject({
+      deletedCount: 1,
+      communityIds: ['CEB-ME9902'],
+    });
+    expect(post).toHaveBeenCalledWith('/members/bulk-permanent-delete', { memberIds: ['m1'] });
   });
 });

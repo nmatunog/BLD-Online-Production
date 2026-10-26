@@ -32,6 +32,7 @@ import { UserRole } from '@prisma/client';
 import { AllowExtraFieldsPipe } from './pipes/allow-extra-fields.pipe';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadPhotoDto } from './dto/upload-photo.dto';
+import { BulkPermanentDeleteDto } from './dto/bulk-permanent-delete.dto';
 
 @ApiTags('Members')
 @Controller('members')
@@ -85,6 +86,29 @@ export class MembersController {
       success: true,
       data: member,
       message: 'Member created successfully',
+    };
+  }
+
+  @Post('bulk-permanent-delete')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Permanently remove selected members in one transaction (auto-deactivates first)',
+  })
+  @ApiResponse({ status: 200, description: 'Selected members permanently removed' })
+  @ApiResponse({ status: 400, description: 'Invalid member list or one id failed (rolled back)' })
+  @ApiResponse({ status: 403, description: 'Forbidden role, self-delete, or SUPER_USER target' })
+  @ApiResponse({ status: 404, description: 'One or more members were not found (rolled back)' })
+  async bulkPermanentDelete(
+    @Body() body: BulkPermanentDeleteDto,
+    @CurrentUser() user: { id: string; role: UserRole },
+  ): Promise<ApiResponseDto<unknown>> {
+    const result = await this.membersService.bulkPermanentDelete(body.memberIds, user);
+    return {
+      success: true,
+      data: result,
+      message: `Permanently removed ${result.deletedCount} member account(s).`,
     };
   }
 
