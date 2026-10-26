@@ -180,20 +180,21 @@ export default function MemberCardsPage() {
     }
   };
 
-  const writeTargetsForSelection = (): WriteTarget[] =>
-    selectedMemberIds
-      .map((id) => {
-        const member = memberIndex[id] ?? members.find((item) => item.id === id);
-        if (!member) return null;
-        return {
-          memberId: member.id,
-          firstName: member.firstName,
-          lastName: member.lastName,
-          nickname: member.nickname,
-          communityId: member.communityId,
-        };
-      })
-      .filter((item): item is WriteTarget => item != null);
+  const writeTargetsForSelection = (): WriteTarget[] => {
+    const targets: WriteTarget[] = [];
+    for (const id of selectedMemberIds) {
+      const member = memberIndex[id] ?? members.find((item) => item.id === id);
+      if (!member) continue;
+      targets.push({
+        memberId: member.id,
+        firstName: member.firstName,
+        lastName: member.lastName,
+        nickname: member.nickname,
+        communityId: member.communityId,
+      });
+    }
+    return targets;
+  };
 
   const issueSelected = async () => {
     if (selectedMemberIds.length === 0) {

@@ -79,11 +79,10 @@ function canShareFiles(file: File): boolean {
 }
 
 export async function downloadBytes(filename: string, bytes: BlobPart, mime: string): Promise<void> {
-  if (typeof document === 'undefined') return;
   const blob = new Blob([bytes], { type: mime });
-  const file = new File([blob], filename, { type: mime });
+  const file = typeof File === 'undefined' ? null : new File([blob], filename, { type: mime });
 
-  if (canShareFiles(file)) {
+  if (file && canShareFiles(file)) {
     try {
       await navigator.share({ files: [file], title: filename });
       return;
@@ -92,6 +91,7 @@ export async function downloadBytes(filename: string, bytes: BlobPart, mime: str
     }
   }
 
+  if (typeof document === 'undefined') return;
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

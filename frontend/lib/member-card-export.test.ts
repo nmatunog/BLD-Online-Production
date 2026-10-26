@@ -1,3 +1,4 @@
+/** @vitest-environment jsdom */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildPrinterCsv, downloadBytes, toPrinterRows } from './member-card-export';
 
@@ -33,16 +34,20 @@ describe('member-card-export', () => {
 describe('downloadBytes', () => {
   afterEach(() => {
     vi.useRealTimers();
-    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
   it('uses navigator.share when canShare({ files }) is available', async () => {
     const share = vi.fn().mockResolvedValue(undefined);
     const canShare = vi.fn().mockReturnValue(true);
-    vi.stubGlobal('navigator', { ...navigator, canShare, share });
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: canShare });
+    Object.defineProperty(navigator, 'share', { configurable: true, value: share });
     const createObjectURL = vi.fn(() => 'blob:unused');
-    vi.spyOn(URL, 'createObjectURL').mockImplementation(createObjectURL);
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      writable: true,
+      value: createObjectURL,
+    });
 
     await downloadBytes('bld-nfc-cards.csv', 'name\n', 'text/csv;charset=utf-8');
 
@@ -58,9 +63,20 @@ describe('downloadBytes', () => {
 
   it('falls back to an anchor download and revokes the object URL after about 1s', async () => {
     vi.useFakeTimers();
-    vi.stubGlobal('navigator', { ...navigator, canShare: undefined, share: undefined });
-    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:cards');
-    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: undefined });
+    Object.defineProperty(navigator, 'share', { configurable: true, value: undefined });
+    const createObjectURL = vi.fn(() => 'blob:cards');
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      writable: true,
+      value: createObjectURL,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      writable: true,
+      value: revokeObjectURL,
+    });
     const click = vi.fn();
     const link = {
       href: '',
