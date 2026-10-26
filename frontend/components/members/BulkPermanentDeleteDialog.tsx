@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,7 +13,11 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { BulkPermanentDeleteItemResult, BulkPermanentDeleteResponse } from '@/services/members.service';
+import {
+  getMemberApiErrorMessage,
+  type BulkPermanentDeleteItemResult,
+  type BulkPermanentDeleteResponse,
+} from '@/services/members.service';
 
 export const BULK_DELETE_CONFIRM_WORD = 'DELETE';
 
@@ -42,9 +46,11 @@ export function BulkPermanentDeleteDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<BulkPermanentDeleteItemResult[] | null>(null);
+  const inFlightRef = useRef(false);
 
   useEffect(() => {
     if (!open) return;
+    inFlightRef.current = false;
     setConfirmText('');
     setIsSubmitting(false);
     setError(null);
@@ -54,21 +60,24 @@ export function BulkPermanentDeleteDialog({
   const canSubmit = confirmText.trim() === BULK_DELETE_CONFIRM_WORD && !isSubmitting && !results;
 
   const handleConfirm = async () => {
-    if (!canSubmit) return;
+    if (inFlightRef.current) return;
+    if (confirmText.trim() !== BULK_DELETE_CONFIRM_WORD || results) return;
+    inFlightRef.current = true;
     setIsSubmitting(true);
     setError(null);
     try {
       const response = await onConfirm();
       setResults(response.results);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to permanently remove selected members');
+      setError(getMemberApiErrorMessage(err, 'Failed to permanently remove selected members'));
     } finally {
+      inFlightRef.current = false;
       setIsSubmitting(false);
     }
   };
 
   const handleClose = (nextOpen: boolean) => {
-    if (isSubmitting) return;
+    if (inFlightRef.current || isSubmitting) return;
     if (!nextOpen && results) {
       onCompleted();
     }

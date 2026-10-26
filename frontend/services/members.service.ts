@@ -319,14 +319,22 @@ class MembersService {
 
   /** Deactivate then permanently remove up to 50 members in one transaction. */
   async bulkPermanentDelete(memberIds: string[]): Promise<BulkPermanentDeleteResponse> {
-    const response = await apiClient.post<ApiResponse<BulkPermanentDeleteResponse>>(
-      '/members/bulk-permanent-delete',
-      { memberIds },
-    );
-    if (!response.data.success || !response.data.data) {
-      throw new Error(response.data.error || 'Failed to permanently remove selected members');
+    try {
+      const response = await apiClient.post<ApiResponse<BulkPermanentDeleteResponse>>(
+        '/members/bulk-permanent-delete',
+        { memberIds },
+      );
+      if (!response.data.success || !response.data.data) {
+        throw new Error(
+          asHumanErrorMessage(response.data.error, 'Failed to permanently remove selected members'),
+        );
+      }
+      return response.data.data;
+    } catch (error) {
+      throw new Error(
+        getMemberApiErrorMessage(error, 'Failed to permanently remove selected members'),
+      );
     }
-    return response.data.data;
   }
 
   async regenerateQRCode(id: string): Promise<{ id: string; communityId: string; qrCodeUrl: string }> {

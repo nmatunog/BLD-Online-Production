@@ -53,6 +53,9 @@ const BULK_PERMANENT_DELETE_ROLES: UserRole[] = [
   UserRole.ADMINISTRATOR,
 ];
 
+export const BULK_PERMANENT_DELETE_TX_MAX_WAIT_MS = 10_000;
+export const BULK_PERMANENT_DELETE_TX_TIMEOUT_MS = 30_000;
+
 /** Inputs that map to Cebu (Community ID starts with CEB) */
 const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
 const KNOWN_CITY_CODES = ['CEB', 'BAL', 'DAN', 'DUM', 'ORM', 'MAN'];
@@ -894,52 +897,58 @@ export class MembersService implements OnModuleInit {
       );
     }
 
-    const results = await this.prisma.$transaction(async (tx) => {
-      const batch: BulkPermanentDeleteItemResult[] = [];
+    const results = await this.prisma.$transaction(
+      async (tx) => {
+        const batch: BulkPermanentDeleteItemResult[] = [];
 
-      for (const id of uniqueIds) {
-        const member = await tx.member.findUnique({
-          where: { id },
-          include: {
-            user: {
-              select: {
-                id: true,
-                role: true,
-                isActive: true,
+        for (const id of uniqueIds) {
+          const member = await tx.member.findUnique({
+            where: { id },
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  role: true,
+                  isActive: true,
+                },
               },
             },
-          },
-        });
+          });
 
-        if (!member) {
-          throw new NotFoundException(`Member with ID "${id}" not found`);
+          if (!member) {
+            throw new NotFoundException(`Member with ID "${id}" not found`);
+          }
+
+          if (member.userId === currentUser.id) {
+            throw new ForbiddenException('You cannot permanently delete your own account.');
+          }
+
+          if (member.user?.role === UserRole.SUPER_USER) {
+            throw new ForbiddenException('SUPER_USER accounts cannot be permanently deleted.');
+          }
+
+          await tx.user.update({
+            where: { id: member.userId },
+            data: { isActive: false },
+          });
+          await this.deleteMemberAndUserAccount(tx, member.id, member.userId);
+
+          const name = [member.firstName, member.lastName].filter(Boolean).join(' ').trim();
+          batch.push({
+            memberId: member.id,
+            communityId: member.communityId,
+            name,
+            status: 'deleted',
+          });
         }
 
-        if (member.userId === currentUser.id) {
-          throw new ForbiddenException('You cannot permanently delete your own account.');
-        }
-
-        if (member.user?.role === UserRole.SUPER_USER) {
-          throw new ForbiddenException('SUPER_USER accounts cannot be permanently deleted.');
-        }
-
-        await tx.user.update({
-          where: { id: member.userId },
-          data: { isActive: false },
-        });
-        await this.deleteMemberAndUserAccount(tx, member.id, member.userId);
-
-        const name = [member.firstName, member.lastName].filter(Boolean).join(' ').trim();
-        batch.push({
-          memberId: member.id,
-          communityId: member.communityId,
-          name,
-          status: 'deleted',
-        });
-      }
-
-      return batch;
-    });
+        return batch;
+      },
+      {
+        maxWait: BULK_PERMANENT_DELETE_TX_MAX_WAIT_MS,
+        timeout: BULK_PERMANENT_DELETE_TX_TIMEOUT_MS,
+      },
+    );
 
     const communityIds = results.map((row) => row.communityId);
     this.logger.log(

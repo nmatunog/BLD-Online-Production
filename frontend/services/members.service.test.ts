@@ -201,6 +201,8 @@ describe('canBulkPermanentDelete', () => {
 });
 
 describe('membersService.bulkPermanentDelete', () => {
+  const memberId = '11111111-1111-4111-8111-111111111111';
+
   beforeEach(() => {
     post.mockReset();
   });
@@ -213,16 +215,30 @@ describe('membersService.bulkPermanentDelete', () => {
           deletedCount: 1,
           communityIds: ['CEB-ME9902'],
           results: [
-            { memberId: 'm1', communityId: 'CEB-ME9902', name: 'Ada Reyes', status: 'deleted' },
+            { memberId, communityId: 'CEB-ME9902', name: 'Ada Reyes', status: 'deleted' },
           ],
         },
       },
     });
 
-    await expect(membersService.bulkPermanentDelete(['m1'])).resolves.toMatchObject({
+    await expect(membersService.bulkPermanentDelete([memberId])).resolves.toMatchObject({
       deletedCount: 1,
       communityIds: ['CEB-ME9902'],
     });
-    expect(post).toHaveBeenCalledWith('/members/bulk-permanent-delete', { memberIds: ['m1'] });
+    expect(post).toHaveBeenCalledWith('/members/bulk-permanent-delete', { memberIds: [memberId] });
+  });
+
+  it('surfaces the server message via getMemberApiErrorMessage', async () => {
+    post.mockRejectedValue({
+      response: {
+        status: 400,
+        data: { message: 'memberIds must be a UUID' },
+      },
+      message: 'Request failed with status code 400',
+    });
+
+    await expect(membersService.bulkPermanentDelete(['not-a-uuid'])).rejects.toThrow(
+      'memberIds must be a UUID',
+    );
   });
 });

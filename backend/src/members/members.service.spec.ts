@@ -4,8 +4,29 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
-import { MembersService } from './members.service';
+import {
+  BULK_PERMANENT_DELETE_TX_MAX_WAIT_MS,
+  BULK_PERMANENT_DELETE_TX_TIMEOUT_MS,
+  MembersService,
+} from './members.service';
 import { MAX_BULK_PERMANENT_DELETE } from './dto/bulk-permanent-delete.dto';
+
+const ID = {
+  admin: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  superCaller: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  m1: '11111111-1111-4111-8111-111111111111',
+  u1: '11111111-1111-4111-8111-111111111110',
+  m2: '22222222-2222-4222-8222-222222222222',
+  u2: '22222222-2222-4222-8222-222222222220',
+  mKeep: '33333333-3333-4333-8333-333333333333',
+  uKeep: '33333333-3333-4333-8333-333333333330',
+  mSelf: '44444444-4444-4444-8444-444444444444',
+  mOk: '55555555-5555-4555-8555-555555555555',
+  uOk: '55555555-5555-4555-8555-555555555550',
+  mSuper: '66666666-6666-4666-8666-666666666666',
+  uSuper: '66666666-6666-4666-8666-666666666660',
+  missing: '99999999-9999-4999-8999-999999999999',
+};
 
 type StoredMember = {
   id: string;
@@ -33,6 +54,10 @@ function seedMember(
   };
 }
 
+function uuidAt(index: number): string {
+  return `00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`;
+}
+
 describe('MembersService.bulkPermanentDelete', () => {
   const bunnyCDN = { isConfigured: jest.fn().mockReturnValue(false) };
 
@@ -48,7 +73,7 @@ describe('MembersService.bulkPermanentDelete', () => {
   let service: MembersService;
   let loggerLog: jest.SpyInstance;
 
-  const admin = { id: 'admin-1', role: UserRole.ADMINISTRATOR };
+  const admin = { id: ID.admin, role: UserRole.ADMINISTRATOR };
 
   function makeTx() {
     return {
@@ -131,30 +156,30 @@ describe('MembersService.bulkPermanentDelete', () => {
       UserRole.CLASS_SHEPHERD,
     ])('rejects %s', async (role) => {
       await expect(
-        service.bulkPermanentDelete(['m1'], { id: 'u1', role }),
+        service.bulkPermanentDelete([ID.m1], { id: ID.u1, role }),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
     it('allows ADMINISTRATOR and SUPER_USER', async () => {
-      putMember(seedMember({ id: 'm1', userId: 'u1', communityId: 'CEB-ME9902' }));
+      putMember(seedMember({ id: ID.m1, userId: ID.u1, communityId: 'CEB-ME9902' }));
       await expect(
-        service.bulkPermanentDelete(['m1'], admin),
+        service.bulkPermanentDelete([ID.m1], admin),
       ).resolves.toMatchObject({ deletedCount: 1 });
 
-      putMember(seedMember({ id: 'm2', userId: 'u2', communityId: 'CEB-ME8802' }));
+      putMember(seedMember({ id: ID.m2, userId: ID.u2, communityId: 'CEB-ME8802' }));
       await expect(
-        service.bulkPermanentDelete(['m2'], { id: 'super-1', role: UserRole.SUPER_USER }),
+        service.bulkPermanentDelete([ID.m2], { id: ID.superCaller, role: UserRole.SUPER_USER }),
       ).resolves.toMatchObject({ deletedCount: 1 });
     });
   });
 
   describe('self and SUPER_USER guards', () => {
     it('never deletes the caller own account and rolls back the batch', async () => {
-      putMember(seedMember({ id: 'm-keep', userId: 'u-keep', communityId: 'CEB-ME8801' }));
+      putMember(seedMember({ id: ID.mKeep, userId: ID.uKeep, communityId: 'CEB-ME8801' }));
       putMember(
         seedMember({
-          id: 'm-self',
+          id: ID.mSelf,
           userId: admin.id,
           communityId: 'CEB-ME8605',
           firstName: 'Nilo',
@@ -163,49 +188,49 @@ describe('MembersService.bulkPermanentDelete', () => {
       );
 
       await expect(
-        service.bulkPermanentDelete(['m-keep', 'm-self'], admin),
+        service.bulkPermanentDelete([ID.mKeep, ID.mSelf], admin),
       ).rejects.toThrow('You cannot permanently delete your own account.');
 
-      expect(store.members['m-keep']).toBeDefined();
-      expect(store.members['m-self']).toBeDefined();
+      expect(store.members[ID.mKeep]).toBeDefined();
+      expect(store.members[ID.mSelf]).toBeDefined();
       expect(store.users[admin.id]).toBeDefined();
     });
 
     it('never deletes a SUPER_USER account even when the caller is SUPER_USER', async () => {
-      putMember(seedMember({ id: 'm-ok', userId: 'u-ok', communityId: 'CEB-ME8606' }));
+      putMember(seedMember({ id: ID.mOk, userId: ID.uOk, communityId: 'CEB-ME8606' }));
       putMember(
         seedMember({
-          id: 'm-super',
-          userId: 'u-super',
+          id: ID.mSuper,
+          userId: ID.uSuper,
           communityId: 'CEB-ME9901',
-          user: { id: 'u-super', role: UserRole.SUPER_USER, isActive: true },
+          user: { id: ID.uSuper, role: UserRole.SUPER_USER, isActive: true },
         }),
       );
 
       await expect(
         service.bulkPermanentDelete(
-          ['m-ok', 'm-super'],
-          { id: 'super-caller', role: UserRole.SUPER_USER },
+          [ID.mOk, ID.mSuper],
+          { id: ID.superCaller, role: UserRole.SUPER_USER },
         ),
       ).rejects.toThrow('SUPER_USER accounts cannot be permanently deleted.');
 
-      expect(store.members['m-ok']).toBeDefined();
-      expect(store.members['m-super']).toBeDefined();
-      expect(store.users['u-super']).toBeDefined();
+      expect(store.members[ID.mOk]).toBeDefined();
+      expect(store.members[ID.mSuper]).toBeDefined();
+      expect(store.users[ID.uSuper]).toBeDefined();
     });
   });
 
   describe('rollback and cascade', () => {
     it('rolls back every delete when any id is missing', async () => {
-      putMember(seedMember({ id: 'm1', userId: 'u1', communityId: 'CEB-ME9902' }));
+      putMember(seedMember({ id: ID.m1, userId: ID.u1, communityId: 'CEB-ME9902' }));
 
       await expect(
-        service.bulkPermanentDelete(['m1', 'missing'], admin),
+        service.bulkPermanentDelete([ID.m1, ID.missing], admin),
       ).rejects.toBeInstanceOf(NotFoundException);
 
-      expect(store.members['m1']).toBeDefined();
-      expect(store.users['u1']).toEqual({
-        id: 'u1',
+      expect(store.members[ID.m1]).toBeDefined();
+      expect(store.users[ID.u1]).toEqual({
+        id: ID.u1,
         role: UserRole.MEMBER,
         isActive: true,
       });
@@ -214,8 +239,8 @@ describe('MembersService.bulkPermanentDelete', () => {
     it('deactivates first then deletes member before user so Prisma cascades apply', async () => {
       putMember(
         seedMember({
-          id: 'm1',
-          userId: 'u1',
+          id: ID.m1,
+          userId: ID.u1,
           communityId: 'CEB-ME9902',
           firstName: 'Ada',
           lastName: 'Reyes',
@@ -223,12 +248,12 @@ describe('MembersService.bulkPermanentDelete', () => {
       );
       putMember(
         seedMember({
-          id: 'm2',
-          userId: 'u2',
+          id: ID.m2,
+          userId: ID.u2,
           communityId: 'CEB-ME8802',
           firstName: 'Ben',
           lastName: 'Cruz',
-          user: { id: 'u2', role: UserRole.MEMBER, isActive: true },
+          user: { id: ID.u2, role: UserRole.MEMBER, isActive: true },
         }),
       );
 
@@ -255,15 +280,19 @@ describe('MembersService.bulkPermanentDelete', () => {
         },
       );
 
-      const result = await service.bulkPermanentDelete(['m1', 'm2'], admin);
+      const result = await service.bulkPermanentDelete([ID.m1, ID.m2], admin);
 
+      expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+        maxWait: BULK_PERMANENT_DELETE_TX_MAX_WAIT_MS,
+        timeout: BULK_PERMANENT_DELETE_TX_TIMEOUT_MS,
+      });
       expect(order).toEqual([
-        'deactivate:u1',
-        'member.delete:m1',
-        'user.delete:u1',
-        'deactivate:u2',
-        'member.delete:m2',
-        'user.delete:u2',
+        `deactivate:${ID.u1}`,
+        `member.delete:${ID.m1}`,
+        `user.delete:${ID.u1}`,
+        `deactivate:${ID.u2}`,
+        `member.delete:${ID.m2}`,
+        `user.delete:${ID.u2}`,
       ]);
       expect(store.members).toEqual({});
       expect(store.users).toEqual({});
@@ -271,17 +300,27 @@ describe('MembersService.bulkPermanentDelete', () => {
         deletedCount: 2,
         communityIds: ['CEB-ME9902', 'CEB-ME8802'],
         results: [
-          { memberId: 'm1', communityId: 'CEB-ME9902', name: 'Ada Reyes', status: 'deleted' },
-          { memberId: 'm2', communityId: 'CEB-ME8802', name: 'Ben Cruz', status: 'deleted' },
+          { memberId: ID.m1, communityId: 'CEB-ME9902', name: 'Ada Reyes', status: 'deleted' },
+          { memberId: ID.m2, communityId: 'CEB-ME8802', name: 'Ben Cruz', status: 'deleted' },
         ],
       });
       expect(loggerLog).toHaveBeenCalledWith(
-        'AUDIT bulk-permanent-delete admin=admin-1 deletedCommunityIds=CEB-ME9902,CEB-ME8802',
+        `AUDIT bulk-permanent-delete admin=${ID.admin} deletedCommunityIds=CEB-ME9902,CEB-ME8802`,
       );
     });
 
+    it('rejects an empty memberIds array before opening a transaction', async () => {
+      await expect(service.bulkPermanentDelete([], admin)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      await expect(service.bulkPermanentDelete(['', '  '], admin)).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
     it('rejects more than 50 ids before opening a transaction', async () => {
-      const ids = Array.from({ length: MAX_BULK_PERMANENT_DELETE + 1 }, (_, i) => `m${i}`);
+      const ids = Array.from({ length: MAX_BULK_PERMANENT_DELETE + 1 }, (_, i) => uuidAt(i));
       await expect(service.bulkPermanentDelete(ids, admin)).rejects.toBeInstanceOf(
         BadRequestException,
       );
