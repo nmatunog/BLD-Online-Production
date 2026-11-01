@@ -5,6 +5,7 @@ import {
   IsIn,
   MinLength,
   MaxLength,
+  IsBoolean,
 } from 'class-validator';
 import { SIGNUP_ENCOUNTER_TYPES } from '../auth.constants';
 
@@ -69,4 +70,9 @@ export class SignupUpdateDto {
   @IsOptional()
   @IsIn(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'])
   bloodType?: string;
+
+  /** Set after the person confirms a flagged same-name member is NOT them. */
+  @IsOptional()
+  @IsBoolean()
+  confirmNotDuplicate?: boolean;
 }

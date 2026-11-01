@@ -178,10 +178,10 @@ export class AuthService {
    * Initial signup — phone required, password optional (set via post-signup prompt or forgot-password later).
    * Active immediately for attendance / Community ID + QR.
    *
-   * Duplicate hierarchy (most effective first):
-   * 1. Exact lastName + firstName → block (409, existing details)
-   * 2. Exact lastName + nickname (if nickname given) → block (409)
-   * 3. Client-side: lastName prefix suggestions (3+ chars) via suggestSignupMatches
+   * Possible duplicates: an exact lastName + firstName match (case-insensitive) is flagged with
+   * 409 POSSIBLE_DUPLICATE so the person can check. It never blocks: resubmitting with
+   * confirmNotDuplicate=true creates the member. Nickname is NOT used (siblings can share one).
+   * The flag carries only name + encounter/class — never the other member's ID, Community ID or photo.
    */
   async signup(signupDto: SignupDto): Promise<SignupResult> {
     const firstName = signupDto.firstName.trim();
@@ -216,12 +216,11 @@ export class AuthService {
 
     const cityCode = normalizeCityToCode(signupDto.city?.trim() || 'Cebu') || 'CEB';
 
-    const existing = await this.findSignupDuplicate(lastName, firstName, nickname);
-    if (existing) {
-      throw new ConflictException({
-        message: 'Your account already exists',
-        existing: this.toSignupResult(existing, true),
-      });
+    if (!signupDto.confirmNotDuplicate) {
+      const possible = await this.findSignupNameMatch(lastName, firstName);
+      if (possible) {
+        throw new ConflictException(this.possibleDuplicateResponse(possible));
+      }
     }
 
     const communityId = await this.generateCommunityId(
@@ -343,13 +342,12 @@ export class AuthService {
       throw new BadRequestException('Member not found for this Community ID');
     }
 
-    // Prevent renaming into someone else's identity
-    const clash = await this.findSignupDuplicate(lastName, firstName, nickname, member.id);
-    if (clash) {
-      throw new ConflictException({
-        message: 'Your account already exists',
-        existing: this.toSignupResult(clash, true),
-      });
+    // Renaming to the same first + last name as another member: flag it, let them confirm.
+    if (!dto.confirmNotDuplicate) {
+      const clash = await this.findSignupNameMatch(lastName, firstName, member.id);
+      if (clash) {
+        throw new ConflictException(this.possibleDuplicateResponse(clash));
+      }
     }
 
     const userUpdateData: {
@@ -453,35 +451,35 @@ export class AuthService {
     };
   }
 
-  private async findSignupDuplicate(
-    lastName: string,
-    firstName: string,
-    nickname: string | null,
-    excludeMemberId?: string,
-  ) {
-    // 1) Strongest: family name + first name
-    const byName = await this.prisma.member.findFirst({
+  /** Another member with the same first AND last name (case-insensitive). Nickname is ignored. */
+  private async findSignupNameMatch(lastName: string, firstName: string, excludeMemberId?: string) {
+    return this.prisma.member.findFirst({
       where: {
         lastName: { equals: lastName, mode: 'insensitive' },
         firstName: { equals: firstName, mode: 'insensitive' },
         ...(excludeMemberId ? { id: { not: excludeMemberId } } : {}),
       },
+      select: { firstName: true, lastName: true, encounterType: true, classNumber: true },
     });
-    if (byName) return byName;
+  }
 
-    // 2) Family name + nickname (when nickname provided)
-    if (nickname && nickname.length >= 2) {
-      const byNick = await this.prisma.member.findFirst({
-        where: {
-          lastName: { equals: lastName, mode: 'insensitive' },
-          nickname: { equals: nickname, mode: 'insensitive' },
-          ...(excludeMemberId ? { id: { not: excludeMemberId } } : {}),
-        },
-      });
-      if (byNick) return byNick;
-    }
-
-    return null;
+  /** 409 body for a possible duplicate: enough to recognise yourself, nothing to take over an account. */
+  private possibleDuplicateResponse(match: {
+    firstName: string;
+    lastName: string;
+    encounterType: string;
+    classNumber: number;
+  }) {
+    return {
+      code: 'POSSIBLE_DUPLICATE',
+      message: 'A member with this first and last name is already registered.',
+      possibleDuplicate: {
+        firstName: match.firstName,
+        lastName: match.lastName,
+        encounterType: match.encounterType,
+        classNumber: match.classNumber,
+      },
+    };
   }
 
   private toSignupResult(
