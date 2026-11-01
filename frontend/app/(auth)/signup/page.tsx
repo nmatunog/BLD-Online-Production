@@ -46,11 +46,10 @@ const BLD = {
 const STEPS = ['Your name', 'Encounter', 'ID Photo', 'Blood Type'] as const;
 
 /**
- * Signup asks only for what the Community ID needs (name, encounter, class, mobile, ID photo)
- * plus blood type. Optional extras are skipped for now; flip these to bring them back.
- * Members can still add a nickname or password later (Profile / Forgot Password).
+ * Signup asks only for what the Community ID needs (name, nickname, encounter, class,
+ * mobile, ID photo) plus blood type. The optional password prompt is skipped for now;
+ * flip this to bring it back. Members can still set a password via Forgot Password.
  */
-const ASK_NICKNAME_AT_SIGNUP = false;
 const OFFER_PASSWORD_AFTER_SIGNUP = false;
 
 const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'] as const;
@@ -226,7 +225,8 @@ function SignupForm() {
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestBoxRef = useRef<HTMLDivElement>(null);
 
-  const canContinueStep0 = lastName.trim().length > 0 && firstName.trim().length > 0;
+  const canContinueStep0 =
+    lastName.trim().length > 0 && firstName.trim().length > 0 && nickname.trim().length > 0;
   
   // Profile fields required for both new and existing members
   const canSaveProfile =
@@ -961,19 +961,23 @@ function SignupForm() {
                 onChange={(e) => setFirstName(e.target.value)}
               />
             </div>
-            {ASK_NICKNAME_AT_SIGNUP && (
-              <div>
-                <Label htmlFor="editNickname" className={labelClass}>
-                  Nickname
-                </Label>
-                <Input
-                  id="editNickname"
-                  className={fieldClass}
-                  value={nickname}
-                  onChange={(e) => setNickname(e.target.value)}
-                />
-              </div>
-            )}
+            <div>
+              <Label htmlFor="editNickname" className={labelClass}>
+                Nickname
+              </Label>
+              <Input
+                id="editNickname"
+                className={fieldClass}
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                required
+                aria-required="true"
+                maxLength={60}
+              />
+              {!nickname.trim() && (
+                <p className="mt-1 text-sm font-semibold text-[#A80006]">Nickname is required.</p>
+              )}
+            </div>
             <div>
               <Label htmlFor="editEncounter" className={labelClass}>
                 Encounter type <span className="text-[#D00008]">*</span>
@@ -1203,22 +1207,23 @@ function SignupForm() {
               autoCapitalize="words"
             />
           </div>
-          {ASK_NICKNAME_AT_SIGNUP && (
-            <div>
-              <Label htmlFor="nickname" className={labelClass}>
-                Nickname{' '}
-                <span className="text-gray-500 font-normal text-base">(optional)</span>
-              </Label>
-              <Input
-                id="nickname"
-                className={fieldClass}
-                value={nickname}
-                onChange={(e) => setNickname(e.target.value)}
-                autoCapitalize="words"
-                placeholder="What friends call you"
-              />
-            </div>
-          )}
+          <div>
+            <Label htmlFor="nickname" className={labelClass}>
+              Nickname
+            </Label>
+            <Input
+              id="nickname"
+              className={fieldClass}
+              value={nickname}
+              onChange={(e) => setNickname(e.target.value)}
+              autoCapitalize="words"
+              placeholder="What friends call you"
+              required
+              aria-required="true"
+              maxLength={60}
+            />
+            <p className="mt-1 text-sm text-gray-600">Required. What friends call you.</p>
+          </div>
         </div>
       )}
 
