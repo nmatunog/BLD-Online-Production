@@ -509,6 +509,10 @@ export default function LoginPage() {
                         'Sign In Manually'
                       )}
                     </button>
+                    <p className="text-xs text-slate-500 text-center leading-relaxed">
+                      No password yet? Scan the QR on your BLD ID card with your phone camera and
+                      tap &ldquo;This is my card&rdquo;, or ask your coordinator.
+                    </p>
                   </form>
 
                   <div className="pt-2">

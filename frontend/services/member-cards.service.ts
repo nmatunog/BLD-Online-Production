@@ -227,6 +227,19 @@ class MemberCardsService {
     }
   }
 
+  /** Card holder sets or resets their own password (members only; card + last name). */
+  async setPasswordWithCard(
+    token: string,
+    lastName: string,
+    newPassword: string,
+  ): Promise<ApiResponse<{ message: string }>> {
+    const response = await apiClient.post<ApiResponse<{ message: string }>>(
+      `/member-cards/verify/${encodeURIComponent(token)}/set-password`,
+      { lastName, newPassword },
+    );
+    return ensureBody(response);
+  }
+
   async checkIn(
     token: string,
     eventId: string,

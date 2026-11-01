@@ -33,6 +33,20 @@ import { IdPhotoUpload } from '@/components/IdPhotoUpload';
 import { generateStableMemberQR } from '@/lib/qr-service';
 import { MemberIdCard } from '@/components/MemberIdCard';
 import { deviceMemory } from '@/lib/device-memory';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { extractPossibleDuplicate, type PossibleDuplicate } from '@/lib/signup-duplicate';
+import {
+  getSignupEditToken,
+  NO_EDIT_TOKEN_MESSAGE,
+  saveSignupEditToken,
+} from '@/lib/signup-edit-token';
 
 /** BLD logo color peg extracted from brand mark */
 const BLD = {
@@ -44,6 +58,13 @@ const BLD = {
 } as const;
 
 const STEPS = ['Your name', 'Encounter', 'ID Photo', 'Blood Type'] as const;
+
+/**
+ * Signup asks only for what the Community ID needs (name, nickname, encounter, class,
+ * mobile, ID photo) plus blood type. The optional password prompt is skipped for now;
+ * flip this to bring it back. Members can still set a password via Forgot Password.
+ */
+const OFFER_PASSWORD_AFTER_SIGNUP = false;
 
 const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'] as const;
 
@@ -207,6 +228,10 @@ function SignupForm() {
   const [qrCode, setQrCode] = useState<string>('');
   const [originalPhotoUrl, setOriginalPhotoUrl] = useState<string | null>(null);
   const [profileGaps, setProfileGaps] = useState<string[]>([]);
+  /** Same first + last name already registered: shown as a notice, never a block. */
+  const [possibleDuplicate, setPossibleDuplicate] = useState<
+    (PossibleDuplicate & { from: 'signup' | 'edit' | 'suggestion' }) | null
+  >(null);
 
   const [loginPhone, setLoginPhone] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -218,7 +243,8 @@ function SignupForm() {
   const suggestTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suggestBoxRef = useRef<HTMLDivElement>(null);
 
-  const canContinueStep0 = lastName.trim().length > 0 && firstName.trim().length > 0;
+  const canContinueStep0 =
+    lastName.trim().length > 0 && firstName.trim().length > 0 && nickname.trim().length > 0;
   
   // Profile fields required for both new and existing members
   const canSaveProfile =
@@ -267,110 +293,20 @@ function SignupForm() {
     setShowSuggestions(false);
   };
 
-  const applySuggestion = async (s: SignupSuggestion) => {
-    setLastName(s.lastName);
-    setFirstName(s.firstName);
-    setNickname(s.nickname || '');
-    setEncounterType(s.encounterType);
-    setClassNumber(String(s.classNumber));
+  /**
+   * A last-name suggestion is only a hint that this person may already be registered.
+   * It never opens that member's account on this page (no IDs are sent to the browser).
+   */
+  const applySuggestion = (s: SignupSuggestion) => {
     setSuggestions([]);
     setShowSuggestions(false);
-    setIsExisting(true);
-    
-    const resultData = {
-      memberId: s.memberId,
-      communityId: s.communityId,
-      firstName: s.firstName,
-      lastName: s.lastName,
-      nickname: s.nickname,
-      encounterType: s.encounterType,
-      classNumber: s.classNumber,
-      isExistingMember: true,
-      message: 'Your account already exists',
-    };
-    setResult(resultData);
-    
-    deviceMemory.rememberMember({
-      communityId: s.communityId,
-      memberId: s.memberId,
-      firstName: s.firstName,
-      lastName: s.lastName,
-      nickname: s.nickname,
-      role: 'MEMBER',
-    });
-    
-    let photoUrl: string | null = null;
-    let phone: string | null = null;
-    
-    try {
-      const { apiClient } = await import('@/services/api-client');
-      const response = await apiClient.get<{ 
-        success: boolean; 
-        data: { 
-          photoUrl?: string | null;
-          user?: { phone?: string | null };
-        } 
-      }>(`/members/public/community/${s.communityId}`);
-      
-      if (response.data.success) {
-        photoUrl = response.data.data?.photoUrl || null;
-        phone = response.data.data?.user?.phone || null;
-      }
-    } catch (error) {
-      console.error('Failed to fetch member details:', error);
-      // Continue with null photo/phone
-    }
-    
-    setIdPhoto(photoUrl);
-    setOriginalPhotoUrl(photoUrl);
-    
-    // Convert phone to 09XXXXXXXXX format if present
-    if (phone) {
-      const normalized = normalizePhoneForInput(phone);
-      if (normalized) {
-        setSignupPhone(normalized);
-      }
-    }
-    
-    // Audit profile fields (name, encounter, class, photo)
-    const audit = auditMemberFields({
+    setPossibleDuplicate({
       firstName: s.firstName,
       lastName: s.lastName,
       encounterType: s.encounterType,
       classNumber: s.classNumber,
-      photoUrl,
-      phone,
+      from: 'suggestion',
     });
-    
-    setProfileGaps(audit.profileGaps);
-    setNeedsPhone(audit.needsPhone);
-    
-    if (audit.profileGaps.length > 0) {
-      // Has profile gaps - enter edit mode with banner
-      setIsEditing(true);
-      
-      toast.info('Profile Incomplete', {
-        description: `We still need: ${audit.profileGaps.join(', ')}. Please complete these required fields.`,
-        duration: 7000,
-      });
-    } else if (audit.needsPhone) {
-      // Only phone is missing - skip edit mode, go straight to login-setup
-      setIsEditing(false);
-      setShowLoginSetup(true);
-      
-      toast.info('Mobile Number Required', {
-        description: 'Please enter your Philippine mobile number (09xxxxxxxxx) to complete your profile.',
-        duration: 6000,
-      });
-    } else {
-      // All fields present
-      setIsEditing(false);
-      
-      toast.success('Your account loaded', {
-        description: `Community ID: ${s.communityId}. You can now edit details or set up login.`,
-        duration: 5000,
-      });
-    }
   };
 
   const handleLastNameChange = (value: string) => {
@@ -447,21 +383,8 @@ function SignupForm() {
       role: 'MEMBER',
     });
     
-    // Fetch real phone data from public endpoint
-    let phone: string | null = null;
-    try {
-      const { apiClient } = await import('@/services/api-client');
-      const response = await apiClient.get<{ 
-        success: boolean; 
-        data: { user?: { phone?: string | null } }
-      }>(`/members/public/community/${existing.communityId}`);
-      
-      if (response.data.success) {
-        phone = response.data.data?.user?.phone || null;
-      }
-    } catch (error) {
-      console.error('Failed to fetch member phone:', error);
-    }
+    // The public member lookup is staff-only now; the phone is not loaded here.
+    const phone: string | null = null;
     
     // Convert phone to 09XXXXXXXXX format if present
     if (phone) {
@@ -506,13 +429,15 @@ function SignupForm() {
       setIsEditing(false);
       
       toast.success('Your account loaded', {
-        description: `Community ID: ${existing.communityId}. You can now edit details or set up login.`,
+        description: OFFER_PASSWORD_AFTER_SIGNUP
+          ? `Community ID: ${existing.communityId}. You can now edit details or set up login.`
+          : `Community ID: ${existing.communityId}. You can edit your details or print your ID.`,
         duration: 5000,
       });
     }
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (confirmNotDuplicate = false) => {
     if (!canSubmitNew || !idPhoto) {
       toast.error(
         !idPhoto ? 'ID photo is required' : 'Please complete the required fields',
@@ -541,8 +466,10 @@ function SignupForm() {
         phone: signupPhone.trim(),
         idPhoto,
         bloodType: bloodType.trim() || undefined,
+        ...(confirmNotDuplicate ? { confirmNotDuplicate: true } : {}),
       });
-      setResult(data);
+      saveSignupEditToken(data.memberId, data.editToken);
+      setResult({ ...data, editToken: undefined });
       setIsExisting(false);
       setIsEditing(false);
       setNeedsPhone(false);
@@ -556,11 +483,17 @@ function SignupForm() {
         nickname: data.nickname,
         role: 'MEMBER',
       });
-      
-      setShowLoginSetup(true);
+
+      // Mobile number was already collected in the wizard; the password is optional, so skip it.
+      if (OFFER_PASSWORD_AFTER_SIGNUP) {
+        setShowLoginSetup(true);
+      }
     } catch (error) {
-      const existing = extractExistingFromError(error);
-      if (existing) {
+      const duplicate = extractPossibleDuplicate(error);
+      const existing = duplicate ? null : extractExistingFromError(error);
+      if (duplicate) {
+        setPossibleDuplicate({ ...duplicate, from: 'signup' });
+      } else if (existing) {
         showExistingAccount(existing);
       } else {
         const parsed = parseAuthError(error);
@@ -571,7 +504,7 @@ function SignupForm() {
     }
   };
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = async (confirmNotDuplicate = false) => {
     if (!result) return;
     
     // Validate only profile fields (name, encounter, class, photo) - NOT phone
@@ -604,10 +537,17 @@ function SignupForm() {
       return;
     }
 
+    const editToken = getSignupEditToken(result.memberId);
+    if (!editToken) {
+      toast.error('Can’t change details here', { description: NO_EDIT_TOKEN_MESSAGE, duration: 7000 });
+      return;
+    }
+
     setIsLoading(true);
     try {
       const isNewPhoto = idPhoto.startsWith('data:image/');
       const data = await authService.updateSignup({
+        editToken,
         memberId: result.memberId,
         communityId: result.communityId,
         firstName: firstName.trim(),
@@ -617,6 +557,7 @@ function SignupForm() {
         classNumber: classNumber.trim(),
         idPhoto: isNewPhoto ? idPhoto : undefined,
         // Do NOT send phone here - it's collected on login-setup screen
+        ...(confirmNotDuplicate ? { confirmNotDuplicate: true } : {}),
       });
       setResult(data);
       setIsExisting(true);
@@ -633,6 +574,11 @@ function SignupForm() {
         setShowLoginSetup(true);
       }
     } catch (error) {
+      const duplicate = extractPossibleDuplicate(error);
+      if (duplicate) {
+        setPossibleDuplicate({ ...duplicate, from: 'edit' });
+        return;
+      }
       const existing = extractExistingFromError(error);
       if (existing && existing.memberId !== result.memberId) {
         await showExistingAccount(existing);
@@ -682,9 +628,16 @@ function SignupForm() {
       return;
     }
 
+    const editToken = getSignupEditToken(result.memberId);
+    if (!editToken) {
+      toast.error('Can’t set up login here', { description: NO_EDIT_TOKEN_MESSAGE, duration: 7000 });
+      return;
+    }
+
     setIsLoading(true);
     try {
       await authService.updateSignup({
+        editToken,
         memberId: result.memberId,
         communityId: result.communityId,
         firstName: result.firstName,
@@ -723,6 +676,65 @@ function SignupForm() {
     setLoginPassword('');
     setShowPassword(false);
   };
+
+  const duplicateDialog = (
+    <Dialog
+      open={!!possibleDuplicate}
+      onOpenChange={(open) => {
+        if (!open) setPossibleDuplicate(null);
+      }}
+    >
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="text-2xl">Possible duplicate</DialogTitle>
+          <DialogDescription className="text-lg text-gray-700">
+            A member named{' '}
+            <strong>
+              {possibleDuplicate?.firstName} {possibleDuplicate?.lastName}
+            </strong>{' '}
+            is already registered
+            {possibleDuplicate?.encounterType
+              ? ` (${possibleDuplicate.encounterType}${
+                  possibleDuplicate.classNumber ? ` class ${possibleDuplicate.classNumber}` : ''
+                })`
+              : ''}
+            . Is that you?
+          </DialogDescription>
+        </DialogHeader>
+        <p className="text-base text-gray-700">
+          If it is you, please don&apos;t sign up again. Log in with your mobile number, or ask your
+          coordinator for help. If it&apos;s a different person with the same name, continue.
+        </p>
+        <DialogFooter className="flex flex-col gap-2 sm:flex-col">
+          <Button
+            type="button"
+            className={`w-full ${primaryBtn}`}
+            disabled={isLoading}
+            onClick={() => {
+              const from = possibleDuplicate?.from;
+              setPossibleDuplicate(null);
+              if (from === 'edit') void handleSaveEdit(true);
+              else if (from === 'signup') void handleSubmit(true);
+              // 'suggestion': just keep filling in the form.
+            }}
+          >
+            {possibleDuplicate?.from === 'suggestion' ? 'Not me — keep signing up' : 'Not me — continue'}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className={`w-full ${outlineBtn}`}
+            onClick={() => {
+              setPossibleDuplicate(null);
+              router.push('/login');
+            }}
+          >
+            That&apos;s me — go to login
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 
   if (result) {
     if (showLoginSetup) {
@@ -852,6 +864,7 @@ function SignupForm() {
 
     return (
       <Card className="w-full max-w-md mx-auto p-5 sm:p-8 rounded-2xl shadow-xl relative z-10 bg-white border-2 border-[#D00008]/25 overflow-hidden">
+        {duplicateDialog}
         <div className="h-1.5 w-full absolute top-0 left-0 right-0 bg-[#D00008]" />
         <div className="text-center mb-6 pt-2">
           <BrandLogo size={72} />
@@ -957,7 +970,13 @@ function SignupForm() {
                 className={fieldClass}
                 value={nickname}
                 onChange={(e) => setNickname(e.target.value)}
+                required
+                aria-required="true"
+                maxLength={60}
               />
+              {!nickname.trim() && (
+                <p className="mt-1 text-sm font-semibold text-[#A80006]">Nickname is required.</p>
+              )}
             </div>
             <div>
               <Label htmlFor="editEncounter" className={labelClass}>
@@ -1038,7 +1057,7 @@ function SignupForm() {
               type="button"
               className={`w-full ${primaryBtn}`}
               disabled={isLoading || !canSaveProfile || !hasIdPhoto}
-              onClick={handleSaveEdit}
+              onClick={() => void handleSaveEdit()}
             >
               {isLoading ? 'Saving…' : 'Save'}
             </Button>
@@ -1052,21 +1071,29 @@ function SignupForm() {
                 <Printer className="w-5 h-5 mr-2" />
                 Print ID Card
               </Button>
-              <Button
-                type="button"
-                className={`w-full ${primaryBtn}`}
-                onClick={() => setIsEditing(true)}
-              >
-                Edit details
-              </Button>
-              <Button
-                type="button"
-                className={`w-full ${outlineBtn}`}
-                onClick={() => setShowLoginSetup(true)}
-              >
-                <CheckCircle2 className="w-5 h-5 mr-2" />
-                Set up login
-              </Button>
+              {getSignupEditToken(result.memberId) ? (
+                <Button
+                  type="button"
+                  className={`w-full ${primaryBtn}`}
+                  onClick={() => setIsEditing(true)}
+                >
+                  Edit details
+                </Button>
+              ) : (
+                <p className="text-center text-sm text-gray-600">
+                  To change details, log in and edit your Profile, or ask your coordinator.
+                </p>
+              )}
+              {OFFER_PASSWORD_AFTER_SIGNUP && (
+                <Button
+                  type="button"
+                  className={`w-full ${outlineBtn}`}
+                  onClick={() => setShowLoginSetup(true)}
+                >
+                  <CheckCircle2 className="w-5 h-5 mr-2" />
+                  Set up login
+                </Button>
+              )}
             </>
           )}
 
@@ -1090,6 +1117,7 @@ function SignupForm() {
 
   return (
     <Card className="w-full max-w-md mx-auto p-5 sm:p-8 rounded-2xl shadow-xl relative z-10 bg-white border-2 border-[#D00008]/20 overflow-hidden">
+      {duplicateDialog}
       <div className="h-1.5 w-full absolute top-0 left-0 right-0 bg-[#D00008]" />
 
       <div className="text-center mb-5 pt-2">
@@ -1147,11 +1175,11 @@ function SignupForm() {
             {showSuggestions && suggestions.length > 0 && (
               <div className="absolute z-20 left-0 right-0 mt-1 max-h-56 overflow-y-auto rounded-xl border-2 border-[#D00008]/30 bg-white shadow-lg">
                 <p className="px-3 py-2 text-sm font-semibold text-[#A80006] bg-[#FCE8E9]">
-                  Possible matches — tap if this is you
+                  Already registered — tap if this is you
                 </p>
                 {suggestions.map((s) => (
                   <button
-                    key={s.memberId}
+                    key={`${s.lastName}|${s.firstName}|${s.encounterType}|${s.classNumber}`}
                     type="button"
                     className="w-full text-left px-4 py-3 border-t border-gray-100 hover:bg-[#FCE8E9] text-base sm:text-lg"
                     onClick={() => applySuggestion(s)}
@@ -1161,7 +1189,7 @@ function SignupForm() {
                       {s.nickname ? ` (“${s.nickname}”)` : ''}
                     </span>
                     <span className="block text-sm text-gray-500">
-                      {s.encounterType} {s.classNumber} · {s.communityId}
+                      {s.encounterType} class {s.classNumber}
                     </span>
                   </button>
                 ))}
@@ -1188,8 +1216,7 @@ function SignupForm() {
           </div>
           <div>
             <Label htmlFor="nickname" className={labelClass}>
-              Nickname{' '}
-              <span className="text-gray-500 font-normal text-base">(optional)</span>
+              Nickname
             </Label>
             <Input
               id="nickname"
@@ -1198,7 +1225,11 @@ function SignupForm() {
               onChange={(e) => setNickname(e.target.value)}
               autoCapitalize="words"
               placeholder="What friends call you"
+              required
+              aria-required="true"
+              maxLength={60}
             />
+            <p className="mt-1 text-sm text-gray-600">Required. What friends call you.</p>
           </div>
         </div>
       )}
@@ -1380,7 +1411,7 @@ function SignupForm() {
               type="button"
               className={`flex-1 ${primaryBtn}`}
               disabled={isLoading || !canSubmitNew || !hasIdPhoto}
-              onClick={handleSubmit}
+              onClick={() => void handleSubmit()}
             >
               {isLoading ? 'Saving…' : 'Get Community ID'}
             </Button>

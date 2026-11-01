@@ -32,6 +32,7 @@ import {
 import { publicVerifyJson, toPublicVerifyResult } from './dto/public-verify-result.dto';
 import { matchesOrgFilter, resolveCurrentApostolate, type OrgFilter } from './member-card-org-filter';
 import QRCode from 'qrcode';
+import * as bcrypt from 'bcryptjs';
 import sharp from 'sharp';
 import {
   allowedPhotoHosts,
@@ -870,6 +871,75 @@ export class MemberCardsService {
       member: card.member,
       cardId: card.id,
     });
+  }
+
+  /**
+   * Set or reset a member's own password by scanning their own printed ID card (the card's
+   * secret verify token proves they hold the card) plus their last name.
+   * Members only: staff/admin accounts must use an administrator, so a lost staff card can't
+   * be used to take over a privileged account. Same per-IP rate limit as card lookups.
+   */
+  async setPasswordWithCard(
+    rawToken: string,
+    input: { lastName: string; newPassword: string },
+    ip: string,
+  ): Promise<{ message: string }> {
+    if (this.isRateLimited(ip)) {
+      throw new HttpException(
+        'Too many attempts. Please wait a moment and try again.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+    const notAccepted = () =>
+      new BadRequestException(
+        'This card and last name do not match an active member card. Ask your coordinator for help.',
+      );
+
+    const token = (rawToken || '').trim();
+    if (!isValidTokenFormat(token)) throw notAccepted();
+    const presentedHash = hashCardToken(token);
+    const card = await this.prisma.memberCard.findUnique({
+      where: { tokenHash: presentedHash },
+      select: {
+        id: true,
+        tokenHash: true,
+        status: true,
+        member: {
+          select: {
+            id: true,
+            lastName: true,
+            user: { select: { id: true, role: true, isActive: true, phone: true } },
+          },
+        },
+      },
+    });
+    if (
+      !card ||
+      !cardTokenHashesEqual(card.tokenHash, presentedHash) ||
+      !VALID_CARD_STATUSES.includes(card.status) ||
+      !card.member?.user?.isActive ||
+      card.member.lastName.trim().toLowerCase() !== input.lastName.trim().toLowerCase()
+    ) {
+      this.logger.warn(`card-password rejected cardId=${card?.id ?? ''} ip=${ip}`);
+      throw notAccepted();
+    }
+    if (card.member.user.role !== UserRole.MEMBER) {
+      throw new ForbiddenException(
+        'Staff and admin accounts cannot reset a password with an ID card. Ask an administrator.',
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(input.newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: card.member.user.id },
+      data: { passwordHash },
+    });
+    this.logger.log(`card-password set cardId=${card.id} memberId=${card.member.id} ip=${ip}`);
+    return {
+      message: card.member.user.phone
+        ? 'Password saved. Log in with your mobile number or scan your ID card, and this password.'
+        : 'Password saved. Log in by scanning your ID card, and this password.',
+    };
   }
 
   async checkInByToken(

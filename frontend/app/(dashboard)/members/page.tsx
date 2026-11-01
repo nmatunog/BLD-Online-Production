@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { IdPhotoUpload } from '@/components/IdPhotoUpload';
+import { PasswordSetupLinkButton } from '@/components/members/PasswordSetupLinkButton';
 import { withPhotoCacheBust } from '@/lib/photo-url';
 import {
   APOSTOLATES,
@@ -1471,6 +1472,14 @@ export default function MembersPage() {
                   Edit personal and ministry information for this member. Align the ID photo, then use this photo to save.
                 </DialogDescription>
               </DialogHeader>
+              {editingMember && (
+                <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <PasswordSetupLinkButton memberId={editingMember.id} />
+                  <p className="text-sm text-gray-600">
+                    Member can&apos;t log in? Check them in person, then give them this link.
+                  </p>
+                </div>
+              )}
               <form onSubmit={handleUpdateMember} className="space-y-6">
                 {/* Personal Information */}
                 <div className="bg-gray-50 p-4 rounded-lg">

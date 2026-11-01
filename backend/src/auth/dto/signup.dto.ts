@@ -5,13 +5,14 @@ import {
   IsIn,
   MaxLength,
   Matches,
+  IsBoolean,
 } from 'class-validator';
 import { SIGNUP_ENCOUNTER_TYPES } from '../auth.constants';
 
 /**
  * Minimum for unique Community ID (CITY-ENCOUNTER+CLASS+SEQ) + member QR:
  * firstName, lastName, encounterType, classNumber, phone (09xxxxxxxxx).
- * City defaults to CEB. Nickname optional. Password deferred to optional post-signup prompt.
+ * City defaults to CEB. Nickname required. Password is optional (set later via Forgot Password).
  */
 export class SignupDto {
   @IsString()
@@ -22,9 +23,12 @@ export class SignupDto {
   @IsNotEmpty()
   lastName!: string;
 
+  /** Required on signup (printed on the Community ID). Whitespace-only is rejected. */
   @IsString()
-  @IsOptional()
-  nickname?: string;
+  @IsNotEmpty({ message: 'Nickname is required' })
+  @Matches(/\S/, { message: 'Nickname is required' })
+  @MaxLength(60)
+  nickname!: string;
 
   @IsString()
   @IsNotEmpty()
@@ -60,4 +64,9 @@ export class SignupDto {
     message: 'Blood type must be one of: A+, A-, B+, B-, AB+, AB-, O+, O-',
   })
   bloodType?: string;
+
+  /** Set after the person confirms a flagged same-name member is NOT them. */
+  @IsOptional()
+  @IsBoolean()
+  confirmNotDuplicate?: boolean;
 }

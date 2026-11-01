@@ -29,6 +29,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     shepherdEncounterType?: string;
     shepherdClassNumber?: number;
   }> {
+    // Only access tokens: reset / signup-edit tokens carry a `type` and no `sub`.
+    if (!payload?.sub || (payload as { type?: unknown }).type !== undefined) {
+      throw new UnauthorizedException('Invalid token');
+    }
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: { member: { select: { ministry: true } } },

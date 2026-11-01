@@ -29,6 +29,7 @@ import {
   IssueCardsDto,
   IssueForWriteDto,
   PrintPackDto,
+  SetPasswordWithCardDto,
 } from './dto/issue-cards.dto';
 
 function clientIp(req: Request): string {
@@ -155,6 +156,22 @@ export class MemberCardsController {
     const actor = user?.id && user.role ? toActor(user) : null;
     const data = await this.memberCardsService.verify(token, actor, clientIp(req));
     return { success: true, data };
+  }
+
+  @Public()
+  @Post('verify/:token/set-password')
+  @Header('Cache-Control', 'no-store')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: "Set or reset a member's own password with their ID card + last name (members only)",
+  })
+  async setPasswordWithCard(
+    @Param('token') token: string,
+    @Body() dto: SetPasswordWithCardDto,
+    @Req() req: Request,
+  ): Promise<ApiResponseDto<unknown>> {
+    const data = await this.memberCardsService.setPasswordWithCard(token, dto, clientIp(req));
+    return { success: true, data, message: data.message };
   }
 
   @Post('verify/:token/check-in')

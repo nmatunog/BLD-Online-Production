@@ -541,6 +541,78 @@ describe('MemberCardsService', () => {
     });
   });
 
+  describe('set password with own ID card', () => {
+    const token = 'A'.repeat(32);
+    function cardRow(overrides: Record<string, unknown> = {}, user: Record<string, unknown> = {}) {
+      return {
+        id: 'card-1',
+        tokenHash: hashCardToken(token),
+        status: MemberCardStatus.ACTIVE,
+        member: {
+          id: 'member-1',
+          lastName: 'Dela Cruz',
+          user: { id: 'user-1', role: UserRole.MEMBER, isActive: true, phone: '09171234567', ...user },
+        },
+        ...overrides,
+      };
+    }
+
+    it('sets the password for the card holder when the last name matches', async () => {
+      prisma.memberCard.findUnique.mockResolvedValue(cardRow());
+      (prisma as unknown as { user: { update: jest.Mock } }).user = { update: jest.fn() };
+      const result = await service.setPasswordWithCard(
+        token,
+        { lastName: '  dela cruz ', newPassword: 'secret1' },
+        '5.5.5.5',
+      );
+      expect(result.message).toMatch(/Password saved/);
+      const userUpdate = (prisma as unknown as { user: { update: jest.Mock } }).user.update;
+      expect(userUpdate).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { passwordHash: expect.any(String) },
+      });
+      expect(userUpdate.mock.calls[0][0].data.passwordHash).not.toBe('secret1');
+    });
+
+    it('refuses wrong last name, revoked or unknown cards, bad tokens and inactive accounts', async () => {
+      (prisma as unknown as { user: { update: jest.Mock } }).user = { update: jest.fn() };
+      const cases: Array<[unknown, string]> = [
+        [cardRow(), 'Santos'],
+        [cardRow({ status: MemberCardStatus.REVOKED }), 'Dela Cruz'],
+        [null, 'Dela Cruz'],
+        [cardRow({}, { isActive: false }), 'Dela Cruz'],
+      ];
+      for (const [row, lastName] of cases) {
+        prisma.memberCard.findUnique.mockResolvedValueOnce(row);
+        await expect(
+          service.setPasswordWithCard(token, { lastName, newPassword: 'secret1' }, '6.6.6.6'),
+        ).rejects.toBeInstanceOf(BadRequestException);
+      }
+      await expect(
+        service.setPasswordWithCard('short', { lastName: 'Dela Cruz', newPassword: 'secret1' }, '6.6.6.6'),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect((prisma as unknown as { user: { update: jest.Mock } }).user.update).not.toHaveBeenCalled();
+    });
+
+    it('never resets a staff or admin password from a card', async () => {
+      (prisma as unknown as { user: { update: jest.Mock } }).user = { update: jest.fn() };
+      for (const role of [UserRole.ADMINISTRATOR, UserRole.SUPER_USER, UserRole.DCS, UserRole.MINISTRY_COORDINATOR, UserRole.CLASS_SHEPHERD]) {
+        prisma.memberCard.findUnique.mockResolvedValueOnce(cardRow({}, { role }));
+        await expect(
+          service.setPasswordWithCard(token, { lastName: 'Dela Cruz', newPassword: 'secret1' }, '7.7.7.8'),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+      }
+      expect((prisma as unknown as { user: { update: jest.Mock } }).user.update).not.toHaveBeenCalled();
+    });
+
+    it('is rate-limited per IP', async () => {
+      for (let i = 0; i < 130; i++) service.isRateLimited('8.8.4.4');
+      await expect(
+        service.setPasswordWithCard(token, { lastName: 'Dela Cruz', newPassword: 'secret1' }, '8.8.4.4'),
+      ).rejects.toMatchObject({ status: 429 });
+    });
+  });
+
   describe('check-in path', () => {
     it('delegates to existing attendance check-in with the live member id', async () => {
       const token = generateCardToken();

@@ -77,6 +77,8 @@ export interface SignupRequest {
   phone: string;
   idPhoto: string;
   bloodType?: string;
+  /** Set after the person confirms a same-name member is not them. */
+  confirmNotDuplicate?: boolean;
 }
 
 export interface SignupUpdateRequest {
@@ -91,6 +93,8 @@ export interface SignupUpdateRequest {
   phone?: string;
   password?: string;
   bloodType?: string;
+  confirmNotDuplicate?: boolean;
+  editToken?: string;
 }
 
 export interface SignupResult {
@@ -104,11 +108,12 @@ export interface SignupResult {
   isExistingMember: boolean;
   photoUrl?: string | null;
   message: string;
+  /** Only in the signup response, for the phone that signed up (see lib/signup-edit-token). */
+  editToken?: string;
 }
 
+/** Public last-name suggestion: no member ID or Community ID. */
 export interface SignupSuggestion {
-  memberId: string;
-  communityId: string;
   firstName: string;
   lastName: string;
   nickname: string | null;
