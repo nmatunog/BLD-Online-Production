@@ -97,6 +97,8 @@ export interface PrinterExportRow {
 }
 
 export type PrintReadyFilter = 'READY' | 'MISSING' | 'ALL';
+/** Ministry filter value for members with no current ministry (matches the backend). */
+export const NO_MINISTRY_FILTER = '__NONE__';
 export type MissingPrintItem = 'photo' | 'firstName' | 'lastName' | 'memberId' | 'card';
 
 export interface SelectableMember {
@@ -107,6 +109,7 @@ export interface SelectableMember {
   communityId: string;
   photoUrl?: string | null;
   ministry?: string | null;
+  apostolate?: string | null;
   ready?: boolean;
   missing?: MissingPrintItem[];
 }
@@ -176,6 +179,8 @@ class MemberCardsService {
     memberIds?: string[];
     all?: boolean;
     printReady?: PrintReadyFilter;
+    apostolate?: string;
+    ministry?: string;
   }): Promise<ApiResponse<PrinterExportRow[]>> {
     const response = await apiClient.post<ApiResponse<PrinterExportRow[]>>(
       '/member-cards/export',
@@ -187,6 +192,8 @@ class MemberCardsService {
   async listMemberIds(params?: {
     search?: string;
     printReady?: PrintReadyFilter;
+    apostolate?: string;
+    ministry?: string;
   }): Promise<ApiResponse<MemberIdsResult>> {
     const response = await apiClient.get<ApiResponse<MemberIdsResult>>('/member-cards/member-ids', {
       params,

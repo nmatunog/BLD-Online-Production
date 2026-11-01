@@ -382,6 +382,39 @@ describe('MemberCardsService', () => {
     });
   });
 
+  describe('apostolate and ministry filters', () => {
+    const rows = [
+      { ...publicMember({ id: 'praise', communityId: 'CEB-ME1801', ministry: 'Praise Ministry' }), apostolate: 'Evangelization Apostolate', bloodType: null, ministryHistory: [], user: { ministry: null }, cards: [] },
+      { ...publicMember({ id: 'word', communityId: 'CEB-ME1802', ministry: 'Word Ministry' }), apostolate: 'Formation Apostolate', bloodType: null, ministryHistory: [], user: { ministry: null }, cards: [] },
+      { ...publicMember({ id: 'none', communityId: 'CEB-ME1803', ministry: null }), apostolate: null, bloodType: null, ministryHistory: [], user: { ministry: null }, cards: [] },
+    ];
+
+    it('filters the ID print list and its counts by apostolate and ministry', async () => {
+      prisma.member.findMany.mockResolvedValue(rows);
+      const byApostolate = await service.listMemberIds({ apostolate: 'Formation Apostolate' });
+      expect(byApostolate.ids).toEqual(['word']);
+      expect(byApostolate.counts.all).toBe(1);
+      expect(byApostolate.members[0]).toMatchObject({ apostolate: 'Formation Apostolate', ministry: 'Word Ministry' });
+
+      const byMinistry = await service.listMemberIds({ ministry: 'Praise Ministry' });
+      expect(byMinistry.ids).toEqual(['praise']);
+
+      const noMinistry = await service.listMemberIds({ ministry: '__NONE__' });
+      expect(noMinistry.ids).toEqual(['none']);
+
+      const everyone = await service.listMemberIds({});
+      expect(everyone.ids).toEqual(['praise', 'word', 'none']);
+    });
+
+    it('applies the same filters to the export', async () => {
+      prisma.member.findMany.mockResolvedValue(rows);
+      const exported = await service.exportRows({ all: true, apostolate: 'Evangelization Apostolate' });
+      expect(exported.map((row) => row.memberId)).toEqual(['CEB-ME1801']);
+      const picked = await service.exportRows({ memberIds: ['praise', 'word'], ministry: 'Word Ministry' });
+      expect(picked.map((row) => row.memberId)).toEqual(['CEB-ME1802']);
+    });
+  });
+
   describe('print pack', () => {
     function printRow(overrides: Record<string, unknown> = {}) {
       return {

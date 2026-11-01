@@ -1,4 +1,4 @@
-import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { MemberCardStatus } from '@prisma/client';
 import { PRINT_READY_FILTERS, type PrintReadyFilter } from '../member-card-readiness';
@@ -67,6 +67,15 @@ export class ExportCardsDto {
   @IsOptional()
   @IsIn(PRINT_READY_FILTERS)
   printReady?: PrintReadyFilter;
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  apostolate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  ministry?: string;
 }
 
 export class MemberIdsQueryDto {
@@ -77,4 +86,13 @@ export class MemberIdsQueryDto {
   @IsOptional()
   @IsIn(PRINT_READY_FILTERS)
   printReady?: PrintReadyFilter;
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  apostolate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  ministry?: string;
 }
