@@ -835,8 +835,25 @@ export default function MembersPage() {
     if (userRole === 'SUPER_USER' && editForm.communityId?.trim()) {
       updateData.communityId = editForm.communityId.trim();
     }
+    // Upload a photo that didn't save earlier through the photo endpoint (long timeout),
+    // so the profile save itself stays fast.
     if (pendingPhotoDataUrl) {
-      updateData.photoUrl = pendingPhotoDataUrl;
+      setIsSavingPhoto(true);
+      try {
+        const photoUrl = await membersService.uploadMemberPhoto(editingMember.id, pendingPhotoDataUrl);
+        setPendingPhotoDataUrl(null);
+        setMembers((prev) =>
+          prev.map((m) => (m.id === editingMember.id ? { ...m, photoUrl } : m)),
+        );
+      } catch (error) {
+        toast.error('Could not save photo', {
+          description: `${getErrorMessage(error, 'Please try again')} Your other changes were not saved yet.`,
+          duration: 6000,
+        });
+        return;
+      } finally {
+        setIsSavingPhoto(false);
+      }
     }
 
     // Remove undefined values

@@ -5,6 +5,15 @@ import { ApiResponse } from '@/types/api.types';
 
 /** rembg/normalize often takes 8–15s; keep well above the 10s axios default. */
 export const PHOTO_UPLOAD_TIMEOUT_MS = 60_000;
+/** Profile saves run a DB transaction (ministry history, etc.) — allow more than the 10s default. */
+export const MEMBER_SAVE_TIMEOUT_MS = 30_000;
+
+/** A save that still carries an ID photo data URL runs photo processing on the server (8–15s+). */
+export function memberSaveTimeoutMs(data: { photoUrl?: string | null }): number {
+  return typeof data.photoUrl === 'string' && data.photoUrl.startsWith('data:image/')
+    ? PHOTO_UPLOAD_TIMEOUT_MS
+    : MEMBER_SAVE_TIMEOUT_MS;
+}
 
 const PHOTO_DATA_URL_RE = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/;
 
@@ -253,7 +262,9 @@ class MembersService {
   }
 
   async update(id: string, data: UpdateMemberRequest): Promise<Member> {
-    const response = await apiClient.put<ApiResponse<Member>>(`/members/${id}`, data);
+    const response = await apiClient.put<ApiResponse<Member>>(`/members/${id}`, data, {
+      timeout: memberSaveTimeoutMs(data),
+    });
     if (!response.data.success || !response.data.data) {
       throw new Error(response.data.error || 'Failed to update member');
     }
@@ -261,7 +272,9 @@ class MembersService {
   }
 
   async updateMe(data: UpdateMemberRequest): Promise<Member> {
-    const response = await apiClient.put<ApiResponse<Member>>('/members/me', data);
+    const response = await apiClient.put<ApiResponse<Member>>('/members/me', data, {
+      timeout: memberSaveTimeoutMs(data),
+    });
     if (!response.data.success || !response.data.data) {
       throw new Error(response.data.error || 'Failed to update member profile');
     }
