@@ -38,6 +38,7 @@ const VALID_CARD_STATUSES: MemberCardStatus[] = [
 
 const MAX_LOOKUPS_PER_WINDOW = 30;
 const LOOKUP_WINDOW_MS = 60_000;
+const MAX_TRACKED_LOOKUP_IPS = 5_000;
 
 export type CardActor = {
   id: string;
@@ -152,6 +153,14 @@ export class MemberCardsService {
 
   isRateLimited(ip: string, now = Date.now()): boolean {
     const key = ip || 'unknown';
+    // Verify is public now, so cap the tracker: drop IPs with no lookups in the current window.
+    if (this.recentLookupsByIp.size > MAX_TRACKED_LOOKUP_IPS) {
+      for (const [trackedIp, times] of this.recentLookupsByIp) {
+        if (!times.some((t) => now - t <= LOOKUP_WINDOW_MS)) {
+          this.recentLookupsByIp.delete(trackedIp);
+        }
+      }
+    }
     const next = (this.recentLookupsByIp.get(key) ?? []).filter(
       (t) => now - t <= LOOKUP_WINDOW_MS,
     );

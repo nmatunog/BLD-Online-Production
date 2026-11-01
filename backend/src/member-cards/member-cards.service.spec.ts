@@ -355,6 +355,17 @@ describe('MemberCardsService', () => {
       }
       expect(limited).toBe(5);
     });
+
+    it('forgets stale IPs so a public flood cannot grow the tracker forever', () => {
+      for (let i = 0; i < 5_001; i++) {
+        service.isRateLimited(`10.0.${Math.floor(i / 256)}.${i % 256}`, 1_000_000);
+      }
+      service.isRateLimited('fresh-ip', 1_000_000 + 120_000);
+      const tracked = (service as unknown as { recentLookupsByIp: Map<string, number[]> })
+        .recentLookupsByIp;
+      expect(tracked.size).toBe(1);
+      expect(tracked.has('fresh-ip')).toBe(true);
+    });
   });
 
   describe('check-in path', () => {
