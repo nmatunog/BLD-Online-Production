@@ -352,10 +352,22 @@ describe('MemberCardsService', () => {
 
     it('rate-limits noisy lookup IPs', async () => {
       let limited = 0;
-      for (let i = 0; i < 35; i++) {
+      for (let i = 0; i < 125; i++) {
         if (service.isRateLimited('9.9.9.9', 1_000_000 + i)) limited++;
       }
       expect(limited).toBe(5);
+    });
+
+    it('does not throttle signed-in staff on a busy shared IP', async () => {
+      for (let i = 0; i < 130; i++) service.isRateLimited('7.7.7.7');
+      prisma.memberCard.findUnique.mockResolvedValue(null);
+      await expect(service.verify('x'.repeat(30), admin, '7.7.7.7')).resolves.toMatchObject({
+        view: 'staff',
+        status: 'NOT_FOUND',
+      });
+      await expect(service.verify('x'.repeat(30), null, '7.7.7.7')).rejects.toMatchObject({
+        status: 429,
+      });
     });
 
     it('forgets stale IPs so a public flood cannot grow the tracker forever', () => {
@@ -439,6 +451,52 @@ describe('MemberCardsService', () => {
       const jpg = await fetchPhoto('https://bld-idphotos.b-cdn.net/a.png');
       expect(jpg.subarray(0, 3).toString('hex')).toBe('ffd8ff');
       await expect(fetchPhoto('https://bld-idphotos.b-cdn.net/missing.png')).rejects.toThrow('404');
+      fetchMock.mockRestore();
+    });
+
+    it('only loads active members and reports IDs it could not include', async () => {
+      prisma.member.findMany.mockResolvedValue([]);
+      const pack = await service.buildPrintPack(['gone-1', 'gone-2']);
+      expect(prisma.member.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { AND: [{ id: { in: ['gone-1', 'gone-2'] } }, { user: { isActive: true } }] },
+        }),
+      );
+      const zip = await JSZip.loadAsync(pack.buffer);
+      const skipped = await zip.file('skipped.csv')!.async('string');
+      expect(skipped).toContain('2 selected member(s) not found or inactive');
+      expect(skipped).not.toContain('gone-1');
+    });
+
+    it('refuses redirects and oversized photos', async () => {
+      const fetchPhoto = (service as unknown as { fetchPrintPhoto: (u: string) => Promise<Buffer> })
+        .fetchPrintPhoto.bind(service);
+      const fetchMock = jest.spyOn(global, 'fetch');
+
+      fetchMock.mockResolvedValueOnce(new Response('x', { status: 200 }));
+      await fetchPhoto('https://bld-idphotos.b-cdn.net/a.jpg').catch(() => undefined);
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        'https://bld-idphotos.b-cdn.net/a.jpg',
+        expect.objectContaining({ redirect: 'error' }),
+      );
+
+      fetchMock.mockResolvedValueOnce(
+        new Response('x', { status: 200, headers: { 'content-length': String(11 * 1024 * 1024) } }),
+      );
+      await expect(fetchPhoto('https://bld-idphotos.b-cdn.net/big.jpg')).rejects.toThrow('too large');
+
+      // No content-length: the stream is cut off once it passes the limit.
+      let pulled = 0;
+      const chunk = new Uint8Array(1024 * 1024);
+      const endless = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          pulled++;
+          controller.enqueue(chunk);
+        },
+      });
+      fetchMock.mockResolvedValueOnce(new Response(endless, { status: 200 }));
+      await expect(fetchPhoto('https://bld-idphotos.b-cdn.net/stream.jpg')).rejects.toThrow('too large');
+      expect(pulled).toBeLessThan(14);
       fetchMock.mockRestore();
     });
 

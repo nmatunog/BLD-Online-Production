@@ -35,6 +35,17 @@ describe('member-card-export', () => {
     expect(csv).not.toContain('cardStatus');
     expect(csv).not.toMatch(/emergency|signature/i);
   });
+
+  it('neutralises formula-looking names in the CSV', () => {
+    const csv = buildPrinterCsv(
+      toPrinterRows([
+        { memberId: 'CEB-ME1803', firstName: '=HYPERLINK("http://x")', lastName: '@cmd', bloodType: 'O+' },
+      ]),
+    );
+    expect(csv).toContain(`"'=HYPERLINK(""http://x"")"`);
+    expect(csv).toContain(",'@cmd,");
+    expect(csv).toContain(',O+,');
+  });
 });
 
 describe('downloadBytes', () => {

@@ -61,8 +61,13 @@ export function printPackFileStem(memberId: string): string {
   return memberId.toUpperCase().replace(/[^A-Z0-9-]/g, '') || 'member';
 }
 
-function csvCell(value: string): string {
-  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+/**
+ * CSV cell, quoted when needed. A leading = + - @ (or tab/CR) is neutralised with an
+ * apostrophe so a member-entered name can never run as a spreadsheet formula.
+ */
+export function csvCell(value: string): string {
+  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  return /[",\r\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
 function toCsv(header: readonly string[], rows: string[][]): string {
