@@ -1,4 +1,5 @@
 import { ConflictException } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { AuthService } from './auth.service';
 import type { SignupDto } from './dto/signup.dto';
 import type { SignupUpdateDto } from './dto/signup-lookup.dto';
@@ -27,7 +28,8 @@ describe('AuthService signup possible-duplicate check', () => {
 
   beforeEach(() => {
     jest.resetAllMocks();
-    service = new AuthService(prisma as never, {} as never, membersService as never);
+    process.env.JWT_SECRET = 'test-secret';
+    service = new AuthService(prisma as never, new JwtService({}), membersService as never);
     prisma.user.findFirst.mockResolvedValue(null);
     prisma.$transaction.mockImplementation(async (fn: (tx: typeof prisma) => unknown) => fn(prisma));
     prisma.user.create.mockResolvedValue({ id: 'user-new' });
@@ -121,6 +123,10 @@ describe('AuthService signup possible-duplicate check', () => {
       nickname: 'Jun',
       encounterType: 'ME',
       classNumber: '18',
+      editToken: new JwtService({}).sign(
+        { memberId: 'member-own', communityId: 'CEB-ME1803', type: 'signup-edit' },
+        { secret: 'test-secret', expiresIn: '7d' },
+      ),
     } as SignupUpdateDto;
     prisma.member.findFirst
       .mockResolvedValueOnce({ id: 'member-own', communityId: 'CEB-ME1803', userId: 'u', user: {} })

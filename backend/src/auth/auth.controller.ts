@@ -250,6 +250,35 @@ export class AuthController {
     };
   }
 
+  @Post('password-setup-link/:memberId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(
+    UserRole.SUPER_USER,
+    UserRole.ADMINISTRATOR,
+    UserRole.DCS,
+    UserRole.MINISTRY_COORDINATOR,
+    UserRole.CLASS_SHEPHERD,
+  )
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Coordinator: one-day link for a member to set their own password (after checking them in person)',
+  })
+  async passwordSetupLink(
+    @Param('memberId') memberId: string,
+    @CurrentUser()
+    user: {
+      id: string;
+      role: UserRole;
+      ministry?: string;
+      shepherdEncounterType?: string;
+      shepherdClassNumber?: number;
+    },
+  ): Promise<ApiResponseDto<{ resetUrl: string; expiresAt: string; memberName: string }>> {
+    const data = await this.authService.createPasswordSetupLink(memberId, user);
+    return { success: true, data, message: 'Password setup link ready' };
+  }
+
   @Get('admin/incomplete-signups')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR, UserRole.DCS)

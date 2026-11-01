@@ -94,6 +94,7 @@ export interface SignupUpdateRequest {
   password?: string;
   bloodType?: string;
   confirmNotDuplicate?: boolean;
+  editToken?: string;
 }
 
 export interface SignupResult {
@@ -107,11 +108,12 @@ export interface SignupResult {
   isExistingMember: boolean;
   photoUrl?: string | null;
   message: string;
+  /** Only in the signup response, for the phone that signed up (see lib/signup-edit-token). */
+  editToken?: string;
 }
 
+/** Public last-name suggestion: no member ID or Community ID. */
 export interface SignupSuggestion {
-  memberId: string;
-  communityId: string;
   firstName: string;
   lastName: string;
   nickname: string | null;

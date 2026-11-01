@@ -149,3 +149,10 @@ describe('MemberCardsController print pack auth', () => {
     ).toBeUndefined();
   });
 });
+
+describe('MemberCardsController card password', () => {
+  it('is public (the card itself is the proof) and not a staff route', () => {
+    const reflector = new Reflector();
+    expect(reflector.get(IS_PUBLIC_KEY, MemberCardsController.prototype.setPasswordWithCard)).toBe(true);
+  });
+});

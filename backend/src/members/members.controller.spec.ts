@@ -36,3 +36,31 @@ describe('MembersController bulkPermanentDelete auth', () => {
     expect(statusFor(UserRole.MEMBER)).toBe(HttpStatus.FORBIDDEN);
   });
 });
+
+describe('MembersController Community ID lookup (was public)', () => {
+  const guard = new RolesGuard(new Reflector());
+  const handler = MembersController.prototype.publicFindByCommunityId;
+
+  function allowed(role?: UserRole): boolean {
+    try {
+      return guard.canActivate({
+        getHandler: () => handler,
+        getClass: () => MembersController,
+        switchToHttp: () => ({ getRequest: () => ({ user: role ? { id: 'u', role } : undefined }) }),
+      } as unknown as ExecutionContext);
+    } catch {
+      return false;
+    }
+  }
+
+  it('is no longer public', () => {
+    expect(new Reflector().get('isPublic', handler)).toBeUndefined();
+  });
+
+  it('allows staff only; members and guests cannot read other members by Community ID', () => {
+    expect(allowed(UserRole.ADMINISTRATOR)).toBe(true);
+    expect(allowed(UserRole.CLASS_SHEPHERD)).toBe(true);
+    expect(allowed(UserRole.MEMBER)).toBe(false);
+    expect(allowed()).toBe(false);
+  });
+});

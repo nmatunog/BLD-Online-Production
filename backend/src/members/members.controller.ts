@@ -25,7 +25,6 @@ import { MemberQueryDto } from './dto/member-query.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { Public } from '../auth/decorators/public.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { ApiResponse as ApiResponseDto } from '../common/interfaces/api-response.interface';
 import { UserRole } from '@prisma/client';
@@ -375,9 +374,20 @@ export class MembersController {
     };
   }
 
-  @Public()
+  /**
+   * Was public, but Community IDs are guessable (CEB-ME1801, CEB-ME1802, ...) and this returns
+   * the full record (phone, email, photo...). Staff only now; members use their own Profile.
+   */
   @Get('public/community/:communityId')
-  @ApiOperation({ summary: 'Public member lookup by Community ID (no authentication required)' })
+  @UseGuards(RolesGuard)
+  @Roles(
+    UserRole.SUPER_USER,
+    UserRole.ADMINISTRATOR,
+    UserRole.DCS,
+    UserRole.MINISTRY_COORDINATOR,
+    UserRole.CLASS_SHEPHERD,
+  )
+  @ApiOperation({ summary: 'Member lookup by Community ID (staff only; kept for old links)' })
   @ApiResponse({ status: 200, description: 'Member retrieved successfully' })
   @ApiResponse({ status: 404, description: 'Member not found' })
   async publicFindByCommunityId(

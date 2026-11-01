@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { PublicVerifyCard } from '@/components/cards/PublicVerifyCard';
+import { CardPasswordSetup } from '@/components/cards/CardPasswordSetup';
 import { useAuth } from '@/contexts/AuthContext';
 import { memberCardsService, type VerifyResult } from '@/services/member-cards.service';
 import { eventsService, type Event } from '@/services/events.service';
@@ -184,7 +185,9 @@ export default function VerifyCardPage() {
         memberId={publicMember.memberId}
         ministry={publicMember.ministry}
         photoUrl={publicMember.photoUrl}
-      />
+      >
+        {status !== 'REVOKED' ? <CardPasswordSetup token={token} /> : null}
+      </PublicVerifyCard>
     );
   }
 

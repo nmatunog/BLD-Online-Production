@@ -75,4 +75,10 @@ export class SignupUpdateDto {
   @IsOptional()
   @IsBoolean()
   confirmNotDuplicate?: boolean;
+
+  /** From the signup response; only the phone that signed up has it. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  editToken?: string;
 }

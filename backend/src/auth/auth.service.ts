@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -21,6 +22,7 @@ import { roleRequiresCredentials } from './auth.constants';
 import { normalizePhoneNumber, phoneToE164 } from '../common/utils/phone.util';
 import { SignupUpdateDto } from './dto/signup-lookup.dto';
 import { MembersService } from '../members/members.service';
+import { resolvePublicAppUrl } from '../member-cards/member-card-token.util';
 
 /** Inputs that map to Cebu (Community ID starts with CEB) */
 const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
@@ -36,6 +38,12 @@ function normalizeCityToCode(input: string): string {
   if (KNOWN_CITY_CODES.includes(upper)) return upper;
   return upper.substring(0, 3);
 }
+
+/** Lets the phone that did the signup fix its own details for a while, without a password. */
+const SIGNUP_EDIT_TOKEN_TYPE = 'signup-edit';
+const SIGNUP_EDIT_TOKEN_TTL = '7d';
+/** Coordinator-issued password setup links last one day. */
+const PASSWORD_SETUP_LINK_TTL_SECONDS = 24 * 60 * 60;
 
 @Injectable()
 export class AuthService {
@@ -266,7 +274,12 @@ export class AuthService {
         console.warn(`Failed to generate QR code for ${member.communityId}:`, error);
       }
       
-      return { ...this.toSignupResult(member, false), photoUrl, qrCodeUrl };
+      return {
+        ...this.toSignupResult(member, false),
+        photoUrl,
+        qrCodeUrl,
+        editToken: this.issueSignupEditToken(member.id, member.communityId),
+      };
     } catch (err) {
       await this.prisma.user.delete({ where: { id: member.userId } });
       if (err instanceof BadRequestException) {
@@ -293,8 +306,6 @@ export class AuthService {
         user: { isActive: true },
       },
       select: {
-        id: true,
-        communityId: true,
         firstName: true,
         lastName: true,
         nickname: true,
@@ -305,9 +316,8 @@ export class AuthService {
       take: 8,
     });
 
+    // Never return member IDs or Community IDs from this public endpoint.
     return members.map((m) => ({
-      memberId: m.id,
-      communityId: m.communityId,
       firstName: m.firstName,
       lastName: m.lastName,
       nickname: m.nickname,
@@ -333,6 +343,9 @@ export class AuthService {
       throw new BadRequestException('Class number must be between 01 and 999');
     }
 
+    // Only the phone that did the signup holds the edit token for this member.
+    this.assertSignupEditToken(dto.editToken, memberId, communityId);
+
     const member = await this.prisma.member.findFirst({
       where: { id: memberId, communityId },
       include: { user: true },
@@ -350,45 +363,30 @@ export class AuthService {
       }
     }
 
-    const userUpdateData: {
-      isActive: boolean;
-      phone?: string | null;
-      passwordHash?: string;
-    } = { isActive: true };
-
-    let normalizedPhone: string | null = null;
+    // A mobile number is how an account is taken over, so it can't be changed from the
+    // public signup page: log in (Profile) or ask a coordinator. Same number = no change.
     if (dto.phone) {
-      normalizedPhone = normalizePhoneNumber(dto.phone);
-      if (!normalizedPhone) {
-        throw new BadRequestException('Invalid Philippine mobile number. Use format: 09XXXXXXXXX');
+      const requested = normalizePhoneNumber(dto.phone);
+      const current = member.user.phone ? normalizePhoneNumber(member.user.phone) : null;
+      if (!requested || requested !== current) {
+        throw new ForbiddenException(
+          'To change your mobile number, log in and edit your Profile, or ask your coordinator.',
+        );
       }
-
-      const phoneVariants = [normalizedPhone];
-      const e164Phone = phoneToE164(normalizedPhone);
-      if (e164Phone) {
-        phoneVariants.push(e164Phone);
-      }
-
-      const existingPhone = await this.prisma.user.findFirst({
-        where: {
-          phone: { in: phoneVariants.filter((v): v is string => Boolean(v)) },
-          id: { not: member.userId },
-        },
-      });
-
-      if (existingPhone) {
-        throw new ConflictException('This mobile number is already registered');
-      }
-
-      userUpdateData.phone = normalizedPhone;
     }
-    // Phone is collected separately on login-setup screen, not required for profile update
 
+    // A password can be set here only if the account doesn't have one yet.
+    let passwordHash: string | undefined;
     if (dto.password) {
-      if (!dto.phone && !member.user.phone) {
+      if (member.user.passwordHash) {
+        throw new ForbiddenException(
+          'This account already has a password. Use Forgot Password, scan your ID card, or ask your coordinator.',
+        );
+      }
+      if (!member.user.phone) {
         throw new BadRequestException('Mobile number is required when setting a password');
       }
-      userUpdateData.passwordHash = await bcrypt.hash(dto.password, 10);
+      passwordHash = await bcrypt.hash(dto.password, 10);
     }
 
     const updated = await this.prisma.member.update({
@@ -403,17 +401,11 @@ export class AuthService {
       },
     });
 
-    // Only update user fields if phone or password was provided
-    if (dto.phone || dto.password) {
+    // Never reactivate a deactivated account from the public signup page.
+    if (passwordHash) {
       await this.prisma.user.update({
         where: { id: member.userId },
-        data: userUpdateData,
-      });
-    } else {
-      // Just ensure user is active
-      await this.prisma.user.update({
-        where: { id: member.userId },
-        data: { isActive: true },
+        data: { passwordHash },
       });
     }
 
@@ -449,6 +441,38 @@ export class AuthService {
       qrCodeUrl,
       message: 'Your details were saved. Community ID is unchanged.',
     };
+  }
+
+  private issueSignupEditToken(memberId: string, communityId: string): string {
+    return this.jwtService.sign(
+      { memberId, communityId, type: SIGNUP_EDIT_TOKEN_TYPE },
+      { secret: process.env.JWT_SECRET, expiresIn: SIGNUP_EDIT_TOKEN_TTL },
+    );
+  }
+
+  private assertSignupEditToken(
+    token: string | undefined,
+    memberId: string,
+    communityId: string,
+  ): void {
+    const denied = () =>
+      new ForbiddenException(
+        'Details can only be changed from the phone used to sign up. Log in, or ask your coordinator.',
+      );
+    if (!token) throw denied();
+    let payload: { memberId?: string; communityId?: string; type?: string };
+    try {
+      payload = this.jwtService.verify(token, { secret: process.env.JWT_SECRET });
+    } catch {
+      throw denied();
+    }
+    if (
+      payload.type !== SIGNUP_EDIT_TOKEN_TYPE ||
+      payload.memberId !== memberId ||
+      payload.communityId?.toUpperCase() !== communityId.toUpperCase()
+    ) {
+      throw denied();
+    }
   }
 
   /** Another member with the same first AND last name (case-insensitive). Nickname is ignored. */
@@ -785,6 +809,69 @@ export class AuthService {
     } catch (error) {
       throw new UnauthorizedException('Invalid or expired reset token');
     }
+  }
+
+  /**
+   * Coordinator path: after checking the member in person, staff get a one-day link the member
+   * opens on their own phone to choose a password (existing Reset Password page).
+   * Scope matches member editing: coordinators their ministry, shepherds their class.
+   * Only SUPER_USER / ADMINISTRATOR may do this for staff/admin accounts.
+   */
+  async createPasswordSetupLink(
+    memberId: string,
+    actor: {
+      id: string;
+      role: UserRole;
+      ministry?: string;
+      shepherdEncounterType?: string;
+      shepherdClassNumber?: number;
+    },
+  ): Promise<{ resetUrl: string; expiresAt: string; memberName: string }> {
+    const member = await this.prisma.member.findUnique({
+      where: { id: memberId },
+      include: { user: { select: { id: true, role: true, isActive: true } } },
+    });
+    if (!member?.user) {
+      throw new BadRequestException('Member not found');
+    }
+    if (!member.user.isActive) {
+      throw new BadRequestException('This account is deactivated. Reactivate it first.');
+    }
+    if (member.user.id === actor.id) {
+      throw new ForbiddenException('Use Forgot Password for your own account.');
+    }
+
+    const fullAdmin = actor.role === UserRole.SUPER_USER || actor.role === UserRole.ADMINISTRATOR;
+    if (member.user.role !== UserRole.MEMBER && !fullAdmin) {
+      throw new ForbiddenException('Only an administrator can do this for a staff account.');
+    }
+    if (actor.role === UserRole.MINISTRY_COORDINATOR && member.ministry !== actor.ministry) {
+      throw new ForbiddenException('You can only do this for members of your own ministry.');
+    }
+    if (actor.role === UserRole.CLASS_SHEPHERD) {
+      if (
+        !actor.shepherdEncounterType ||
+        !actor.shepherdClassNumber ||
+        member.encounterType.toUpperCase() !== actor.shepherdEncounterType.toUpperCase() ||
+        member.classNumber !== actor.shepherdClassNumber
+      ) {
+        throw new ForbiddenException('You can only do this for members of your assigned class.');
+      }
+    }
+
+    const token = this.jwtService.sign(
+      { userId: member.user.id, type: 'password-reset' },
+      { secret: process.env.JWT_SECRET, expiresIn: PASSWORD_SETUP_LINK_TTL_SECONDS },
+    );
+    const expiresAt = new Date(Date.now() + PASSWORD_SETUP_LINK_TTL_SECONDS * 1000).toISOString();
+    console.log(
+      `[AUTH] password-setup-link issued memberId=${member.id} by userId=${actor.id} role=${actor.role}`,
+    );
+    return {
+      resetUrl: `${resolvePublicAppUrl()}/reset-password?token=${encodeURIComponent(token)}`,
+      expiresAt,
+      memberName: `${member.firstName} ${member.lastName}`.trim(),
+    };
   }
 
   async setPasswordFromTemp(dto: SetPasswordFromTempDto): Promise<{ message: string }> {

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { withPhotoCacheBust } from '@/lib/photo-url';
 
 export type PublicVerifyCardProps = {
@@ -6,6 +7,8 @@ export type PublicVerifyCardProps = {
   memberId: string;
   ministry: string;
   photoUrl: string | null;
+  /** Extra actions under the card, e.g. "Set my password" for the card holder. */
+  children?: ReactNode;
 };
 
 export function PublicVerifyCard({
@@ -14,6 +17,7 @@ export function PublicVerifyCard({
   memberId,
   ministry,
   photoUrl,
+  children,
 }: PublicVerifyCardProps) {
   const photo = photoUrl ? withPhotoCacheBust(photoUrl, memberId) : '';
   const initials = fullName
@@ -56,6 +60,7 @@ export function PublicVerifyCard({
         <p className="mt-3 text-2xl font-bold text-gray-800">{memberId}</p>
         <p className="mt-2 text-2xl font-semibold text-gray-700">{ministry}</p>
       </div>
+      {children}
     </main>
   );
 }

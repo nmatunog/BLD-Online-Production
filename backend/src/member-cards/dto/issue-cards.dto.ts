@@ -1,4 +1,14 @@
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class IssueCardsDto {
   @IsArray()
@@ -29,4 +39,16 @@ export class PrintPackDto {
   @ArrayMaxSize(50)
   @IsUUID('4', { each: true })
   memberIds!: string[];
+}
+
+export class SetPasswordWithCardDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  lastName!: string;
+
+  @IsString()
+  @MinLength(6, { message: 'Password must be at least 6 characters' })
+  @MaxLength(100)
+  newPassword!: string;
 }
