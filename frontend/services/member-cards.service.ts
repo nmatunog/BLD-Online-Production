@@ -1,7 +1,6 @@
 import { apiClient } from './api-client';
 import { ApiResponse } from '@/types/api.types';
 import type {
-  DoorVerifyStatus,
   MemberCardStatus,
   PublicCardMember,
   PublicVerifyResult,
@@ -57,13 +56,8 @@ export interface WriteReadyCard {
   member: PublicCardMember;
 }
 
-export type VerifyResult = PublicVerifyResult | StaffVerifyResult | {
-  view?: 'public' | 'staff';
-  status: DoorVerifyStatus | 'VALID';
-  cardStatus?: MemberCardStatus | null;
-  member: PublicCardMember | PublicVerifyResult['member'] | null;
-  cardId?: string | null;
-};
+/** Discriminated by `view`: anonymous/non-staff get the public allowlist, staff get the door view. */
+export type VerifyResult = PublicVerifyResult | StaffVerifyResult;
 
 export interface PrinterExportRow {
   memberId: string;

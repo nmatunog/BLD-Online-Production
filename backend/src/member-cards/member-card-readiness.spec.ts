@@ -26,6 +26,9 @@ describe('print readiness', () => {
     expect(isValidPrintMemberId('ceb-ye2301')).toBe(true);
     expect(isValidPrintMemberId('CEB-SPE1502')).toBe(true);
     expect(isValidPrintMemberId('CEB-ME01-0001')).toBe(true);
+    expect(isValidPrintMemberId('CEB-ME10001')).toBe(true);
+    expect(isValidPrintMemberId('MAN-ME1801')).toBe(false);
+    expect(isValidPrintMemberId('CEB-ME180123')).toBe(false);
     expect(isValidPrintMemberId('ME1801')).toBe(false);
     expect(isValidPrintMemberId('member-uuid')).toBe(false);
     expect(isValidPrintMemberId('')).toBe(false);

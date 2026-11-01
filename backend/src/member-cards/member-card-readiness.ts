@@ -1,7 +1,10 @@
 import { MemberCardStatus } from '@prisma/client';
 
-/** Printed Community ID: CEB-XX0000, plus production IDs like CEB-ME1801 and CEB-ME01-0001. */
-export const PRINT_MEMBER_ID_PATTERN = /^CEB-[A-Z]{2,4}(?:\d{4}|\d{2}-\d{4})$/;
+/**
+ * Printed Community ID: CEB-XX0000, plus production IDs like CEB-ME1801 and CEB-ME01-0001.
+ * Class numbers can reach 3 digits (01-999), so CEB-ME10001 is also valid.
+ */
+export const PRINT_MEMBER_ID_PATTERN = /^CEB-[A-Z]{2,4}(?:\d{4,5}|\d{2}-\d{4})$/;
 
 export const PRINT_READY_FILTERS = ['READY', 'MISSING', 'ALL'] as const;
 export type PrintReadyFilter = (typeof PRINT_READY_FILTERS)[number];

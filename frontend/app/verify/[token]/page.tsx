@@ -9,46 +9,43 @@ import { useAuth } from '@/contexts/AuthContext';
 import { memberCardsService, type VerifyResult } from '@/services/member-cards.service';
 import { eventsService, type Event } from '@/services/events.service';
 import { isInCheckInWindowManila, sortEventsNearestFirst } from '@/lib/event-checkin-window';
-import { canVerifyMemberCards, doorMemberName, type PublicCardMember } from '@/lib/nfc-card';
+import {
+  canVerifyMemberCards,
+  doorMemberName,
+  NO_MINISTRY_ASSIGNED,
+  type PublicCardMember,
+  type PublicVerifyMember,
+} from '@/lib/nfc-card';
 import { withPhotoCacheBust } from '@/lib/photo-url';
 import { getErrorMessage } from '@/lib/get-error-message';
 import { resultFromCheckInError, type CheckInResultState } from '@/lib/checkin-ux';
 
 type LoadState = 'loading' | 'ready' | 'error';
 
-function isStaffMember(
-  member: VerifyResult['member'] | undefined,
-): member is PublicCardMember {
-  return !!member && 'firstName' in member && 'communityId' in member;
+/** Staff door view member, or null for the public view / not found. */
+function staffMemberOf(result: VerifyResult | null): PublicCardMember | null {
+  return result?.view === 'staff' ? result.member : null;
 }
 
-function publicFields(result: VerifyResult | null): {
-  fullName: string;
-  memberId: string;
-  ministry: string;
-  photoUrl: string | null;
-} {
-  const member = result?.member;
-  if (!member) {
-    return { fullName: '', memberId: '', ministry: 'No ministry assigned', photoUrl: null };
+/** Public allowlist fields (photo, full name, member ID, ministry) from either view. */
+function publicFields(result: VerifyResult): PublicVerifyMember | null {
+  if (result.view === 'public') {
+    return result.member
+      ? { ...result.member, ministry: result.member.ministry || NO_MINISTRY_ASSIGNED }
+      : null;
   }
-  if ('fullName' in member && 'memberId' in member) {
-    return {
-      fullName: member.fullName,
-      memberId: member.memberId,
-      ministry: member.ministry || 'No ministry assigned',
-      photoUrl: member.photoUrl,
-    };
-  }
-  if (isStaffMember(member)) {
-    return {
-      fullName: `${member.firstName} ${member.lastName}`.trim(),
-      memberId: member.communityId,
-      ministry: member.ministry || 'No ministry assigned',
-      photoUrl: member.photoUrl,
-    };
-  }
-  return { fullName: '', memberId: '', ministry: 'No ministry assigned', photoUrl: null };
+  const member = result.member;
+  if (!member) return null;
+  return {
+    fullName: `${member.firstName} ${member.lastName}`.trim(),
+    memberId: member.communityId,
+    ministry: member.ministry || NO_MINISTRY_ASSIGNED,
+    photoUrl: member.photoUrl,
+  };
+}
+
+function isValidStatus(result: VerifyResult | null): boolean {
+  return result?.status === 'ACTIVE' || result?.status === 'VALID';
 }
 
 export default function VerifyCardPage() {
@@ -70,14 +67,14 @@ export default function VerifyCardPage() {
     try {
       const response = await memberCardsService.verify(token);
       if (!response.success || !response.data) {
-        setError(response.error || 'not found');
+        setError(response.error || 'Could not verify this card.');
         setLoadState('error');
         return;
       }
       setResult(response.data);
       setLoadState('ready');
     } catch (err) {
-      setError(getErrorMessage(err, 'not found'));
+      setError(getErrorMessage(err, 'Could not verify this card.'));
       setLoadState('error');
     }
   }, [token]);
@@ -87,7 +84,7 @@ export default function VerifyCardPage() {
   }, [load]);
 
   useEffect(() => {
-    if (!staff || (result?.status !== 'ACTIVE' && result?.status !== 'VALID')) return;
+    if (!staff || result?.view !== 'staff' || !isValidStatus(result)) return;
     let cancelled = false;
     (async () => {
       try {
@@ -113,7 +110,7 @@ export default function VerifyCardPage() {
     return () => {
       cancelled = true;
     };
-  }, [staff, result?.status]);
+  }, [staff, result]);
 
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === selectedEventId) ?? null,
@@ -121,8 +118,8 @@ export default function VerifyCardPage() {
   );
 
   const handleCheckIn = async () => {
-    const member = result?.member;
-    if (!selectedEventId || !isStaffMember(member)) return;
+    const member = staffMemberOf(result);
+    if (!selectedEventId || !member) return;
     setCheckingIn(true);
     setCheckInResult(null);
     try {
@@ -164,20 +161,22 @@ export default function VerifyCardPage() {
     );
   }
 
-  const status = result?.status ?? 'NOT_FOUND';
-  if (loadState === 'error' || status === 'NOT_FOUND' || !result?.member) {
+  const publicMember = result ? publicFields(result) : null;
+  if (loadState === 'error' || !result || result.status === 'NOT_FOUND' || !publicMember) {
     return (
       <main className="mx-auto flex min-h-[100dvh] max-w-md flex-col justify-center px-5">
         <p className="rounded-3xl bg-red-600 px-4 py-6 text-center text-3xl font-black text-white">
-          not found
+          NOT FOUND
         </p>
         <p className="mt-4 text-center text-xl text-gray-700">{error || 'This card is not on file.'}</p>
       </main>
     );
   }
 
-  if (!staff) {
-    const publicMember = publicFields(result);
+  const status = result.status;
+
+  // The backend decides the view: anyone who is not card-verify staff gets the public allowlist.
+  if (result.view === 'public' || !staff) {
     return (
       <PublicVerifyCard
         status={status === 'REVOKED' ? 'REVOKED' : 'VALID'}
@@ -189,8 +188,8 @@ export default function VerifyCardPage() {
     );
   }
 
-  const member = isStaffMember(result.member) ? result.member : null;
-  const active = (status === 'ACTIVE' || status === 'VALID') && member;
+  const member = result.member;
+  const active = isValidStatus(result) && member;
   const photo = member?.photoUrl ? withPhotoCacheBust(member.photoUrl, member.id) : '';
 
   return (
@@ -200,7 +199,7 @@ export default function VerifyCardPage() {
           active ? 'bg-emerald-600' : 'bg-red-600'
         }`}
       >
-        {status === 'REVOKED' ? 'REVOKED' : status}
+        {status}
       </p>
 
       {member ? (
@@ -222,7 +221,7 @@ export default function VerifyCardPage() {
           </h1>
           <p className="mt-2 text-2xl font-bold text-gray-800">{member.communityId}</p>
           <p className="mt-1 text-2xl font-semibold text-gray-700">
-            {member.ministry || 'No ministry assigned'}
+            {member.ministry || NO_MINISTRY_ASSIGNED}
           </p>
         </div>
       ) : (

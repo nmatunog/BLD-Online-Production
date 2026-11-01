@@ -551,9 +551,10 @@ export class MemberCardsService {
       : this.activeMemberWhere(query.search);
 
     const rows = await this.loadPrintMembers(where);
-    const filtered = selected
-      ? rows
-      : rows.filter((row) => matchesPrintReadyFilter(assessPrintReadiness(row).ready, query.printReady));
+    // The print filter applies to hand-picked members too, so "Ready" never exports an incomplete card.
+    const filtered = rows.filter((row) =>
+      matchesPrintReadyFilter(assessPrintReadiness(row).ready, query.printReady),
+    );
 
     return filtered.map((row) => this.toIdPrintExportRow(row));
   }

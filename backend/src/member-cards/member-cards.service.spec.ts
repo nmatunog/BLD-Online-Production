@@ -265,6 +265,33 @@ describe('MemberCardsService', () => {
       );
     });
 
+    it('gives a signed-in plain member the public allowlist, not the staff view', async () => {
+      const token = generateCardToken();
+      prisma.memberCard.findUnique.mockResolvedValue({
+        id: 'card-1',
+        memberId: 'member-1',
+        tokenHash: hashCardToken(token),
+        status: MemberCardStatus.ACTIVE,
+        member: {
+          ...publicMember(),
+          id: 'member-internal-id',
+          email: 'hidden@example.com',
+          bloodType: 'O+',
+          ministryHistory: [],
+          user: { ministry: null },
+        },
+      });
+      prisma.memberCard.update.mockResolvedValue({});
+
+      const result = await service.verify(
+        token,
+        { id: 'member-user', role: UserRole.MEMBER },
+        '9.9.9.9',
+      );
+      expect(result).toMatchObject({ view: 'public', status: 'VALID' });
+      expect(JSON.stringify(result)).not.toMatch(/hidden@example.com|O\+|member-internal-id|card-1/);
+    });
+
     it('returns REVOKED for a revoked token and not found for unknown tokens', async () => {
       const token = generateCardToken();
       prisma.memberCard.findUnique.mockResolvedValueOnce({
@@ -526,6 +553,12 @@ describe('MemberCardsService', () => {
       const missingRows = await service.exportRows({ all: true, printReady: 'MISSING' });
       expect(missingRows).toHaveLength(1);
       expect(missingRows[0].verifyUrl).toBe('');
+
+      const pickedReady = await service.exportRows({
+        memberIds: ['ready-1', 'missing-1'],
+        printReady: 'READY',
+      });
+      expect(pickedReady.map((row) => row.memberId)).toEqual(['CEB-ME1801']);
     });
 
     it('lists matching member IDs within the print-ready filter and returns counts', async () => {

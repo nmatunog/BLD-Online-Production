@@ -226,7 +226,7 @@ export default function MemberCardsPage() {
       const result = await memberCardsService.exportRows(
         selectedMemberIds.length === 0 || allSelected
           ? { all: true, search: search || undefined, printReady: printFilter }
-          : { memberIds: selectedMemberIds },
+          : { memberIds: selectedMemberIds, printReady: printFilter },
       );
       const rows = toPrinterRows(result.data ?? []);
       if (rows.length === 0) {
