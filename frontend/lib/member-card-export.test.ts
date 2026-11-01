@@ -8,6 +8,7 @@ describe('member-card-export', () => {
       {
         memberId: 'CEB-ME1801',
         fullName: 'Juan Dela Cruz',
+        nickname: 'Jun',
         firstName: 'Juan',
         lastName: 'Dela Cruz',
         bloodType: 'O+',
@@ -26,11 +27,12 @@ describe('member-card-export', () => {
     ]);
     const csv = buildPrinterCsv(rows);
     expect(csv).toContain(
-      'memberId,fullName,firstName,lastName,bloodType,photoUrl,verifyUrl',
+      'memberId,fullName,nickname,firstName,lastName,bloodType,photoUrl,verifyUrl',
     );
-    expect(csv).toContain('CEB-ME1801,Juan Dela Cruz,Juan,Dela Cruz,O+');
+    expect(csv).toContain('CEB-ME1801,Juan Dela Cruz,Jun,Juan,Dela Cruz,O+');
     expect(csv).toContain('https://app.bldcebu.com/verify/tok');
-    expect(csv).toContain('CEB-ME1802,Maria Santos,Maria,Santos');
+    // No nickname on file: the first name is printed instead.
+    expect(csv).toContain('CEB-ME1802,Maria Santos,Maria,Maria,Santos');
     expect(csv).not.toContain('ministry');
     expect(csv).not.toContain('cardStatus');
     expect(csv).not.toMatch(/emergency|signature/i);
