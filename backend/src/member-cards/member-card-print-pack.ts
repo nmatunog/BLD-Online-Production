@@ -6,6 +6,7 @@ export const PRINT_PACK_MAX_MEMBERS = 50;
 export const PRINT_PACK_CSV_COLUMNS = [
   'memberId',
   'fullName',
+  'nickname',
   'firstName',
   'lastName',
   'bloodType',
@@ -19,6 +20,7 @@ const DEFAULT_PHOTO_HOSTS = ['bld-idphotos.b-cdn.net'];
 export type PrintPackCard = {
   memberId: string;
   fullName: string;
+  nickname: string;
   firstName: string;
   lastName: string;
   bloodType: string;
@@ -111,6 +113,7 @@ export async function buildPrintPackZip(input: {
     rows.push([
       card.memberId,
       card.fullName,
+      card.nickname,
       card.firstName,
       card.lastName,
       card.bloodType,

@@ -382,6 +382,39 @@ describe('MemberCardsService', () => {
     });
   });
 
+  describe('apostolate and ministry filters', () => {
+    const rows = [
+      { ...publicMember({ id: 'praise', communityId: 'CEB-ME1801', ministry: 'Praise Ministry' }), apostolate: 'Evangelization Apostolate', bloodType: null, ministryHistory: [], user: { ministry: null }, cards: [] },
+      { ...publicMember({ id: 'word', communityId: 'CEB-ME1802', ministry: 'Word Ministry' }), apostolate: 'Formation Apostolate', bloodType: null, ministryHistory: [], user: { ministry: null }, cards: [] },
+      { ...publicMember({ id: 'none', communityId: 'CEB-ME1803', ministry: null }), apostolate: null, bloodType: null, ministryHistory: [], user: { ministry: null }, cards: [] },
+    ];
+
+    it('filters the ID print list and its counts by apostolate and ministry', async () => {
+      prisma.member.findMany.mockResolvedValue(rows);
+      const byApostolate = await service.listMemberIds({ apostolate: 'Formation Apostolate' });
+      expect(byApostolate.ids).toEqual(['word']);
+      expect(byApostolate.counts.all).toBe(1);
+      expect(byApostolate.members[0]).toMatchObject({ apostolate: 'Formation Apostolate', ministry: 'Word Ministry' });
+
+      const byMinistry = await service.listMemberIds({ ministry: 'Praise Ministry' });
+      expect(byMinistry.ids).toEqual(['praise']);
+
+      const noMinistry = await service.listMemberIds({ ministry: '__NONE__' });
+      expect(noMinistry.ids).toEqual(['none']);
+
+      const everyone = await service.listMemberIds({});
+      expect(everyone.ids).toEqual(['praise', 'word', 'none']);
+    });
+
+    it('applies the same filters to the export', async () => {
+      prisma.member.findMany.mockResolvedValue(rows);
+      const exported = await service.exportRows({ all: true, apostolate: 'Evangelization Apostolate' });
+      expect(exported.map((row) => row.memberId)).toEqual(['CEB-ME1801']);
+      const picked = await service.exportRows({ memberIds: ['praise', 'word'], ministry: 'Word Ministry' });
+      expect(picked.map((row) => row.memberId)).toEqual(['CEB-ME1802']);
+    });
+  });
+
   describe('print pack', () => {
     function printRow(overrides: Record<string, unknown> = {}) {
       return {
@@ -422,7 +455,7 @@ describe('MemberCardsService', () => {
 
       const zip = await JSZip.loadAsync(pack.buffer);
       const csv = await zip.file('cards.csv')!.async('string');
-      expect(csv).toContain('CEB-ME1801,Juan Dela Cruz,Juan,Dela Cruz,O+,photos/CEB-ME1801.jpg,qr/CEB-ME1801.png,https://app.bldcebu.com/verify/tokenvalue0123456789abcd');
+      expect(csv).toContain('CEB-ME1801,Juan Dela Cruz,Juan,Juan,Dela Cruz,O+,photos/CEB-ME1801.jpg,qr/CEB-ME1801.png,https://app.bldcebu.com/verify/tokenvalue0123456789abcd');
       expect(csv).not.toMatch(/CEB-ME180[2-5]/);
       const qr = await zip.file('qr/CEB-ME1801.png')!.async('nodebuffer');
       expect(qr.subarray(0, 4).toString('hex')).toBe('89504e47');
@@ -622,15 +655,27 @@ describe('MemberCardsService', () => {
       const rows = await service.exportRows({ all: true });
       expect(Object.keys(rows[0])).toEqual([...ID_PRINT_EXPORT_COLUMNS]);
       expect(Object.keys(rows[0]).join(',')).not.toMatch(/emergency|signature/i);
+      expect(ID_PRINT_EXPORT_COLUMNS).toContain('nickname');
       expect(rows[0]).toEqual({
         memberId: 'CEB-ME01-0001',
         fullName: 'Juan Dela Cruz',
+        nickname: 'Juan',
         firstName: 'Juan',
         lastName: 'Dela Cruz',
         bloodType: 'O+',
         photoUrl: 'https://bld-idphotos.b-cdn.net/juan.jpg',
         verifyUrl: `https://app.bldcebu.com/verify/${token}`,
       });
+    });
+
+    it('prints the nickname, falling back to the first name when it is blank', async () => {
+      prisma.member.findMany.mockResolvedValue([
+        { ...publicMember({ id: 'm-a', nickname: 'Jun' }), bloodType: null, ministryHistory: [], user: { ministry: null }, cards: [] },
+        { ...publicMember({ id: 'm-b', firstName: 'Maria', nickname: '  ' }), bloodType: null, ministryHistory: [], user: { ministry: null }, cards: [] },
+        { ...publicMember({ id: 'm-c', firstName: 'Ana', nickname: null }), bloodType: null, ministryHistory: [], user: { ministry: null }, cards: [] },
+      ]);
+      const rows = await service.exportRows({ all: true });
+      expect(rows.map((row) => row.nickname)).toEqual(['Jun', 'Maria', 'Ana']);
     });
 
     it('exports members without cards and leaves missing schema fields blank', async () => {

@@ -8,6 +8,7 @@ import { NfcWritePanel, type WriteTarget } from '@/components/cards/NfcWritePane
 import {
   memberCardsService,
   type MemberCardListItem,
+  NO_MINISTRY_FILTER,
   type PrintReadyFilter,
   type SelectableMember,
 } from '@/services/member-cards.service';
@@ -19,6 +20,7 @@ import {
   resolveMemberMinistry,
 } from '@/lib/nfc-card';
 import { MISSING_PRINT_LABELS } from '@/lib/id-print';
+import { APOSTOLATES, getMinistriesForApostolate } from '@/lib/member-constants';
 import {
   buildPrinterCsv,
   buildPrinterWorkbook,
@@ -59,6 +61,8 @@ export default function MemberCardsPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'ENCODED' | 'REVOKED'>('ALL');
   const [printFilter, setPrintFilter] = useState<PrintReadyFilter>('ALL');
+  const [apostolateFilter, setApostolateFilter] = useState('');
+  const [ministryFilter, setMinistryFilter] = useState('');
   const [cards, setCards] = useState<MemberCardListItem[]>([]);
   const [members, setMembers] = useState<SelectableMember[]>([]);
   const [memberTotal, setMemberTotal] = useState(0);
@@ -118,6 +122,8 @@ export default function MemberCardsPage() {
       const result = await memberCardsService.listMemberIds({
         search: search || undefined,
         printReady: printFilter,
+        apostolate: apostolateFilter || undefined,
+        ministry: ministryFilter || undefined,
       });
       const loaded = result.data?.members ?? [];
       setMembers(loaded);
@@ -129,7 +135,7 @@ export default function MemberCardsPage() {
       setMemberTotal(0);
       setPrintCounts({ ready: 0, missing: 0, all: 0 });
     }
-  }, [search, printFilter, rememberMembers]);
+  }, [search, printFilter, apostolateFilter, ministryFilter, rememberMembers]);
 
   useEffect(() => {
     if (!isCardAdminRole(role)) return;
@@ -149,7 +155,7 @@ export default function MemberCardsPage() {
 
   useEffect(() => {
     setSelectedMemberIds([]);
-  }, [search, printFilter]);
+  }, [search, printFilter, apostolateFilter, ministryFilter]);
 
   const allSelected = memberTotal > 0 && selectedMemberIds.length === memberTotal;
 
@@ -169,6 +175,8 @@ export default function MemberCardsPage() {
       const result = await memberCardsService.listMemberIds({
         search: search || undefined,
         printReady: printFilter,
+        apostolate: apostolateFilter || undefined,
+        ministry: ministryFilter || undefined,
       });
       const ids = result.data?.ids ?? [];
       rememberMembers(result.data?.members ?? []);
@@ -225,12 +233,17 @@ export default function MemberCardsPage() {
 
   const currentWrite = writeQueue[writeIndex] ?? null;
 
+  const orgFilter = {
+    apostolate: apostolateFilter || undefined,
+    ministry: ministryFilter || undefined,
+  };
+
   const exportPrinter = async (format: 'csv' | 'xlsx') => {
     try {
       const result = await memberCardsService.exportRows(
         selectedMemberIds.length === 0 || allSelected
-          ? { all: true, search: search || undefined, printReady: printFilter }
-          : { memberIds: selectedMemberIds, printReady: printFilter },
+          ? { all: true, search: search || undefined, printReady: printFilter, ...orgFilter }
+          : { memberIds: selectedMemberIds, printReady: printFilter, ...orgFilter },
       );
       const rows = toPrinterRows(result.data ?? []);
       if (rows.length === 0) {
@@ -311,6 +324,58 @@ export default function MemberCardsPage() {
             <option value="ENCODED">Encoded</option>
             <option value="REVOKED">Revoked</option>
           </select>
+        </div>
+
+        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label className="block text-base font-semibold text-gray-800">
+            Apostolate
+            <select
+              value={apostolateFilter}
+              onChange={(event) => {
+                const next = event.target.value;
+                setApostolateFilter(next);
+                // Keep the ministry only if it belongs to the newly chosen apostolate.
+                if (
+                  next &&
+                  ministryFilter &&
+                  ministryFilter !== NO_MINISTRY_FILTER &&
+                  !getMinistriesForApostolate(next).includes(ministryFilter)
+                ) {
+                  setMinistryFilter('');
+                }
+              }}
+              aria-label="Filter by apostolate"
+              className="mt-1 min-h-14 w-full rounded-2xl border-2 border-gray-300 bg-white px-3 text-lg font-normal"
+            >
+              <option value="">All apostolates</option>
+              {APOSTOLATES.map((apostolate) => (
+                <option key={apostolate} value={apostolate}>
+                  {apostolate}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-base font-semibold text-gray-800">
+            Ministry
+            <select
+              value={ministryFilter}
+              onChange={(event) => setMinistryFilter(event.target.value)}
+              aria-label="Filter by ministry"
+              className="mt-1 min-h-14 w-full rounded-2xl border-2 border-gray-300 bg-white px-3 text-lg font-normal"
+            >
+              <option value="">All ministries</option>
+              <option value={NO_MINISTRY_FILTER}>No ministry assigned</option>
+              {(apostolateFilter ? [apostolateFilter] : [...APOSTOLATES]).map((apostolate) => (
+                <optgroup key={apostolate} label={apostolate}>
+                  {getMinistriesForApostolate(apostolate).map((ministry) => (
+                    <option key={ministry} value={ministry}>
+                      {ministry}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
         </div>
 
         <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -438,6 +503,7 @@ export default function MemberCardsPage() {
                       <p className="text-xl font-bold">{printerMemberName(member)}</p>
                       <p className="text-lg text-gray-600">
                         {member.communityId} · {resolveMemberMinistry(member)}
+                        {member.apostolate ? ` · ${member.apostolate}` : ''}
                         {existing
                           ? ` · ${adminCardStatusLabel(existing.status, existing.encodedAt)}`
                           : ' · No card'}
