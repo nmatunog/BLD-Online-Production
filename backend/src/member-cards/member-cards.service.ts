@@ -30,6 +30,18 @@ import {
   type PrintReadyFilter,
 } from './member-card-readiness';
 import { publicVerifyJson, toPublicVerifyResult } from './dto/public-verify-result.dto';
+import QRCode from 'qrcode';
+import sharp from 'sharp';
+import {
+  allowedPhotoHosts,
+  buildPrintPackZip,
+  isAllowedPhotoUrl,
+  PRINT_PACK_MAX_MEMBERS,
+  type PrintPackCard,
+  type PrintPackSkip,
+} from './member-card-print-pack';
+
+const PRINT_PHOTO_MAX_BYTES = 10 * 1024 * 1024;
 
 const VALID_CARD_STATUSES: MemberCardStatus[] = [
   MemberCardStatus.ACTIVE,
@@ -557,6 +569,97 @@ export class MemberCardsService {
     );
 
     return filtered.map((row) => this.toIdPrintExportRow(row));
+  }
+
+  /** Download one ID photo from the BunnyCDN pull zone and normalise it to JPEG. */
+  protected async fetchPrintPhoto(photoUrl: string): Promise<Buffer> {
+    const response = await fetch(photoUrl, { signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) {
+      throw new Error(`photo download failed (${response.status})`);
+    }
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length === 0 || bytes.length > PRINT_PHOTO_MAX_BYTES) {
+      throw new Error('photo is empty or too large');
+    }
+    return sharp(bytes).rotate().jpeg({ quality: 92 }).toBuffer();
+  }
+
+  /**
+   * ZIP for the ID printer: cards.csv + photos/ + qr/ (QR = public verify link).
+   * Only members who are ready for ID printing are included; the rest go to skipped.csv.
+   */
+  async buildPrintPack(memberIds: string[]): Promise<{ buffer: Buffer; filename: string }> {
+    const uniqueIds = [...new Set(memberIds.filter(Boolean))];
+    if (uniqueIds.length === 0) {
+      throw new BadRequestException('Select at least one member for the print pack');
+    }
+    if (uniqueIds.length > PRINT_PACK_MAX_MEMBERS) {
+      throw new BadRequestException(
+        `A print pack can hold up to ${PRINT_PACK_MAX_MEMBERS} members. Select fewer.`,
+      );
+    }
+
+    const rows = await this.loadPrintMembers({ id: { in: uniqueIds } });
+    const hosts = allowedPhotoHosts(process.env.BUNNYCDN_CDN_URL);
+    const cards: PrintPackCard[] = [];
+    const skipped: PrintPackSkip[] = [];
+
+    for (const row of rows) {
+      const fullName = `${row.firstName} ${row.lastName}`.trim();
+      const readiness = assessPrintReadiness(row);
+      if (!readiness.ready) {
+        skipped.push({
+          memberId: row.communityId,
+          fullName,
+          reason: `Not ready: missing ${readiness.missing.join(', ')}`,
+        });
+        continue;
+      }
+
+      const exportRow = this.toIdPrintExportRow(row);
+      if (!exportRow.verifyUrl) {
+        skipped.push({ memberId: row.communityId, fullName, reason: 'No verify link' });
+        continue;
+      }
+      if (!isAllowedPhotoUrl(row.photoUrl, hosts)) {
+        skipped.push({ memberId: row.communityId, fullName, reason: 'Photo is not on the ID photo CDN' });
+        continue;
+      }
+
+      let photo: Buffer;
+      try {
+        photo = await this.fetchPrintPhoto(row.photoUrl as string);
+      } catch (error) {
+        this.logger.warn(
+          `print-pack photo failed memberId=${row.id}: ${error instanceof Error ? error.message : error}`,
+        );
+        skipped.push({ memberId: row.communityId, fullName, reason: 'Photo could not be downloaded' });
+        continue;
+      }
+
+      const qr = await QRCode.toBuffer(exportRow.verifyUrl, {
+        type: 'png',
+        errorCorrectionLevel: 'M',
+        margin: 4,
+        width: 600,
+        color: { dark: '#000000', light: '#FFFFFF' },
+      });
+
+      cards.push({
+        memberId: exportRow.memberId,
+        fullName: exportRow.fullName,
+        firstName: exportRow.firstName,
+        lastName: exportRow.lastName,
+        bloodType: exportRow.bloodType,
+        verifyUrl: exportRow.verifyUrl,
+        photo,
+        qr,
+      });
+    }
+
+    const buffer = await buildPrintPackZip({ cards, skipped });
+    const stamp = new Date().toISOString().slice(0, 10);
+    return { buffer, filename: `bld-id-print-pack-${stamp}.zip` };
   }
 
   private logLookup(entry: {

@@ -5,7 +5,7 @@ import { UserRole } from '@prisma/client';
 import { IS_PUBLIC_KEY } from '../auth/decorators/public.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { MemberCardsController } from './member-cards.controller';
-import { CARD_VERIFY_STAFF_ROLES } from './member-card-roles';
+import { CARD_ADMIN_ROLES, CARD_VERIFY_STAFF_ROLES } from './member-card-roles';
 import { MemberCardsService } from './member-cards.service';
 
 function handlerContext(
@@ -121,5 +121,31 @@ describe('MemberCardsController verify auth', () => {
     expect(checkInStatus(UserRole.CLASS_SHEPHERD)).toBe(200);
     expect(checkInStatus(UserRole.MEMBER)).toBe(403);
     expect(checkInStatus()).toBe(403);
+  });
+});
+
+describe('MemberCardsController print pack auth', () => {
+  const guard = new RolesGuard(new Reflector());
+
+  function printPackAllowed(role?: UserRole): boolean {
+    try {
+      return guard.canActivate(handlerContext(MemberCardsController.prototype.printPack, role));
+    } catch {
+      return false;
+    }
+  }
+
+  it('allows only card admins to download a print pack', () => {
+    for (const role of CARD_ADMIN_ROLES) expect(printPackAllowed(role)).toBe(true);
+    expect(printPackAllowed(UserRole.MINISTRY_COORDINATOR)).toBe(false);
+    expect(printPackAllowed(UserRole.CLASS_SHEPHERD)).toBe(false);
+    expect(printPackAllowed(UserRole.MEMBER)).toBe(false);
+    expect(printPackAllowed()).toBe(false);
+  });
+
+  it('is not public', () => {
+    expect(
+      new Reflector().get(IS_PUBLIC_KEY, MemberCardsController.prototype.printPack),
+    ).toBeUndefined();
   });
 });

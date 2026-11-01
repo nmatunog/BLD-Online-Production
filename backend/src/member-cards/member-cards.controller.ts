@@ -9,6 +9,7 @@ import {
   Post,
   Query,
   Req,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
@@ -23,7 +24,12 @@ import { CARD_ADMIN_ROLES, CARD_VERIFY_STAFF_ROLES } from './member-card-roles';
 import { MemberCardsService, type CardActor } from './member-cards.service';
 import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
 import { CardQueryDto, ExportCardsDto, MemberIdsQueryDto } from './dto/card-query.dto';
-import { CheckInByCardDto, IssueCardsDto, IssueForWriteDto } from './dto/issue-cards.dto';
+import {
+  CheckInByCardDto,
+  IssueCardsDto,
+  IssueForWriteDto,
+  PrintPackDto,
+} from './dto/issue-cards.dto';
 
 function clientIp(req: Request): string {
   const forwarded = req.headers['x-forwarded-for'];
@@ -85,6 +91,22 @@ export class MemberCardsController {
   async exportPost(@Body() dto: ExportCardsDto): Promise<ApiResponseDto<unknown>> {
     const data = await this.memberCardsService.exportRows(dto);
     return { success: true, data, message: 'Card export ready' };
+  }
+
+  @Post('print-pack')
+  @UseGuards(RolesGuard)
+  @Roles(...CARD_ADMIN_ROLES)
+  @Header('Cache-Control', 'no-store')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'ZIP for the ID printer: cards.csv + ID photos + verify-link QR codes (admin only)',
+  })
+  async printPack(@Body() dto: PrintPackDto): Promise<StreamableFile> {
+    const file = await this.memberCardsService.buildPrintPack(dto.memberIds);
+    return new StreamableFile(file.buffer, {
+      type: 'application/zip',
+      disposition: `attachment; filename="${file.filename}"`,
+    });
   }
 
   @Post('issue')

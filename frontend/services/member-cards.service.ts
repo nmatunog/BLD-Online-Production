@@ -7,6 +7,33 @@ import type {
   StaffVerifyResult,
 } from '@/lib/nfc-card';
 
+export function printPackFilename(contentDisposition: string): string {
+  const match = /filename="?([^";]+)"?/i.exec(contentDisposition);
+  const name = match?.[1]?.trim() ?? '';
+  return /^[\w.-]+\.zip$/.test(name) ? name : 'bld-id-print-pack.zip';
+}
+
+/** Binary requests return errors as bytes; turn them back into the server's message. */
+export async function printPackErrorMessage(error: unknown): Promise<string> {
+  const fallback = 'Could not build the print pack';
+  const data = (error as { response?: { data?: unknown } })?.response?.data;
+  let text = '';
+  if (data instanceof ArrayBuffer) {
+    text = new TextDecoder().decode(data);
+  } else if (typeof Blob !== 'undefined' && data instanceof Blob) {
+    text = await data.text();
+  } else if (data && typeof data === 'object') {
+    text = JSON.stringify(data);
+  }
+  try {
+    const parsed = JSON.parse(text) as { message?: string | string[]; error?: string };
+    const message = Array.isArray(parsed.message) ? parsed.message.join('. ') : parsed.message;
+    return message || parsed.error || fallback;
+  } catch {
+    return error instanceof Error && error.message ? error.message : fallback;
+  }
+}
+
 function ensureBody<T>(response: { data?: ApiResponse<T> }): ApiResponse<T> {
   const body = response?.data;
   if (body == null) {
@@ -172,6 +199,24 @@ class MemberCardsService {
       `/member-cards/verify/${encodeURIComponent(token)}`,
     );
     return ensureBody(response);
+  }
+
+  /** ZIP for the ID printer: cards.csv + photos/ + qr/ (admins only, up to 50 members). */
+  async printPack(memberIds: string[]): Promise<{ bytes: ArrayBuffer; filename: string }> {
+    try {
+      const response = await apiClient.post<ArrayBuffer>(
+        '/member-cards/print-pack',
+        { memberIds },
+        { responseType: 'arraybuffer' },
+      );
+      const disposition = String(response.headers?.['content-disposition'] ?? '');
+      return {
+        bytes: response.data,
+        filename: printPackFilename(disposition),
+      };
+    } catch (error) {
+      throw new Error(await printPackErrorMessage(error));
+    }
   }
 
   async checkIn(

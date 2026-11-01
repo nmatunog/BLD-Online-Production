@@ -17,6 +17,12 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { qrUtils } from '@/lib/qr-scanner-service';
+import {
+  extractCardToken,
+  resolveCardScan,
+  REVOKED_CARD_MESSAGE,
+  UNKNOWN_CARD_MESSAGE,
+} from '@/lib/card-scan';
 import { deviceMemory } from '@/lib/device-memory';
 import { EventHeader, QRScannerCard, ManualCheckInCard, CheckInResultOverlay, MoreOptions } from '@/components/checkin';
 import { getErrorMessage } from '@/lib/get-error-message';
@@ -85,6 +91,19 @@ export default function PublicCheckInPage() {
 
   const handleQRScanSuccess = async (decodedText: string) => {
     try {
+      const cardToken = extractCardToken(decodedText);
+      if (cardToken) {
+        const card = await resolveCardScan(cardToken);
+        if (card.kind === 'member') {
+          await performCheckIn(card.communityId);
+        } else {
+          toast.error(card.kind === 'revoked' ? 'Card revoked' : 'Card not found', {
+            description: card.kind === 'revoked' ? REVOKED_CARD_MESSAGE : UNKNOWN_CARD_MESSAGE,
+          });
+        }
+        return;
+      }
+
       const memberData = qrUtils.extractMemberData(decodedText);
       if (memberData && memberData.communityId) {
         await performCheckIn(memberData.communityId);

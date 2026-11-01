@@ -4,6 +4,8 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { CheckInMethod, MemberCardStatus, UserRole } from '@prisma/client';
+import JSZip from 'jszip';
+import sharp from 'sharp';
 import { ID_PRINT_EXPORT_COLUMNS, MemberCardsService } from './member-cards.service';
 import {
   encryptCardToken,
@@ -365,6 +367,86 @@ describe('MemberCardsService', () => {
         .recentLookupsByIp;
       expect(tracked.size).toBe(1);
       expect(tracked.has('fresh-ip')).toBe(true);
+    });
+  });
+
+  describe('print pack', () => {
+    function printRow(overrides: Record<string, unknown> = {}) {
+      return {
+        ...publicMember({ id: 'ready-1', communityId: 'CEB-ME1801' }),
+        bloodType: 'O+',
+        ministryHistory: [],
+        user: { ministry: null },
+        cards: [
+          {
+            status: MemberCardStatus.ACTIVE,
+            tokenEncrypted: encryptCardToken('tokenvalue0123456789abcd', SECRET),
+            tokenHash: 'hash',
+          },
+        ],
+        ...overrides,
+      };
+    }
+
+    it('packs ready members with photo + verify-link QR and skips the rest', async () => {
+      prisma.member.findMany.mockResolvedValue([
+        printRow(),
+        printRow({ id: 'no-photo', communityId: 'CEB-ME1802', photoUrl: null }),
+        printRow({ id: 'off-cdn', communityId: 'CEB-ME1803', photoUrl: 'https://evil.example.com/x.jpg' }),
+        printRow({ id: 'photo-fail', communityId: 'CEB-ME1804' }),
+        printRow({ id: 'revoked', communityId: 'CEB-ME1805', cards: [{ status: MemberCardStatus.REVOKED, tokenEncrypted: 'x', tokenHash: 'h' }] }),
+      ]);
+      const fetchPhoto = jest
+        .spyOn(service as unknown as { fetchPrintPhoto: (url: string) => Promise<Buffer> }, 'fetchPrintPhoto')
+        .mockImplementation(async (url: string) => {
+          if (url.includes('juan') && fetchPhoto.mock.calls.length > 1) throw new Error('boom');
+          return Buffer.from([0xff, 0xd8, 0xff]);
+        });
+
+      const pack = await service.buildPrintPack(['ready-1', 'no-photo', 'off-cdn', 'photo-fail', 'revoked']);
+      expect(pack.filename).toMatch(/^bld-id-print-pack-\d{4}-\d{2}-\d{2}\.zip$/);
+      expect(fetchPhoto).toHaveBeenCalledTimes(2);
+      expect(fetchPhoto).not.toHaveBeenCalledWith('https://evil.example.com/x.jpg');
+
+      const zip = await JSZip.loadAsync(pack.buffer);
+      const csv = await zip.file('cards.csv')!.async('string');
+      expect(csv).toContain('CEB-ME1801,Juan Dela Cruz,Juan,Dela Cruz,O+,photos/CEB-ME1801.jpg,qr/CEB-ME1801.png,https://app.bldcebu.com/verify/tokenvalue0123456789abcd');
+      expect(csv).not.toMatch(/CEB-ME180[2-5]/);
+      const qr = await zip.file('qr/CEB-ME1801.png')!.async('nodebuffer');
+      expect(qr.subarray(0, 4).toString('hex')).toBe('89504e47');
+
+      const skipped = await zip.file('skipped.csv')!.async('string');
+      expect(skipped).toContain('CEB-ME1802,Juan Dela Cruz,Not ready: missing photo');
+      expect(skipped).toContain('CEB-ME1803,Juan Dela Cruz,Photo is not on the ID photo CDN');
+      expect(skipped).toContain('CEB-ME1804,Juan Dela Cruz,Photo could not be downloaded');
+      expect(skipped).toContain('CEB-ME1805,Juan Dela Cruz,Not ready: missing card');
+      expect(`${csv}${skipped}`).not.toMatch(/tokenEncrypted|hash/);
+    });
+
+    it('downloads a photo and converts it to JPEG, failing on a bad response', async () => {
+      const png = await sharp({
+        create: { width: 4, height: 4, channels: 3, background: { r: 200, g: 10, b: 10 } },
+      })
+        .png()
+        .toBuffer();
+      const fetchMock = jest
+        .spyOn(global, 'fetch')
+        .mockResolvedValueOnce(new Response(new Uint8Array(png), { status: 200 }))
+        .mockResolvedValueOnce(new Response('nope', { status: 404 }));
+      const fetchPhoto = (service as unknown as { fetchPrintPhoto: (u: string) => Promise<Buffer> })
+        .fetchPrintPhoto.bind(service);
+
+      const jpg = await fetchPhoto('https://bld-idphotos.b-cdn.net/a.png');
+      expect(jpg.subarray(0, 3).toString('hex')).toBe('ffd8ff');
+      await expect(fetchPhoto('https://bld-idphotos.b-cdn.net/missing.png')).rejects.toThrow('404');
+      fetchMock.mockRestore();
+    });
+
+    it('rejects empty and oversized selections', async () => {
+      await expect(service.buildPrintPack([])).rejects.toBeInstanceOf(BadRequestException);
+      const tooMany = Array.from({ length: 51 }, (_, i) => `member-${i}`);
+      await expect(service.buildPrintPack(tooMany)).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.member.findMany).not.toHaveBeenCalled();
     });
   });
 

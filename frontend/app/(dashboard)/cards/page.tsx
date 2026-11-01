@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { CreditCard, Download, RefreshCw, Search, Smartphone } from 'lucide-react';
+import { CreditCard, Download, Package, RefreshCw, Search, Smartphone } from 'lucide-react';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { NfcWritePanel, type WriteTarget } from '@/components/cards/NfcWritePanel';
 import {
@@ -44,6 +44,9 @@ function formatManila(iso: string | null | undefined): string {
   }
 }
 
+/** Matches the backend cap on POST /member-cards/print-pack. */
+const PRINT_PACK_MAX_MEMBERS = 50;
+
 const PRINT_FILTERS: Array<{ value: PrintReadyFilter; label: string }> = [
   { value: 'READY', label: 'Ready for ID printing' },
   { value: 'MISSING', label: 'Missing info' },
@@ -63,6 +66,7 @@ export default function MemberCardsPage() {
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [memberIndex, setMemberIndex] = useState<Record<string, SelectableMember>>({});
   const [selectAllLoading, setSelectAllLoading] = useState(false);
+  const [packLoading, setPackLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [writeQueue, setWriteQueue] = useState<WriteTarget[]>([]);
   const [writeIndex, setWriteIndex] = useState(0);
@@ -248,6 +252,27 @@ export default function MemberCardsPage() {
     }
   };
 
+  const downloadPrintPack = async () => {
+    if (selectedMemberIds.length === 0) {
+      toast.error('Select the members to include in the print pack');
+      return;
+    }
+    if (selectedMemberIds.length > PRINT_PACK_MAX_MEMBERS) {
+      toast.error(`A print pack holds up to ${PRINT_PACK_MAX_MEMBERS} members. Select fewer.`);
+      return;
+    }
+    setPackLoading(true);
+    try {
+      const pack = await memberCardsService.printPack(selectedMemberIds);
+      await downloadBytes(pack.filename, pack.bytes, 'application/zip');
+      toast.success('Print pack downloaded. Members who are not ready are listed in skipped.csv.');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Could not build the print pack'));
+    } finally {
+      setPackLoading(false);
+    }
+  };
+
   if (!isCardAdminRole(role)) {
     return null;
   }
@@ -348,6 +373,15 @@ export default function MemberCardsPage() {
           >
             <Download className="h-5 w-5" />
             Export Excel
+          </button>
+          <button
+            type="button"
+            onClick={() => void downloadPrintPack()}
+            disabled={packLoading}
+            className="inline-flex min-h-14 items-center gap-2 rounded-2xl bg-emerald-700 px-5 text-lg font-bold text-white disabled:opacity-60"
+          >
+            <Package className="h-5 w-5" />
+            {packLoading ? 'Building print pack…' : 'Print pack (ZIP)'}
           </button>
           <button
             type="button"
