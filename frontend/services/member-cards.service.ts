@@ -65,8 +65,6 @@ export interface PrinterExportRow {
   firstName: string;
   lastName: string;
   bloodType: string;
-  emergencyContactName: string;
-  emergencyContactPhone: string;
   signatureUrl: string;
   photoUrl: string;
   verifyUrl: string;

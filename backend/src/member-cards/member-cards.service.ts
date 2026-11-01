@@ -84,8 +84,6 @@ export type IdPrintExportRow = {
   firstName: string;
   lastName: string;
   bloodType: string;
-  emergencyContactName: string;
-  emergencyContactPhone: string;
   signatureUrl: string;
   photoUrl: string;
   verifyUrl: string;
@@ -97,8 +95,6 @@ export const ID_PRINT_EXPORT_COLUMNS = [
   'firstName',
   'lastName',
   'bloodType',
-  'emergencyContactName',
-  'emergencyContactPhone',
   'signatureUrl',
   'photoUrl',
   'verifyUrl',
@@ -503,8 +499,6 @@ export class MemberCardsService {
       firstName: row.firstName,
       lastName: row.lastName,
       bloodType: row.bloodType?.trim() ?? '',
-      emergencyContactName: '',
-      emergencyContactPhone: '',
       signatureUrl: '',
       photoUrl: row.photoUrl ?? '',
       verifyUrl: token ? buildNfcUrl(token) : '',
