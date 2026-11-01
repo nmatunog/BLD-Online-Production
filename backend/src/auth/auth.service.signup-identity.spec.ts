@@ -109,6 +109,13 @@ describe('AuthService signup identity rules', () => {
         editToken('member-own', 'CEB-ME9999'),
         editToken('member-own', 'CEB-ME1803', 'password-reset'),
         jwt.sign({ memberId: 'member-own', communityId: 'CEB-ME1803', type: 'signup-edit' }, { secret: 'wrong' }),
+        // expired edit token
+        jwt.sign(
+          { memberId: 'member-own', communityId: 'CEB-ME1803', type: 'signup-edit', exp: Math.floor(Date.now() / 1000) - 60 },
+          { secret: SECRET },
+        ),
+        // a normal login (access) token is not an edit token
+        jwt.sign({ sub: 'user-own', email: null, phone: '09171234567', role: 'MEMBER' }, { secret: SECRET }),
       ]) {
         await expect(service.updateSignup(update({ editToken: token }))).rejects.toBeInstanceOf(
           ForbiddenException,
@@ -203,6 +210,36 @@ describe('AuthService signup identity rules', () => {
           shepherdClassNumber: 18,
         }),
       ).resolves.toHaveProperty('resetUrl');
+    });
+
+    it('never lets an administrator take over a super user or another administrator', async () => {
+      for (const role of [UserRole.SUPER_USER, UserRole.ADMINISTRATOR]) {
+        prisma.member.findUnique.mockResolvedValue(target({ user: { id: 'user-t', role, isActive: true } }));
+        await expect(
+          service.createPasswordSetupLink('member-t', { id: 'a', role: UserRole.ADMINISTRATOR }),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(
+          service.createPasswordSetupLink('member-t', { id: 'su', role: UserRole.SUPER_USER }),
+        ).resolves.toHaveProperty('resetUrl');
+      }
+    });
+
+    it('makes the link single-use: it stops working once the password changes', async () => {
+      prisma.member.findUnique.mockResolvedValue(
+        target({ user: { id: 'user-t', role: UserRole.MEMBER, isActive: true, passwordHash: 'old-hash' } }),
+      );
+      const link = await service.createPasswordSetupLink('member-t', { id: 'a', role: UserRole.ADMINISTRATOR });
+      const token = decodeURIComponent(link.resetUrl.split('token=')[1]);
+
+      (prisma.user as unknown as { findUnique: jest.Mock }).findUnique = jest
+        .fn()
+        .mockResolvedValueOnce({ id: 'user-t', passwordHash: 'old-hash' })
+        .mockResolvedValueOnce({ id: 'user-t', passwordHash: 'new-hash-after-first-use' });
+      prisma.user.update.mockResolvedValue({});
+
+      await expect(service.resetPassword({ token, password: 'first1' } as never)).resolves.toBeTruthy();
+      await expect(service.resetPassword({ token, password: 'second2' } as never)).rejects.toThrow();
+      expect(prisma.user.update).toHaveBeenCalledTimes(1);
     });
 
     it('lets only full admins do it for staff accounts, never for yourself or deactivated accounts', async () => {

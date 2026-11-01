@@ -8,6 +8,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../common/prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
+import { createHash } from 'crypto';
 import { LoginDto } from './dto/login.dto';
 import { LoginByQrDto } from './dto/login-by-qr.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -44,6 +45,11 @@ const SIGNUP_EDIT_TOKEN_TYPE = 'signup-edit';
 const SIGNUP_EDIT_TOKEN_TTL = '7d';
 /** Coordinator-issued password setup links last one day. */
 const PASSWORD_SETUP_LINK_TTL_SECONDS = 24 * 60 * 60;
+
+/** Short, non-reversible fingerprint of the current password hash (or "none"). */
+function passwordFingerprint(passwordHash: string | null | undefined): string {
+  return createHash('sha256').update(passwordHash ?? 'none').digest('base64url').slice(0, 16);
+}
 
 @Injectable()
 export class AuthService {
@@ -763,7 +769,7 @@ export class AuthService {
     const user = member.user;
 
     const resetToken = this.jwtService.sign(
-      { userId: user.id, type: 'password-reset' },
+      { userId: user.id, type: 'password-reset', pwv: passwordFingerprint(user.passwordHash) },
       {
         secret: process.env.JWT_SECRET,
         expiresIn: '15m',
@@ -794,6 +800,12 @@ export class AuthService {
 
       if (!user) {
         throw new UnauthorizedException('User not found');
+      }
+
+      // Links bound to the old password (coordinator links, and new Forgot Password tokens)
+      // stop working once the password has been changed.
+      if (payload.pwv !== undefined && payload.pwv !== passwordFingerprint(user.passwordHash)) {
+        throw new UnauthorizedException('This link was already used');
       }
 
       // Hash new password
@@ -829,7 +841,7 @@ export class AuthService {
   ): Promise<{ resetUrl: string; expiresAt: string; memberName: string }> {
     const member = await this.prisma.member.findUnique({
       where: { id: memberId },
-      include: { user: { select: { id: true, role: true, isActive: true } } },
+      include: { user: { select: { id: true, role: true, isActive: true, passwordHash: true } } },
     });
     if (!member?.user) {
       throw new BadRequestException('Member not found');
@@ -841,8 +853,18 @@ export class AuthService {
       throw new ForbiddenException('Use Forgot Password for your own account.');
     }
 
-    const fullAdmin = actor.role === UserRole.SUPER_USER || actor.role === UserRole.ADMINISTRATOR;
-    if (member.user.role !== UserRole.MEMBER && !fullAdmin) {
+    // Same hierarchy as granting roles: only a SUPER_USER may touch SUPER_USER/ADMINISTRATOR
+    // accounts; ADMINISTRATOR may do other staff; everyone else members only.
+    const targetRole = member.user.role;
+    const topRole = targetRole === UserRole.SUPER_USER || targetRole === UserRole.ADMINISTRATOR;
+    if (topRole && actor.role !== UserRole.SUPER_USER) {
+      throw new ForbiddenException('Only a super user can do this for an administrator account.');
+    }
+    if (
+      targetRole !== UserRole.MEMBER &&
+      actor.role !== UserRole.SUPER_USER &&
+      actor.role !== UserRole.ADMINISTRATOR
+    ) {
       throw new ForbiddenException('Only an administrator can do this for a staff account.');
     }
     if (actor.role === UserRole.MINISTRY_COORDINATOR && member.ministry !== actor.ministry) {
@@ -860,7 +882,12 @@ export class AuthService {
     }
 
     const token = this.jwtService.sign(
-      { userId: member.user.id, type: 'password-reset' },
+      {
+        userId: member.user.id,
+        type: 'password-reset',
+        // Dies as soon as the password changes, so the link works once.
+        pwv: passwordFingerprint(member.user.passwordHash),
+      },
       { secret: process.env.JWT_SECRET, expiresIn: PASSWORD_SETUP_LINK_TTL_SECONDS },
     );
     const expiresAt = new Date(Date.now() + PASSWORD_SETUP_LINK_TTL_SECONDS * 1000).toISOString();
