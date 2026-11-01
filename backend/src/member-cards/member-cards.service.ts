@@ -30,6 +30,7 @@ import {
   type PrintReadyFilter,
 } from './member-card-readiness';
 import { publicVerifyJson, toPublicVerifyResult } from './dto/public-verify-result.dto';
+import { matchesOrgFilter, resolveCurrentApostolate, type OrgFilter } from './member-card-org-filter';
 import QRCode from 'qrcode';
 import sharp from 'sharp';
 import {
@@ -170,6 +171,7 @@ const MEMBER_PUBLIC_SELECT = {
 
 const PRINT_MEMBER_SELECT = {
   ...MEMBER_PUBLIC_SELECT,
+  apostolate: true,
   bloodType: true,
   cards: {
     orderBy: { issuedAt: 'desc' as const },
@@ -553,8 +555,12 @@ export class MemberCardsService {
     };
   }
 
-  async listMemberIds(query: { search?: string; printReady?: PrintReadyFilter }) {
-    const rows = await this.loadPrintMembers(this.activeMemberWhere(query.search));
+  async listMemberIds(
+    query: { search?: string; printReady?: PrintReadyFilter } & OrgFilter,
+  ) {
+    const rows = (await this.loadPrintMembers(this.activeMemberWhere(query.search))).filter(
+      (row) => matchesOrgFilter(row, query),
+    );
     const assessed = rows.map((row) => {
       const readiness = assessPrintReadiness(row);
       return {
@@ -565,6 +571,7 @@ export class MemberCardsService {
         communityId: row.communityId,
         photoUrl: row.photoUrl,
         ministry: resolveDisplayMinistry(row),
+        apostolate: resolveCurrentApostolate(row),
         ready: readiness.ready,
         missing: readiness.missing,
       };
@@ -584,13 +591,15 @@ export class MemberCardsService {
     };
   }
 
-  async exportRows(query: {
-    search?: string;
-    status?: MemberCardStatus;
-    memberIds?: string[];
-    all?: boolean;
-    printReady?: PrintReadyFilter;
-  }): Promise<IdPrintExportRow[]> {
+  async exportRows(
+    query: {
+      search?: string;
+      status?: MemberCardStatus;
+      memberIds?: string[];
+      all?: boolean;
+      printReady?: PrintReadyFilter;
+    } & OrgFilter,
+  ): Promise<IdPrintExportRow[]> {
     const uniqueIds = [...new Set((query.memberIds ?? []).filter(Boolean))];
     if (uniqueIds.length > 2000) {
       throw new BadRequestException('Too many member IDs for export');
@@ -603,8 +612,11 @@ export class MemberCardsService {
 
     const rows = await this.loadPrintMembers(where);
     // The print filter applies to hand-picked members too, so "Ready" never exports an incomplete card.
-    const filtered = rows.filter((row) =>
-      matchesPrintReadyFilter(assessPrintReadiness(row).ready, query.printReady),
+    // Apostolate/ministry filters apply the same way, so the export matches the list on screen.
+    const filtered = rows.filter(
+      (row) =>
+        matchesOrgFilter(row, query) &&
+        matchesPrintReadyFilter(assessPrintReadiness(row).ready, query.printReady),
     );
 
     return filtered.map((row) => this.toIdPrintExportRow(row));
