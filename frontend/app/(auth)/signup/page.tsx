@@ -45,6 +45,14 @@ const BLD = {
 
 const STEPS = ['Your name', 'Encounter', 'ID Photo', 'Blood Type'] as const;
 
+/**
+ * Signup asks only for what the Community ID needs (name, encounter, class, mobile, ID photo)
+ * plus blood type. Optional extras are skipped for now; flip these to bring them back.
+ * Members can still add a nickname or password later (Profile / Forgot Password).
+ */
+const ASK_NICKNAME_AT_SIGNUP = false;
+const OFFER_PASSWORD_AFTER_SIGNUP = false;
+
 const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'] as const;
 
 const fieldClass =
@@ -367,7 +375,9 @@ function SignupForm() {
       setIsEditing(false);
       
       toast.success('Your account loaded', {
-        description: `Community ID: ${s.communityId}. You can now edit details or set up login.`,
+        description: OFFER_PASSWORD_AFTER_SIGNUP
+          ? `Community ID: ${s.communityId}. You can now edit details or set up login.`
+          : `Community ID: ${s.communityId}. You can edit your details or print your ID.`,
         duration: 5000,
       });
     }
@@ -556,8 +566,11 @@ function SignupForm() {
         nickname: data.nickname,
         role: 'MEMBER',
       });
-      
-      setShowLoginSetup(true);
+
+      // Mobile number was already collected in the wizard; the password is optional, so skip it.
+      if (OFFER_PASSWORD_AFTER_SIGNUP) {
+        setShowLoginSetup(true);
+      }
     } catch (error) {
       const existing = extractExistingFromError(error);
       if (existing) {
@@ -948,17 +961,19 @@ function SignupForm() {
                 onChange={(e) => setFirstName(e.target.value)}
               />
             </div>
-            <div>
-              <Label htmlFor="editNickname" className={labelClass}>
-                Nickname
-              </Label>
-              <Input
-                id="editNickname"
-                className={fieldClass}
-                value={nickname}
-                onChange={(e) => setNickname(e.target.value)}
-              />
-            </div>
+            {ASK_NICKNAME_AT_SIGNUP && (
+              <div>
+                <Label htmlFor="editNickname" className={labelClass}>
+                  Nickname
+                </Label>
+                <Input
+                  id="editNickname"
+                  className={fieldClass}
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                />
+              </div>
+            )}
             <div>
               <Label htmlFor="editEncounter" className={labelClass}>
                 Encounter type <span className="text-[#D00008]">*</span>
@@ -1059,14 +1074,16 @@ function SignupForm() {
               >
                 Edit details
               </Button>
-              <Button
-                type="button"
-                className={`w-full ${outlineBtn}`}
-                onClick={() => setShowLoginSetup(true)}
-              >
-                <CheckCircle2 className="w-5 h-5 mr-2" />
-                Set up login
-              </Button>
+              {OFFER_PASSWORD_AFTER_SIGNUP && (
+                <Button
+                  type="button"
+                  className={`w-full ${outlineBtn}`}
+                  onClick={() => setShowLoginSetup(true)}
+                >
+                  <CheckCircle2 className="w-5 h-5 mr-2" />
+                  Set up login
+                </Button>
+              )}
             </>
           )}
 
@@ -1186,20 +1203,22 @@ function SignupForm() {
               autoCapitalize="words"
             />
           </div>
-          <div>
-            <Label htmlFor="nickname" className={labelClass}>
-              Nickname{' '}
-              <span className="text-gray-500 font-normal text-base">(optional)</span>
-            </Label>
-            <Input
-              id="nickname"
-              className={fieldClass}
-              value={nickname}
-              onChange={(e) => setNickname(e.target.value)}
-              autoCapitalize="words"
-              placeholder="What friends call you"
-            />
-          </div>
+          {ASK_NICKNAME_AT_SIGNUP && (
+            <div>
+              <Label htmlFor="nickname" className={labelClass}>
+                Nickname{' '}
+                <span className="text-gray-500 font-normal text-base">(optional)</span>
+              </Label>
+              <Input
+                id="nickname"
+                className={fieldClass}
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                autoCapitalize="words"
+                placeholder="What friends call you"
+              />
+            </div>
+          )}
         </div>
       )}
 
