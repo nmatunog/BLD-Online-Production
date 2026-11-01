@@ -6,7 +6,6 @@ export type PrinterExportRow = {
   firstName: string;
   lastName: string;
   bloodType: string;
-  signatureUrl: string;
   photoUrl: string;
   verifyUrl: string;
 };
@@ -17,7 +16,6 @@ export const PRINTER_HEADERS = [
   'firstName',
   'lastName',
   'bloodType',
-  'signatureUrl',
   'photoUrl',
   'verifyUrl',
 ] as const;
@@ -31,7 +29,6 @@ export function toPrinterRows(
     firstName?: string | null;
     lastName?: string | null;
     bloodType?: string | null;
-    signatureUrl?: string | null;
     photoUrl?: string | null;
     verifyUrl?: string | null;
     nfcUrl?: string | null;
@@ -43,7 +40,6 @@ export function toPrinterRows(
     firstName: row.firstName || '',
     lastName: row.lastName || '',
     bloodType: row.bloodType || '',
-    signatureUrl: row.signatureUrl || '',
     photoUrl: row.photoUrl || '',
     verifyUrl: row.verifyUrl || row.nfcUrl || '',
   }));

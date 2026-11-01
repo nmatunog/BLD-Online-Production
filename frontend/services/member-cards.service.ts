@@ -65,7 +65,6 @@ export interface PrinterExportRow {
   firstName: string;
   lastName: string;
   bloodType: string;
-  signatureUrl: string;
   photoUrl: string;
   verifyUrl: string;
 }

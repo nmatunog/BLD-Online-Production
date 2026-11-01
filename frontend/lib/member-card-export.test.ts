@@ -20,21 +20,20 @@ describe('member-card-export', () => {
         firstName: 'Maria',
         lastName: 'Santos',
         bloodType: '',
-        signatureUrl: '',
         photoUrl: '',
         verifyUrl: '',
       },
     ]);
     const csv = buildPrinterCsv(rows);
     expect(csv).toContain(
-      'memberId,fullName,firstName,lastName,bloodType,signatureUrl,photoUrl,verifyUrl',
+      'memberId,fullName,firstName,lastName,bloodType,photoUrl,verifyUrl',
     );
     expect(csv).toContain('CEB-ME1801,Juan Dela Cruz,Juan,Dela Cruz,O+');
     expect(csv).toContain('https://app.bldcebu.com/verify/tok');
     expect(csv).toContain('CEB-ME1802,Maria Santos,Maria,Santos');
     expect(csv).not.toContain('ministry');
     expect(csv).not.toContain('cardStatus');
-    expect(csv).not.toMatch(/emergency/i);
+    expect(csv).not.toMatch(/emergency|signature/i);
   });
 });
 

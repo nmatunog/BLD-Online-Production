@@ -481,14 +481,13 @@ describe('MemberCardsService', () => {
 
       const rows = await service.exportRows({ all: true });
       expect(Object.keys(rows[0])).toEqual([...ID_PRINT_EXPORT_COLUMNS]);
-      expect(Object.keys(rows[0]).join(',')).not.toMatch(/emergency/i);
+      expect(Object.keys(rows[0]).join(',')).not.toMatch(/emergency|signature/i);
       expect(rows[0]).toEqual({
         memberId: 'CEB-ME01-0001',
         fullName: 'Juan Dela Cruz',
         firstName: 'Juan',
         lastName: 'Dela Cruz',
         bloodType: 'O+',
-        signatureUrl: '',
         photoUrl: 'https://bld-idphotos.b-cdn.net/juan.jpg',
         verifyUrl: `https://app.bldcebu.com/verify/${token}`,
       });
@@ -509,7 +508,6 @@ describe('MemberCardsService', () => {
       expect(allRows).toHaveLength(1);
       expect(allRows[0].verifyUrl).toBe('');
       expect(allRows[0].bloodType).toBe('');
-      expect(allRows[0].signatureUrl).toBe('');
 
       prisma.member.findMany.mockResolvedValue([
         {
