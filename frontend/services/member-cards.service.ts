@@ -89,6 +89,7 @@ export type VerifyResult = PublicVerifyResult | StaffVerifyResult;
 export interface PrinterExportRow {
   memberId: string;
   fullName: string;
+  nickname: string;
   firstName: string;
   lastName: string;
   bloodType: string;

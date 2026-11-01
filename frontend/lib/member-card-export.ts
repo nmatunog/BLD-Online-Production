@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 export type PrinterExportRow = {
   memberId: string;
   fullName: string;
+  nickname: string;
   firstName: string;
   lastName: string;
   bloodType: string;
@@ -13,6 +14,7 @@ export type PrinterExportRow = {
 export const PRINTER_HEADERS = [
   'memberId',
   'fullName',
+  'nickname',
   'firstName',
   'lastName',
   'bloodType',
@@ -25,6 +27,7 @@ export function toPrinterRows(
     memberId?: string | null;
     communityId?: string | null;
     fullName?: string | null;
+    nickname?: string | null;
     name?: string | null;
     firstName?: string | null;
     lastName?: string | null;
@@ -37,6 +40,7 @@ export function toPrinterRows(
   return rows.map((row) => ({
     memberId: row.memberId || row.communityId || '',
     fullName: row.fullName || row.name || `${row.firstName || ''} ${row.lastName || ''}`.trim(),
+    nickname: row.nickname || row.firstName || '',
     firstName: row.firstName || '',
     lastName: row.lastName || '',
     bloodType: row.bloodType || '',

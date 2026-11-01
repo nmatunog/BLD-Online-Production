@@ -15,6 +15,7 @@ function card(overrides: Partial<{ memberId: string; fullName: string; firstName
   return {
     memberId: 'CEB-ME1801',
     fullName: 'Juan Dela Cruz',
+    nickname: 'Jun',
     firstName: 'Juan',
     lastName: 'Dela Cruz',
     bloodType: 'O+',
@@ -73,7 +74,7 @@ describe('buildPrintPackZip', () => {
     const lines = csv.slice(1).trim().split('\r\n');
     expect(lines[0]).toBe(PRINT_PACK_CSV_COLUMNS.join(','));
     expect(lines[1]).toBe(
-      'CEB-ME1801,Juan Dela Cruz,Juan,Dela Cruz,O+,photos/CEB-ME1801.jpg,qr/CEB-ME1801.png,https://app.bldcebu.com/verify/tok',
+      'CEB-ME1801,Juan Dela Cruz,Jun,Juan,Dela Cruz,O+,photos/CEB-ME1801.jpg,qr/CEB-ME1801.png,https://app.bldcebu.com/verify/tok',
     );
     expect(lines[2]).toContain('"Ana ""Ann"" Peñaflor"');
     expect(csv).not.toMatch(/emergency|signature/i);

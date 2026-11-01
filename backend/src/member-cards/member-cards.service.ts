@@ -133,6 +133,7 @@ export type StaffVerifyResult = {
 export type IdPrintExportRow = {
   memberId: string;
   fullName: string;
+  nickname: string;
   firstName: string;
   lastName: string;
   bloodType: string;
@@ -143,6 +144,7 @@ export type IdPrintExportRow = {
 export const ID_PRINT_EXPORT_COLUMNS = [
   'memberId',
   'fullName',
+  'nickname',
   'firstName',
   'lastName',
   'bloodType',
@@ -534,6 +536,7 @@ export class MemberCardsService {
   private toIdPrintExportRow(row: {
     firstName: string;
     lastName: string;
+    nickname?: string | null;
     communityId: string;
     bloodType?: string | null;
     photoUrl?: string | null;
@@ -547,6 +550,8 @@ export class MemberCardsService {
     return {
       memberId: row.communityId,
       fullName: `${row.firstName} ${row.lastName}`.trim(),
+      // Printed on the card; falls back to the first name for members without one.
+      nickname: row.nickname?.trim() || row.firstName,
       firstName: row.firstName,
       lastName: row.lastName,
       bloodType: row.bloodType?.trim() ?? '',
@@ -680,6 +685,7 @@ export class MemberCardsService {
       card: {
         memberId: exportRow.memberId,
         fullName: exportRow.fullName,
+        nickname: exportRow.nickname,
         firstName: exportRow.firstName,
         lastName: exportRow.lastName,
         bloodType: exportRow.bloodType,
