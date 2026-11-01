@@ -2,6 +2,7 @@ import JSZip from 'jszip';
 import {
   allowedPhotoHosts,
   buildPrintPackZip,
+  csvCell,
   isAllowedPhotoUrl,
   PRINT_PACK_CSV_COLUMNS,
   printPackFileStem,
@@ -92,5 +93,18 @@ describe('buildPrintPackZip', () => {
     expect(zip.file('photos/CEB-ME1801-2.jpg')).not.toBeNull();
     const skipped = await zip.file('skipped.csv')!.async('string');
     expect(skipped).toContain('bad-id,No Photo,Not ready: missing photo');
+  });
+});
+
+describe('csvCell', () => {
+  it('neutralises spreadsheet formulas from member-entered names', () => {
+    expect(csvCell('=HYPERLINK("http://x","click")')).toBe('"\'=HYPERLINK(""http://x"",""click"")"');
+    expect(csvCell('+63917')).toBe("'+63917");
+    expect(csvCell('-1')).toBe("'-1");
+    expect(csvCell('@SUM(A1)')).toBe("'@SUM(A1)");
+    expect(csvCell('\tcmd')).toBe("'\tcmd");
+    expect(csvCell('CEB-ME1801')).toBe('CEB-ME1801');
+    expect(csvCell('O+')).toBe('O+');
+    expect(csvCell('Dela Cruz, Jr.')).toBe('"Dela Cruz, Jr."');
   });
 });
