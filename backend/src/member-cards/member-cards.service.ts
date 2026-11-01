@@ -42,13 +42,52 @@ import {
 } from './member-card-print-pack';
 
 const PRINT_PHOTO_MAX_BYTES = 10 * 1024 * 1024;
+const PRINT_PHOTO_CONCURRENCY = 6;
+
+/** Read a fetch body but stop as soon as it passes maxBytes. */
+async function readBodyWithLimit(response: Response, maxBytes: number): Promise<Buffer> {
+  if (!response.body) return Buffer.alloc(0);
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      throw new Error('photo is too large');
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks);
+}
+
+/** Run fn over items with at most `limit` in flight; results keep input order. */
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
 
 const VALID_CARD_STATUSES: MemberCardStatus[] = [
   MemberCardStatus.ACTIVE,
   MemberCardStatus.ENCODED,
 ];
 
-const MAX_LOOKUPS_PER_WINDOW = 30;
+// Generous because a whole church Wi-Fi (one IP) self-checks-in at once; tokens are 128-bit+.
+const MAX_LOOKUPS_PER_WINDOW = 120;
 const LOOKUP_WINDOW_MS = 60_000;
 const MAX_TRACKED_LOOKUP_IPS = 5_000;
 
@@ -573,20 +612,75 @@ export class MemberCardsService {
 
   /** Download one ID photo from the BunnyCDN pull zone and normalise it to JPEG. */
   protected async fetchPrintPhoto(photoUrl: string): Promise<Buffer> {
-    const response = await fetch(photoUrl, { signal: AbortSignal.timeout(15_000) });
+    // redirect: 'error' keeps us on the allow-listed CDN host (no hop to another host).
+    const response = await fetch(photoUrl, {
+      redirect: 'error',
+      signal: AbortSignal.timeout(15_000),
+    });
     if (!response.ok) {
       throw new Error(`photo download failed (${response.status})`);
     }
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (bytes.length === 0 || bytes.length > PRINT_PHOTO_MAX_BYTES) {
-      throw new Error('photo is empty or too large');
+    const declared = Number(response.headers.get('content-length') ?? '');
+    if (Number.isFinite(declared) && declared > PRINT_PHOTO_MAX_BYTES) {
+      throw new Error('photo is too large');
+    }
+    const bytes = await readBodyWithLimit(response, PRINT_PHOTO_MAX_BYTES);
+    if (bytes.length === 0) {
+      throw new Error('photo is empty');
     }
     return sharp(bytes).rotate().jpeg({ quality: 92 }).toBuffer();
   }
 
+  private async toPrintPackEntry(
+    row: Awaited<ReturnType<MemberCardsService['loadPrintMembers']>>[number],
+    hosts: string[],
+  ): Promise<{ card: PrintPackCard } | { skip: PrintPackSkip }> {
+    const fullName = `${row.firstName} ${row.lastName}`.trim();
+    const skip = (reason: string) => ({ skip: { memberId: row.communityId, fullName, reason } });
+
+    const readiness = assessPrintReadiness(row);
+    if (!readiness.ready) {
+      return skip(`Not ready: missing ${readiness.missing.join(', ')}`);
+    }
+    const exportRow = this.toIdPrintExportRow(row);
+    if (!exportRow.verifyUrl) return skip('No verify link');
+    if (!isAllowedPhotoUrl(row.photoUrl, hosts)) return skip('Photo is not on the ID photo CDN');
+
+    let photo: Buffer;
+    try {
+      photo = await this.fetchPrintPhoto(row.photoUrl as string);
+    } catch (error) {
+      this.logger.warn(
+        `print-pack photo failed memberId=${row.id}: ${error instanceof Error ? error.message : error}`,
+      );
+      return skip('Photo could not be downloaded');
+    }
+
+    const qr = await QRCode.toBuffer(exportRow.verifyUrl, {
+      type: 'png',
+      errorCorrectionLevel: 'M',
+      margin: 4,
+      width: 600,
+      color: { dark: '#000000', light: '#FFFFFF' },
+    });
+
+    return {
+      card: {
+        memberId: exportRow.memberId,
+        fullName: exportRow.fullName,
+        firstName: exportRow.firstName,
+        lastName: exportRow.lastName,
+        bloodType: exportRow.bloodType,
+        verifyUrl: exportRow.verifyUrl,
+        photo,
+        qr,
+      },
+    };
+  }
+
   /**
    * ZIP for the ID printer: cards.csv + photos/ + qr/ (QR = public verify link).
-   * Only members who are ready for ID printing are included; the rest go to skipped.csv.
+   * Only active members who are ready for ID printing are included; the rest go to skipped.csv.
    */
   async buildPrintPack(memberIds: string[]): Promise<{ buffer: Buffer; filename: string }> {
     const uniqueIds = [...new Set(memberIds.filter(Boolean))];
@@ -599,61 +693,27 @@ export class MemberCardsService {
       );
     }
 
-    const rows = await this.loadPrintMembers({ id: { in: uniqueIds } });
+    const rows = await this.loadPrintMembers({
+      AND: [{ id: { in: uniqueIds } }, this.activeMemberWhere()],
+    });
     const hosts = allowedPhotoHosts(process.env.BUNNYCDN_CDN_URL);
+
+    // A few downloads at a time keeps a full pack well inside the 60s web proxy limit.
+    const entries = await mapWithConcurrency(rows, PRINT_PHOTO_CONCURRENCY, (row) =>
+      this.toPrintPackEntry(row, hosts),
+    );
     const cards: PrintPackCard[] = [];
     const skipped: PrintPackSkip[] = [];
-
-    for (const row of rows) {
-      const fullName = `${row.firstName} ${row.lastName}`.trim();
-      const readiness = assessPrintReadiness(row);
-      if (!readiness.ready) {
-        skipped.push({
-          memberId: row.communityId,
-          fullName,
-          reason: `Not ready: missing ${readiness.missing.join(', ')}`,
-        });
-        continue;
-      }
-
-      const exportRow = this.toIdPrintExportRow(row);
-      if (!exportRow.verifyUrl) {
-        skipped.push({ memberId: row.communityId, fullName, reason: 'No verify link' });
-        continue;
-      }
-      if (!isAllowedPhotoUrl(row.photoUrl, hosts)) {
-        skipped.push({ memberId: row.communityId, fullName, reason: 'Photo is not on the ID photo CDN' });
-        continue;
-      }
-
-      let photo: Buffer;
-      try {
-        photo = await this.fetchPrintPhoto(row.photoUrl as string);
-      } catch (error) {
-        this.logger.warn(
-          `print-pack photo failed memberId=${row.id}: ${error instanceof Error ? error.message : error}`,
-        );
-        skipped.push({ memberId: row.communityId, fullName, reason: 'Photo could not be downloaded' });
-        continue;
-      }
-
-      const qr = await QRCode.toBuffer(exportRow.verifyUrl, {
-        type: 'png',
-        errorCorrectionLevel: 'M',
-        margin: 4,
-        width: 600,
-        color: { dark: '#000000', light: '#FFFFFF' },
-      });
-
-      cards.push({
-        memberId: exportRow.memberId,
-        fullName: exportRow.fullName,
-        firstName: exportRow.firstName,
-        lastName: exportRow.lastName,
-        bloodType: exportRow.bloodType,
-        verifyUrl: exportRow.verifyUrl,
-        photo,
-        qr,
+    for (const entry of entries) {
+      if ('card' in entry) cards.push(entry.card);
+      else skipped.push(entry.skip);
+    }
+    const missingCount = uniqueIds.length - rows.length;
+    if (missingCount > 0) {
+      skipped.push({
+        memberId: '',
+        fullName: '',
+        reason: `${missingCount} selected member(s) not found or inactive`,
       });
     }
 
@@ -721,7 +781,9 @@ export class MemberCardsService {
     actor: CardActor | null,
     ip: string,
   ): Promise<StaffVerifyResult | ReturnType<typeof publicVerifyJson>> {
-    if (this.isRateLimited(ip)) {
+    // Signed-in door staff are not throttled; anonymous scans are, per IP.
+    const staffActor = !!actor && isCardVerifyStaffRole(actor.role);
+    if (!staffActor && this.isRateLimited(ip)) {
       throw new HttpException(
         'Too many card lookups. Please wait a moment and try again.',
         HttpStatus.TOO_MANY_REQUESTS,

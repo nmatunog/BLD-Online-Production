@@ -47,8 +47,10 @@ export function toPrinterRows(
 
 export function buildPrinterCsv(rows: PrinterExportRow[]): string {
   const escape = (value: string) => {
-    if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-    return value;
+    // Neutralise a leading = + - @ so a member-entered name can't run as a formula in Excel.
+    const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+    if (/[",\r\n]/.test(safe)) return `"${safe.replace(/"/g, '""')}"`;
+    return safe;
   };
   const lines = [
     PRINTER_HEADERS.join(','),
