@@ -1,6 +1,12 @@
 import { apiClient } from './api-client';
 import { ApiResponse } from '@/types/api.types';
-import type { DoorVerifyStatus, MemberCardStatus, PublicCardMember } from '@/lib/nfc-card';
+import type {
+  DoorVerifyStatus,
+  MemberCardStatus,
+  PublicCardMember,
+  PublicVerifyResult,
+  StaffVerifyResult,
+} from '@/lib/nfc-card';
 
 function ensureBody<T>(response: { data?: ApiResponse<T> }): ApiResponse<T> {
   const body = response?.data;
@@ -51,27 +57,29 @@ export interface WriteReadyCard {
   member: PublicCardMember;
 }
 
-export interface VerifyResult {
-  status: DoorVerifyStatus;
-  cardStatus: MemberCardStatus | null;
-  member: PublicCardMember | null;
-  cardId: string | null;
-}
+export type VerifyResult = PublicVerifyResult | StaffVerifyResult | {
+  view?: 'public' | 'staff';
+  status: DoorVerifyStatus | 'VALID';
+  cardStatus?: MemberCardStatus | null;
+  member: PublicCardMember | PublicVerifyResult['member'] | null;
+  cardId?: string | null;
+};
 
 export interface PrinterExportRow {
-  cardId: string;
   memberId: string;
-  name: string;
-  communityId: string;
-  ministry: string;
+  fullName: string;
+  firstName: string;
+  lastName: string;
+  bloodType: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+  signatureUrl: string;
   photoUrl: string;
-  nfcUrl: string;
-  cardStatus: string;
-  token: string;
-  status: MemberCardStatus | '';
-  issuedAt: string | null;
-  encodedAt: string | null;
+  verifyUrl: string;
 }
+
+export type PrintReadyFilter = 'READY' | 'MISSING' | 'ALL';
+export type MissingPrintItem = 'photo' | 'firstName' | 'lastName' | 'memberId' | 'card';
 
 export interface SelectableMember {
   id: string;
@@ -79,11 +87,20 @@ export interface SelectableMember {
   lastName: string;
   nickname: string | null;
   communityId: string;
+  photoUrl?: string | null;
+  ministry?: string | null;
+  ready?: boolean;
+  missing?: MissingPrintItem[];
 }
 
 export interface MemberIdsResult {
   ids: string[];
   total: number;
+  counts?: {
+    ready: number;
+    missing: number;
+    all: number;
+  };
   members: SelectableMember[];
 }
 
@@ -140,6 +157,7 @@ class MemberCardsService {
     search?: string;
     memberIds?: string[];
     all?: boolean;
+    printReady?: PrintReadyFilter;
   }): Promise<ApiResponse<PrinterExportRow[]>> {
     const response = await apiClient.post<ApiResponse<PrinterExportRow[]>>(
       '/member-cards/export',
@@ -148,7 +166,10 @@ class MemberCardsService {
     return ensureBody(response);
   }
 
-  async listMemberIds(params?: { search?: string }): Promise<ApiResponse<MemberIdsResult>> {
+  async listMemberIds(params?: {
+    search?: string;
+    printReady?: PrintReadyFilter;
+  }): Promise<ApiResponse<MemberIdsResult>> {
     const response = await apiClient.get<ApiResponse<MemberIdsResult>>('/member-cards/member-ids', {
       params,
     });

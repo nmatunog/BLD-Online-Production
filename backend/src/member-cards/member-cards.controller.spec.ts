@@ -2,40 +2,54 @@ import 'reflect-metadata';
 import { ExecutionContext, HttpStatus } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { UserRole } from '@prisma/client';
+import { IS_PUBLIC_KEY } from '../auth/decorators/public.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { MemberCardsController } from './member-cards.controller';
 import { CARD_VERIFY_STAFF_ROLES } from './member-card-roles';
 import { MemberCardsService } from './member-cards.service';
 
-function verifyContext(role: UserRole, ministry: string | null = 'Worship'): ExecutionContext {
+function handlerContext(
+  handler: (...args: never[]) => unknown,
+  role?: UserRole,
+  ministry: string | null = 'Worship',
+): ExecutionContext {
   return {
-    getHandler: () => MemberCardsController.prototype.verify,
+    getHandler: () => handler,
     getClass: () => MemberCardsController,
     switchToHttp: () => ({
-      getRequest: () => ({ user: { id: 'user-1', role, ministry } }),
+      getRequest: () => ({ user: role ? { id: 'user-1', role, ministry } : undefined }),
     }),
   } as unknown as ExecutionContext;
 }
 
 describe('MemberCardsController verify auth', () => {
   const guard = new RolesGuard(new Reflector());
+  const reflector = new Reflector();
 
-  function verifyStatus(role: UserRole, ministry: string | null = 'Worship'): number {
-    return guard.canActivate(verifyContext(role, ministry))
-      ? HttpStatus.OK
-      : HttpStatus.FORBIDDEN;
+  function checkInStatus(role?: UserRole, ministry: string | null = 'Worship'): number {
+    try {
+      return guard.canActivate(
+        handlerContext(MemberCardsController.prototype.checkIn, role, ministry),
+      )
+        ? HttpStatus.OK
+        : HttpStatus.FORBIDDEN;
+    } catch {
+      return HttpStatus.FORBIDDEN;
+    }
   }
 
-  it('returns 403 when a MEMBER with a ministry calls verify', () => {
-    expect(verifyStatus(UserRole.MEMBER, 'Worship')).toBe(403);
+  it('is public so a phone scanner does not need to sign in', () => {
+    expect(reflector.get(IS_PUBLIC_KEY, MemberCardsController.prototype.verify)).toBe(true);
+    expect(guard.canActivate(handlerContext(MemberCardsController.prototype.verify))).toBe(true);
+    expect(
+      guard.canActivate(handlerContext(MemberCardsController.prototype.verify, UserRole.MEMBER)),
+    ).toBe(true);
   });
 
-  it('returns 200 when staff calls verify', async () => {
-    expect(verifyStatus(UserRole.ADMINISTRATOR)).toBe(200);
-    expect(verifyStatus(UserRole.CLASS_SHEPHERD)).toBe(200);
-
+  it('returns 200 when staff or a guest calls verify', async () => {
     const service = {
       verify: jest.fn().mockResolvedValue({
+        view: 'staff',
         status: 'ACTIVE',
         cardStatus: 'ACTIVE',
         member: null,
@@ -43,13 +57,27 @@ describe('MemberCardsController verify auth', () => {
       }),
     };
     const controller = new MemberCardsController(service as unknown as MemberCardsService);
-    const body = await controller.verify(
+    const staffBody = await controller.verify(
       'sometokenvalue0123456789ab',
-      { id: 'admin-1', role: UserRole.ADMINISTRATOR },
       { ip: '127.0.0.1', headers: {} } as never,
+      { id: 'admin-1', role: UserRole.ADMINISTRATOR },
     );
-    expect(body.success).toBe(true);
-    expect(service.verify).toHaveBeenCalled();
+    expect(staffBody.success).toBe(true);
+    expect(service.verify).toHaveBeenCalledWith(
+      'sometokenvalue0123456789ab',
+      { id: 'admin-1', role: UserRole.ADMINISTRATOR, ministry: undefined },
+      '127.0.0.1',
+    );
+
+    await controller.verify('sometokenvalue0123456789ab', {
+      ip: '10.0.0.2',
+      headers: {},
+    } as never);
+    expect(service.verify).toHaveBeenLastCalledWith(
+      'sometokenvalue0123456789ab',
+      null,
+      '10.0.0.2',
+    );
   });
 
   it('restricts export and member-ids to card admins', () => {
@@ -78,7 +106,7 @@ describe('MemberCardsController verify auth', () => {
     expect(guard.canActivate(memberIdsContext(UserRole.MEMBER))).toBe(false);
   });
 
-  it('allows only admin and door-staff roles on verify', () => {
+  it('allows only admin and door-staff roles on check-in', () => {
     expect(CARD_VERIFY_STAFF_ROLES).toEqual([
       UserRole.SUPER_USER,
       UserRole.ADMINISTRATOR,
@@ -87,9 +115,11 @@ describe('MemberCardsController verify auth', () => {
       UserRole.CLASS_SHEPHERD,
     ]);
     expect(CARD_VERIFY_STAFF_ROLES).not.toContain(UserRole.MEMBER);
-    expect(verifyStatus(UserRole.SUPER_USER)).toBe(200);
-    expect(verifyStatus(UserRole.DCS)).toBe(200);
-    expect(verifyStatus(UserRole.MINISTRY_COORDINATOR)).toBe(200);
-    expect(verifyStatus(UserRole.MEMBER)).toBe(403);
+    expect(checkInStatus(UserRole.SUPER_USER)).toBe(200);
+    expect(checkInStatus(UserRole.DCS)).toBe(200);
+    expect(checkInStatus(UserRole.MINISTRY_COORDINATOR)).toBe(200);
+    expect(checkInStatus(UserRole.CLASS_SHEPHERD)).toBe(200);
+    expect(checkInStatus(UserRole.MEMBER)).toBe(403);
+    expect(checkInStatus()).toBe(403);
   });
 });

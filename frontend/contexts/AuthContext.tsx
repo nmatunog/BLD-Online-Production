@@ -51,7 +51,13 @@ function loadUserFromStorage(): AuthUser | null {
   }
 }
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
+export function AuthProvider({
+  children,
+  requireAuth = true,
+}: {
+  children: React.ReactNode;
+  requireAuth?: boolean;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUserState] = useState<AuthUser | null>(null);
@@ -63,7 +69,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!authService.isAuthenticated()) {
-      router.replace(loginUrlWithReturn(pathname));
+      if (requireAuth) {
+        router.replace(loginUrlWithReturn(pathname));
+      }
       setLoading(false);
       return;
     }
@@ -92,7 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUserState(userData);
     }
     setLoading(false);
-  }, [router, pathname]);
+  }, [router, pathname, requireAuth]);
 
   const value: AuthContextValue = { user, loading, setUser };
 

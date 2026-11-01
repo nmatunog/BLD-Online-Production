@@ -4,7 +4,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { CheckInMethod, MemberCardStatus, UserRole } from '@prisma/client';
-import { MemberCardsService } from './member-cards.service';
+import { ID_PRINT_EXPORT_COLUMNS, MemberCardsService } from './member-cards.service';
 import {
   encryptCardToken,
   generateCardToken,
@@ -192,7 +192,7 @@ describe('MemberCardsService', () => {
   });
 
   describe('verify', () => {
-    it('returns live member fields and never private contact data', async () => {
+    it('returns the full staff door view including internal member id', async () => {
       const token = generateCardToken();
       prisma.memberCard.findUnique.mockResolvedValue({
         id: 'card-1',
@@ -204,18 +204,68 @@ describe('MemberCardsService', () => {
           email: 'hidden@example.com',
           phone: '09170000000',
           dateOfBirth: '1990-01-01',
+          ministryHistory: [{ ministry: 'Music', endDate: null, startDate: '2026-01-01' }],
+          user: { ministry: 'Service' },
         },
       });
       prisma.memberCard.update.mockResolvedValue({});
 
       const result = await service.verify(token, admin, '1.1.1.1');
-      expect(result.status).toBe('ACTIVE');
-      expect(result.member?.communityId).toBe('CEB-ME01-0001');
-      expect(result.member?.ministry).toBe('Worship');
+      expect(result).toMatchObject({
+        view: 'staff',
+        status: 'ACTIVE',
+        cardId: 'card-1',
+        member: {
+          id: 'member-1',
+          firstName: 'Juan',
+          lastName: 'Dela Cruz',
+          nickname: 'Juan',
+          communityId: 'CEB-ME01-0001',
+          ministry: 'Music',
+          photoUrl: 'https://bld-idphotos.b-cdn.net/juan.jpg',
+        },
+      });
       expect(JSON.stringify(result)).not.toMatch(/hidden@example.com|09170000000|1990-01-01/);
     });
 
-    it('returns REVOKED for a revoked token and NOT_FOUND for unknown tokens', async () => {
+    it('returns only the public allowlist for an unauthenticated scan', async () => {
+      const token = generateCardToken();
+      prisma.memberCard.findUnique.mockResolvedValue({
+        id: 'card-1',
+        memberId: 'member-1',
+        tokenHash: hashCardToken(token),
+        status: MemberCardStatus.ACTIVE,
+        member: {
+          ...publicMember(),
+          id: 'member-internal-id',
+          email: 'hidden@example.com',
+          phone: '09170000000',
+          address: '123 Hidden St',
+          dateOfBirth: '1990-01-01',
+          bloodType: 'O+',
+          ministryHistory: [],
+          user: { ministry: null },
+        },
+      });
+      prisma.memberCard.update.mockResolvedValue({});
+
+      const result = await service.verify(token, null, '8.8.8.8');
+      expect(result).toEqual({
+        view: 'public',
+        status: 'VALID',
+        member: {
+          fullName: 'Juan Dela Cruz',
+          memberId: 'CEB-ME01-0001',
+          ministry: 'Worship',
+          photoUrl: 'https://bld-idphotos.b-cdn.net/juan.jpg',
+        },
+      });
+      expect(JSON.stringify(result)).not.toMatch(
+        /hidden@example.com|09170000000|123 Hidden St|1990-01-01|O\+|member-internal-id|card-1/,
+      );
+    });
+
+    it('returns REVOKED for a revoked token and not found for unknown tokens', async () => {
       const token = generateCardToken();
       prisma.memberCard.findUnique.mockResolvedValueOnce({
         id: 'card-1',
@@ -226,13 +276,35 @@ describe('MemberCardsService', () => {
       });
       prisma.memberCard.update.mockResolvedValue({});
 
-      const revoked = await service.verify(token, admin, '2.2.2.2');
-      expect(revoked.status).toBe('REVOKED');
+      const revokedStaff = await service.verify(token, admin, '2.2.2.2');
+      expect(revokedStaff).toMatchObject({ view: 'staff', status: 'REVOKED', cardId: 'card-1' });
+
+      prisma.memberCard.findUnique.mockResolvedValueOnce({
+        id: 'card-1',
+        memberId: 'member-1',
+        tokenHash: hashCardToken(token),
+        status: MemberCardStatus.REVOKED,
+        member: { ...publicMember(), ministryHistory: [], user: { ministry: null } },
+      });
+      const revokedPublic = await service.verify(token, null, '2.2.2.2');
+      expect(revokedPublic).toEqual({
+        view: 'public',
+        status: 'REVOKED',
+        member: {
+          fullName: 'Juan Dela Cruz',
+          memberId: 'CEB-ME01-0001',
+          ministry: 'Worship',
+          photoUrl: 'https://bld-idphotos.b-cdn.net/juan.jpg',
+        },
+      });
 
       prisma.memberCard.findUnique.mockResolvedValueOnce(null);
-      const missing = await service.verify(generateCardToken(), admin, '2.2.2.2');
-      expect(missing.status).toBe('NOT_FOUND');
-      expect(missing.member).toBeNull();
+      const missingStaff = await service.verify(generateCardToken(), admin, '2.2.2.2');
+      expect(missingStaff).toMatchObject({ view: 'staff', status: 'NOT_FOUND', member: null });
+
+      prisma.memberCard.findUnique.mockResolvedValueOnce(null);
+      const missingPublic = await service.verify(generateCardToken(), null, '2.2.2.2');
+      expect(missingPublic).toEqual({ view: 'public', status: 'NOT_FOUND', member: null });
     });
 
     it('treats a stored hash mismatch as not found', async () => {
@@ -246,8 +318,7 @@ describe('MemberCardsService', () => {
       });
 
       const result = await service.verify(token, admin, '4.4.4.4');
-      expect(result.status).toBe('NOT_FOUND');
-      expect(result.member).toBeNull();
+      expect(result).toMatchObject({ view: 'staff', status: 'NOT_FOUND', member: null });
     });
 
     it('rate-limits noisy lookup IPs', async () => {
@@ -349,11 +420,12 @@ describe('MemberCardsService', () => {
       expect(row.encodedAt).toBeTruthy();
     });
 
-    it('includes the NFC URL only in export rows', async () => {
+    it('exports the ID-print columns and blanks fields that are not in the schema', async () => {
       const token = generateCardToken();
       prisma.member.findMany.mockResolvedValue([
         {
           ...publicMember(),
+          bloodType: 'O+',
           ministryHistory: [],
           user: { ministry: null },
           cards: [
@@ -361,6 +433,7 @@ describe('MemberCardsService', () => {
               id: 'card-1',
               status: MemberCardStatus.ACTIVE,
               tokenEncrypted: encryptCardToken(token, SECRET),
+              tokenHash: hashCardToken(token),
               issuedAt: new Date(),
               encodedAt: null,
             },
@@ -369,15 +442,26 @@ describe('MemberCardsService', () => {
       ]);
 
       const rows = await service.exportRows({ all: true });
-      expect(rows[0].nfcUrl).toBe(`https://app.bldcebu.com/verify/${token}`);
-      expect(rows[0].token).toBe(token);
-      expect(rows[0].cardStatus).toBe(MemberCardStatus.ACTIVE);
+      expect(Object.keys(rows[0])).toEqual([...ID_PRINT_EXPORT_COLUMNS]);
+      expect(rows[0]).toEqual({
+        memberId: 'CEB-ME01-0001',
+        fullName: 'Juan Dela Cruz',
+        firstName: 'Juan',
+        lastName: 'Dela Cruz',
+        bloodType: 'O+',
+        emergencyContactName: '',
+        emergencyContactPhone: '',
+        signatureUrl: '',
+        photoUrl: 'https://bld-idphotos.b-cdn.net/juan.jpg',
+        verifyUrl: `https://app.bldcebu.com/verify/${token}`,
+      });
     });
 
-    it('exports members without cards when all=true or memberIds are set', async () => {
+    it('exports members without cards and leaves missing schema fields blank', async () => {
       prisma.member.findMany.mockResolvedValue([
         {
           ...publicMember({ id: 'member-2', ministry: null }),
+          bloodType: null,
           ministryHistory: [{ ministry: 'Music Ministry', endDate: null }],
           user: { ministry: 'Service' },
           cards: [],
@@ -386,13 +470,16 @@ describe('MemberCardsService', () => {
 
       const allRows = await service.exportRows({ all: true });
       expect(allRows).toHaveLength(1);
-      expect(allRows[0].nfcUrl).toBe('');
-      expect(allRows[0].cardStatus).toBe('');
-      expect(allRows[0].ministry).toBe('Music Ministry');
+      expect(allRows[0].verifyUrl).toBe('');
+      expect(allRows[0].bloodType).toBe('');
+      expect(allRows[0].emergencyContactName).toBe('');
+      expect(allRows[0].emergencyContactPhone).toBe('');
+      expect(allRows[0].signatureUrl).toBe('');
 
       prisma.member.findMany.mockResolvedValue([
         {
           ...publicMember({ id: 'member-3', ministry: null }),
+          bloodType: null,
           ministryHistory: [],
           user: { ministry: 'Intercessory' },
           cards: [],
@@ -404,31 +491,80 @@ describe('MemberCardsService', () => {
           where: { id: { in: ['member-3'] } },
         }),
       );
-      expect(selected[0].ministry).toBe('Intercessory');
-      expect(selected[0].nfcUrl).toBe('');
+      expect(selected[0].memberId).toBe('CEB-ME01-0001');
+      expect(selected[0].verifyUrl).toBe('');
     });
 
-    it('lists all matching member IDs for Select all', async () => {
+    it('filters export rows by print readiness', async () => {
+      prisma.member.findMany.mockResolvedValue([
+        {
+          ...publicMember({ id: 'ready-1', communityId: 'CEB-ME1801' }),
+          bloodType: 'A+',
+          ministryHistory: [],
+          user: { ministry: null },
+          cards: [
+            {
+              status: MemberCardStatus.ACTIVE,
+              tokenEncrypted: encryptCardToken('tokenvalue0123456789abcd', SECRET),
+              tokenHash: 'hash',
+            },
+          ],
+        },
+        {
+          ...publicMember({ id: 'missing-1', firstName: '', communityId: 'bad-id', photoUrl: null }),
+          bloodType: null,
+          ministryHistory: [],
+          user: { ministry: null },
+          cards: [],
+        },
+      ]);
+
+      const readyRows = await service.exportRows({ all: true, printReady: 'READY' });
+      expect(readyRows).toHaveLength(1);
+      expect(readyRows[0].memberId).toBe('CEB-ME1801');
+
+      const missingRows = await service.exportRows({ all: true, printReady: 'MISSING' });
+      expect(missingRows).toHaveLength(1);
+      expect(missingRows[0].verifyUrl).toBe('');
+    });
+
+    it('lists matching member IDs within the print-ready filter and returns counts', async () => {
       prisma.member.findMany.mockResolvedValue([
         {
           id: 'member-1',
           firstName: 'Juan',
           lastName: 'Dela Cruz',
           nickname: 'Juan',
-          communityId: 'CEB-ME01-0001',
+          communityId: 'CEB-ME1801',
+          photoUrl: 'https://bld-idphotos.b-cdn.net/juan.jpg',
+          ministry: 'Worship',
+          ministryHistory: [],
+          user: { ministry: null },
+          cards: [{ status: MemberCardStatus.ACTIVE, tokenHash: 'abc', tokenEncrypted: 'enc' }],
         },
         {
           id: 'member-2',
           firstName: 'Maria',
           lastName: 'Santos',
           nickname: null,
-          communityId: 'CEB-ME01-0002',
+          communityId: 'CEB-ME1802',
+          photoUrl: null,
+          ministry: null,
+          ministryHistory: [],
+          user: { ministry: null },
+          cards: [],
         },
       ]);
 
-      const result = await service.listMemberIds({ search: 'Juan' });
-      expect(result.ids).toEqual(['member-1', 'member-2']);
-      expect(result.total).toBe(2);
+      const ready = await service.listMemberIds({ search: 'Juan', printReady: 'READY' });
+      expect(ready.ids).toEqual(['member-1']);
+      expect(ready.total).toBe(1);
+      expect(ready.counts).toEqual({ ready: 1, missing: 1, all: 2 });
+      expect(ready.members[0].missing).toEqual([]);
+
+      const missing = await service.listMemberIds({ printReady: 'MISSING' });
+      expect(missing.ids).toEqual(['member-2']);
+      expect(missing.members[0].missing).toEqual(['photo', 'card']);
       expect(prisma.member.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: expect.objectContaining({

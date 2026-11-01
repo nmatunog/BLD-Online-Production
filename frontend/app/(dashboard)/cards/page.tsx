@@ -5,10 +5,10 @@ import { useRouter } from 'next/navigation';
 import { CreditCard, Download, RefreshCw, Search, Smartphone } from 'lucide-react';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { NfcWritePanel, type WriteTarget } from '@/components/cards/NfcWritePanel';
-import { membersService, type Member } from '@/services/members.service';
 import {
   memberCardsService,
   type MemberCardListItem,
+  type PrintReadyFilter,
   type SelectableMember,
 } from '@/services/member-cards.service';
 import {
@@ -18,6 +18,7 @@ import {
   printerMemberName,
   resolveMemberMinistry,
 } from '@/lib/nfc-card';
+import { MISSING_PRINT_LABELS } from '@/lib/id-print';
 import {
   buildPrinterCsv,
   buildPrinterWorkbook,
@@ -43,14 +44,22 @@ function formatManila(iso: string | null | undefined): string {
   }
 }
 
+const PRINT_FILTERS: Array<{ value: PrintReadyFilter; label: string }> = [
+  { value: 'READY', label: 'Ready for ID printing' },
+  { value: 'MISSING', label: 'Missing info' },
+  { value: 'ALL', label: 'All' },
+];
+
 export default function MemberCardsPage() {
   const router = useRouter();
   const [role, setRole] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'ENCODED' | 'REVOKED'>('ALL');
+  const [printFilter, setPrintFilter] = useState<PrintReadyFilter>('ALL');
   const [cards, setCards] = useState<MemberCardListItem[]>([]);
-  const [members, setMembers] = useState<Member[]>([]);
+  const [members, setMembers] = useState<SelectableMember[]>([]);
   const [memberTotal, setMemberTotal] = useState(0);
+  const [printCounts, setPrintCounts] = useState({ ready: 0, missing: 0, all: 0 });
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
   const [memberIndex, setMemberIndex] = useState<Record<string, SelectableMember>>({});
   const [selectAllLoading, setSelectAllLoading] = useState(false);
@@ -90,36 +99,33 @@ export default function MemberCardsPage() {
     }
   }, [search, statusFilter]);
 
+  const rememberMembers = useCallback((rows: SelectableMember[]) => {
+    setMemberIndex((current) => {
+      const next = { ...current };
+      for (const member of rows) {
+        next[member.id] = member;
+      }
+      return next;
+    });
+  }, []);
+
   const loadMembers = useCallback(async () => {
     try {
-      const result = await membersService.getAll({
+      const result = await memberCardsService.listMemberIds({
         search: search || undefined,
-        isActive: true,
-        sortBy: 'name',
-        sortOrder: 'asc',
-        limit: 50,
+        printReady: printFilter,
       });
-      const loaded = result.data ?? [];
+      const loaded = result.data?.members ?? [];
       setMembers(loaded);
-      setMemberTotal(result.pagination?.total ?? loaded.length);
-      setMemberIndex((current) => {
-        const next = { ...current };
-        for (const member of loaded) {
-          next[member.id] = {
-            id: member.id,
-            firstName: member.firstName,
-            lastName: member.lastName,
-            nickname: member.nickname ?? null,
-            communityId: member.communityId,
-          };
-        }
-        return next;
-      });
+      setMemberTotal(result.data?.total ?? loaded.length);
+      setPrintCounts(result.data?.counts ?? { ready: 0, missing: 0, all: 0 });
+      rememberMembers(loaded);
     } catch {
       setMembers([]);
       setMemberTotal(0);
+      setPrintCounts({ ready: 0, missing: 0, all: 0 });
     }
-  }, [search]);
+  }, [search, printFilter, rememberMembers]);
 
   useEffect(() => {
     if (!isCardAdminRole(role)) return;
@@ -139,19 +145,9 @@ export default function MemberCardsPage() {
 
   useEffect(() => {
     setSelectedMemberIds([]);
-  }, [search]);
+  }, [search, printFilter]);
 
   const allSelected = memberTotal > 0 && selectedMemberIds.length === memberTotal;
-
-  const rememberMembers = (rows: SelectableMember[]) => {
-    setMemberIndex((current) => {
-      const next = { ...current };
-      for (const member of rows) {
-        next[member.id] = member;
-      }
-      return next;
-    });
-  };
 
   const toggleMember = (id: string) => {
     setSelectedMemberIds((current) =>
@@ -168,10 +164,12 @@ export default function MemberCardsPage() {
     try {
       const result = await memberCardsService.listMemberIds({
         search: search || undefined,
+        printReady: printFilter,
       });
       const ids = result.data?.ids ?? [];
       rememberMembers(result.data?.members ?? []);
       setMemberTotal(result.data?.total ?? ids.length);
+      setPrintCounts(result.data?.counts ?? printCounts);
       setSelectedMemberIds(ids);
     } catch (error) {
       toast.error(getErrorMessage(error, 'Could not select all members'));
@@ -206,7 +204,7 @@ export default function MemberCardsPage() {
       const issued = result.data?.issued.length ?? 0;
       const skipped = result.data?.skipped.length ?? 0;
       toast.success(`Issued ${issued}. Skipped ${skipped}.`);
-      await loadCards();
+      await Promise.all([loadCards(), loadMembers()]);
     } catch (error) {
       toast.error(getErrorMessage(error, 'Could not issue cards'));
     }
@@ -227,7 +225,7 @@ export default function MemberCardsPage() {
     try {
       const result = await memberCardsService.exportRows(
         selectedMemberIds.length === 0 || allSelected
-          ? { all: true, search: search || undefined }
+          ? { all: true, search: search || undefined, printReady: printFilter }
           : { memberIds: selectedMemberIds },
       );
       const rows = toPrinterRows(result.data ?? []);
@@ -236,10 +234,10 @@ export default function MemberCardsPage() {
         return;
       }
       if (format === 'csv') {
-        await downloadBytes('bld-nfc-cards.csv', buildPrinterCsv(rows), 'text/csv;charset=utf-8');
+        await downloadBytes('bld-id-print.csv', buildPrinterCsv(rows), 'text/csv;charset=utf-8');
       } else {
         await downloadBytes(
-          'bld-nfc-cards.xlsx',
+          'bld-id-print.xlsx',
           buildPrinterWorkbook(rows),
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         );
@@ -290,6 +288,35 @@ export default function MemberCardsPage() {
           </select>
         </div>
 
+        <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {PRINT_FILTERS.map((filter) => {
+            const count =
+              filter.value === 'READY'
+                ? printCounts.ready
+                : filter.value === 'MISSING'
+                  ? printCounts.missing
+                  : printCounts.all;
+            const selected = printFilter === filter.value;
+            return (
+              <button
+                key={filter.value}
+                type="button"
+                onClick={() => setPrintFilter(filter.value)}
+                className={`min-h-16 rounded-2xl border-2 px-4 text-left text-lg font-bold ${
+                  selected
+                    ? 'border-rose-700 bg-rose-700 text-white'
+                    : 'border-gray-300 bg-white text-gray-900'
+                }`}
+              >
+                {filter.label}
+                <span className={`ml-2 ${selected ? 'text-rose-100' : 'text-gray-600'}`}>
+                  ({count})
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
         <div className="mb-6 flex flex-wrap gap-2">
           <button
             type="button"
@@ -324,7 +351,10 @@ export default function MemberCardsPage() {
           </button>
           <button
             type="button"
-            onClick={() => void loadCards()}
+            onClick={() => {
+              void loadCards();
+              void loadMembers();
+            }}
             className="inline-flex min-h-14 items-center gap-2 rounded-2xl border-2 border-gray-400 bg-white px-5 text-lg font-bold"
           >
             <RefreshCw className="h-5 w-5" />
@@ -333,7 +363,7 @@ export default function MemberCardsPage() {
         </div>
 
         <section className="mb-8 rounded-3xl bg-white p-4 shadow">
-          <h2 className="mb-3 text-2xl font-bold">Select members</h2>
+          <h2 className="mb-3 text-2xl font-bold">ID print list</h2>
           <label className="mb-4 flex min-h-16 cursor-pointer items-center gap-4 rounded-2xl bg-slate-100 px-4 py-3">
             <input
               type="checkbox"
@@ -341,7 +371,7 @@ export default function MemberCardsPage() {
               checked={allSelected}
               disabled={selectAllLoading}
               onChange={() => void toggleSelectAll()}
-              aria-label="Select all members"
+              aria-label="Select all members in this filter"
             />
             <span className="text-xl font-bold text-gray-900">
               Select all
@@ -359,23 +389,40 @@ export default function MemberCardsPage() {
           <ul className="divide-y">
             {members.map((member) => {
               const existing = cardByMember.get(member.id);
+              const missing = member.missing ?? [];
               return (
-                <li key={member.id} className="flex items-center gap-3 py-3">
-                  <input
-                    type="checkbox"
-                    className="h-6 w-6"
-                    checked={selectedMemberIds.includes(member.id)}
-                    onChange={() => toggleMember(member.id)}
-                    aria-label={`Select ${printerMemberName(member)}`}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xl font-bold">{printerMemberName(member)}</p>
-                    <p className="text-base text-gray-600">
-                      {member.communityId} · {resolveMemberMinistry(member) || 'No ministry'}
-                      {existing
-                        ? ` · ${adminCardStatusLabel(existing.status, existing.encodedAt)}`
-                        : ' · No card'}
-                    </p>
+                <li key={member.id} className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center">
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-7 w-7 shrink-0"
+                      checked={selectedMemberIds.includes(member.id)}
+                      onChange={() => toggleMember(member.id)}
+                      aria-label={`Select ${printerMemberName(member)}`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xl font-bold">{printerMemberName(member)}</p>
+                      <p className="text-lg text-gray-600">
+                        {member.communityId} · {resolveMemberMinistry(member)}
+                        {existing
+                          ? ` · ${adminCardStatusLabel(existing.status, existing.encodedAt)}`
+                          : ' · No card'}
+                      </p>
+                      {missing.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {missing.map((item) => (
+                            <span
+                              key={item}
+                              className="rounded-full bg-amber-100 px-3 py-1 text-base font-semibold text-amber-950"
+                            >
+                              {MISSING_PRINT_LABELS[item]}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-base font-semibold text-emerald-800">Ready for ID printing</p>
+                      )}
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -424,7 +471,7 @@ export default function MemberCardsPage() {
                       {printerMemberName(card.member)}
                     </td>
                     <td className="py-3 pr-3">{card.member.communityId}</td>
-                    <td className="py-3 pr-3">{resolveMemberMinistry(card.member) || '—'}</td>
+                    <td className="py-3 pr-3">{resolveMemberMinistry(card.member)}</td>
                     <td className="py-3 pr-3">
                       {adminCardStatusLabel(card.status, card.encodedAt)}
                     </td>
@@ -459,7 +506,7 @@ export default function MemberCardsPage() {
                                 }
                                 await memberCardsService.revoke(card.id);
                                 toast.success('Card revoked');
-                                await loadCards();
+                                await Promise.all([loadCards(), loadMembers()]);
                               }}
                               className="min-h-11 rounded-lg bg-red-600 px-3 font-bold text-white"
                             >
@@ -473,7 +520,7 @@ export default function MemberCardsPage() {
                                 }
                                 await memberCardsService.reissue(card.id);
                                 toast.success('Card reissued. Write the new token to a card.');
-                                await loadCards();
+                                await Promise.all([loadCards(), loadMembers()]);
                               }}
                               className="min-h-11 rounded-lg border-2 border-gray-400 px-3 font-bold"
                             >
@@ -507,7 +554,7 @@ export default function MemberCardsPage() {
             } else if (result === 'failed') {
               toast.error(`Could not encode card for ${printerMemberName(currentWrite)}`);
             }
-            await loadCards();
+            await Promise.all([loadCards(), loadMembers()]);
             if (writeIndex + 1 >= writeQueue.length) {
               setWriteQueue([]);
               setWriteIndex(0);

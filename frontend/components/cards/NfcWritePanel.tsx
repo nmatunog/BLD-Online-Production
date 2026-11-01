@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, Copy, Lock, Smartphone, X } from 'lucide-react';
 import { memberCardsService, type WriteReadyCard } from '@/services/member-cards.service';
-import { doorMemberName, printerMemberName, PRINTER_NFC_HELP } from '@/lib/nfc-card';
+import { doorMemberName, NO_MINISTRY_ASSIGNED, printerMemberName, PRINTER_NFC_HELP } from '@/lib/nfc-card';
 import {
   NFC_LOCK_CONFIRM,
   NFC_UNSUPPORTED_MESSAGE,
@@ -51,7 +51,7 @@ export function NfcWritePanel({
     lastName: target.lastName,
     nickname: target.nickname ?? null,
     communityId: target.communityId,
-    ministry: null,
+    ministry: NO_MINISTRY_ASSIGNED,
     photoUrl: null,
   });
   const legalName = printerMemberName(target);
