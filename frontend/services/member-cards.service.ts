@@ -1,6 +1,38 @@
 import { apiClient } from './api-client';
 import { ApiResponse } from '@/types/api.types';
-import type { DoorVerifyStatus, MemberCardStatus, PublicCardMember } from '@/lib/nfc-card';
+import type {
+  MemberCardStatus,
+  PublicCardMember,
+  PublicVerifyResult,
+  StaffVerifyResult,
+} from '@/lib/nfc-card';
+
+export function printPackFilename(contentDisposition: string): string {
+  const match = /filename="?([^";]+)"?/i.exec(contentDisposition);
+  const name = match?.[1]?.trim() ?? '';
+  return /^[\w.-]+\.zip$/.test(name) ? name : 'bld-id-print-pack.zip';
+}
+
+/** Binary requests return errors as bytes; turn them back into the server's message. */
+export async function printPackErrorMessage(error: unknown): Promise<string> {
+  const fallback = 'Could not build the print pack';
+  const data = (error as { response?: { data?: unknown } })?.response?.data;
+  let text = '';
+  if (data instanceof ArrayBuffer) {
+    text = new TextDecoder().decode(data);
+  } else if (typeof Blob !== 'undefined' && data instanceof Blob) {
+    text = await data.text();
+  } else if (data && typeof data === 'object') {
+    text = JSON.stringify(data);
+  }
+  try {
+    const parsed = JSON.parse(text) as { message?: string | string[]; error?: string };
+    const message = Array.isArray(parsed.message) ? parsed.message.join('. ') : parsed.message;
+    return message || parsed.error || fallback;
+  } catch {
+    return error instanceof Error && error.message ? error.message : fallback;
+  }
+}
 
 function ensureBody<T>(response: { data?: ApiResponse<T> }): ApiResponse<T> {
   const body = response?.data;
@@ -51,27 +83,21 @@ export interface WriteReadyCard {
   member: PublicCardMember;
 }
 
-export interface VerifyResult {
-  status: DoorVerifyStatus;
-  cardStatus: MemberCardStatus | null;
-  member: PublicCardMember | null;
-  cardId: string | null;
-}
+/** Discriminated by `view`: anonymous/non-staff get the public allowlist, staff get the door view. */
+export type VerifyResult = PublicVerifyResult | StaffVerifyResult;
 
 export interface PrinterExportRow {
-  cardId: string;
   memberId: string;
-  name: string;
-  communityId: string;
-  ministry: string;
+  fullName: string;
+  firstName: string;
+  lastName: string;
+  bloodType: string;
   photoUrl: string;
-  nfcUrl: string;
-  cardStatus: string;
-  token: string;
-  status: MemberCardStatus | '';
-  issuedAt: string | null;
-  encodedAt: string | null;
+  verifyUrl: string;
 }
+
+export type PrintReadyFilter = 'READY' | 'MISSING' | 'ALL';
+export type MissingPrintItem = 'photo' | 'firstName' | 'lastName' | 'memberId' | 'card';
 
 export interface SelectableMember {
   id: string;
@@ -79,11 +105,20 @@ export interface SelectableMember {
   lastName: string;
   nickname: string | null;
   communityId: string;
+  photoUrl?: string | null;
+  ministry?: string | null;
+  ready?: boolean;
+  missing?: MissingPrintItem[];
 }
 
 export interface MemberIdsResult {
   ids: string[];
   total: number;
+  counts?: {
+    ready: number;
+    missing: number;
+    all: number;
+  };
   members: SelectableMember[];
 }
 
@@ -140,6 +175,7 @@ class MemberCardsService {
     search?: string;
     memberIds?: string[];
     all?: boolean;
+    printReady?: PrintReadyFilter;
   }): Promise<ApiResponse<PrinterExportRow[]>> {
     const response = await apiClient.post<ApiResponse<PrinterExportRow[]>>(
       '/member-cards/export',
@@ -148,7 +184,10 @@ class MemberCardsService {
     return ensureBody(response);
   }
 
-  async listMemberIds(params?: { search?: string }): Promise<ApiResponse<MemberIdsResult>> {
+  async listMemberIds(params?: {
+    search?: string;
+    printReady?: PrintReadyFilter;
+  }): Promise<ApiResponse<MemberIdsResult>> {
     const response = await apiClient.get<ApiResponse<MemberIdsResult>>('/member-cards/member-ids', {
       params,
     });
@@ -160,6 +199,24 @@ class MemberCardsService {
       `/member-cards/verify/${encodeURIComponent(token)}`,
     );
     return ensureBody(response);
+  }
+
+  /** ZIP for the ID printer: cards.csv + photos/ + qr/ (admins only, up to 50 members). */
+  async printPack(memberIds: string[]): Promise<{ bytes: ArrayBuffer; filename: string }> {
+    try {
+      const response = await apiClient.post<ArrayBuffer>(
+        '/member-cards/print-pack',
+        { memberIds },
+        { responseType: 'arraybuffer' },
+      );
+      const disposition = String(response.headers?.['content-disposition'] ?? '');
+      return {
+        bytes: response.data,
+        filename: printPackFilename(disposition),
+      };
+    } catch (error) {
+      throw new Error(await printPackErrorMessage(error));
+    }
   }
 
   async checkIn(

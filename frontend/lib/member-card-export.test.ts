@@ -3,31 +3,37 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildPrinterCsv, downloadBytes, toPrinterRows } from './member-card-export';
 
 describe('member-card-export', () => {
-  it('builds a printer CSV with the approved columns including cardStatus', () => {
+  it('builds a printer CSV with the ID-print columns', () => {
     const rows = toPrinterRows([
       {
-        name: 'Juan Dela Cruz',
-        communityId: 'CEB-ME01-0001',
-        ministry: 'Worship',
+        memberId: 'CEB-ME1801',
+        fullName: 'Juan Dela Cruz',
+        firstName: 'Juan',
+        lastName: 'Dela Cruz',
+        bloodType: 'O+',
         photoUrl: 'https://bld-idphotos.b-cdn.net/juan.jpg',
-        nfcUrl: 'https://app.bldcebu.com/verify/tok',
-        cardStatus: 'ACTIVE',
+        verifyUrl: 'https://app.bldcebu.com/verify/tok',
       },
       {
-        name: 'Maria Santos',
-        communityId: 'CEB-ME01-0002',
-        ministry: 'Music Ministry',
+        memberId: 'CEB-ME1802',
+        fullName: 'Maria Santos',
+        firstName: 'Maria',
+        lastName: 'Santos',
+        bloodType: '',
         photoUrl: '',
-        nfcUrl: '',
-        cardStatus: '',
+        verifyUrl: '',
       },
     ]);
     const csv = buildPrinterCsv(rows);
-    expect(csv).toContain('name,communityId,ministry,photoUrl,nfcUrl,cardStatus');
-    expect(csv).toContain('Juan Dela Cruz');
+    expect(csv).toContain(
+      'memberId,fullName,firstName,lastName,bloodType,photoUrl,verifyUrl',
+    );
+    expect(csv).toContain('CEB-ME1801,Juan Dela Cruz,Juan,Dela Cruz,O+');
     expect(csv).toContain('https://app.bldcebu.com/verify/tok');
-    expect(csv).toContain('ACTIVE');
-    expect(csv).toContain('Maria Santos');
+    expect(csv).toContain('CEB-ME1802,Maria Santos,Maria,Santos');
+    expect(csv).not.toContain('ministry');
+    expect(csv).not.toContain('cardStatus');
+    expect(csv).not.toMatch(/emergency|signature/i);
   });
 });
 
@@ -49,13 +55,13 @@ describe('downloadBytes', () => {
       value: createObjectURL,
     });
 
-    await downloadBytes('bld-nfc-cards.csv', 'name\n', 'text/csv;charset=utf-8');
+    await downloadBytes('bld-id-print.csv', 'memberId\n', 'text/csv;charset=utf-8');
 
     expect(canShare).toHaveBeenCalledWith(expect.objectContaining({ files: expect.any(Array) }));
     expect(share).toHaveBeenCalledWith(
       expect.objectContaining({
         files: expect.any(Array),
-        title: 'bld-nfc-cards.csv',
+        title: 'bld-id-print.csv',
       }),
     );
     expect(createObjectURL).not.toHaveBeenCalled();
@@ -87,10 +93,10 @@ describe('downloadBytes', () => {
     const removeChild = vi.spyOn(document.body, 'removeChild').mockImplementation((node) => node);
     vi.spyOn(document, 'createElement').mockReturnValue(link);
 
-    await downloadBytes('bld-nfc-cards.csv', 'name\n', 'text/csv;charset=utf-8');
+    await downloadBytes('bld-id-print.csv', 'memberId\n', 'text/csv;charset=utf-8');
 
     expect(createObjectURL).toHaveBeenCalled();
-    expect(link.download).toBe('bld-nfc-cards.csv');
+    expect(link.download).toBe('bld-id-print.csv');
     expect(click).toHaveBeenCalled();
     expect(appendChild).toHaveBeenCalled();
     expect(removeChild).toHaveBeenCalled();

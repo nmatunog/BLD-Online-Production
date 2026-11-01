@@ -1,41 +1,47 @@
 import * as XLSX from 'xlsx';
 
 export type PrinterExportRow = {
-  name: string;
-  communityId: string;
-  ministry: string;
+  memberId: string;
+  fullName: string;
+  firstName: string;
+  lastName: string;
+  bloodType: string;
   photoUrl: string;
-  nfcUrl: string;
-  cardStatus: string;
+  verifyUrl: string;
 };
 
 export const PRINTER_HEADERS = [
-  'name',
-  'communityId',
-  'ministry',
+  'memberId',
+  'fullName',
+  'firstName',
+  'lastName',
+  'bloodType',
   'photoUrl',
-  'nfcUrl',
-  'cardStatus',
+  'verifyUrl',
 ] as const;
 
 export function toPrinterRows(
   rows: Array<{
-    name: string;
-    communityId: string;
-    ministry?: string | null;
+    memberId?: string | null;
+    communityId?: string | null;
+    fullName?: string | null;
+    name?: string | null;
+    firstName?: string | null;
+    lastName?: string | null;
+    bloodType?: string | null;
     photoUrl?: string | null;
+    verifyUrl?: string | null;
     nfcUrl?: string | null;
-    cardStatus?: string | null;
-    status?: string | null;
   }>,
 ): PrinterExportRow[] {
   return rows.map((row) => ({
-    name: row.name,
-    communityId: row.communityId,
-    ministry: row.ministry ?? '',
-    photoUrl: row.photoUrl ?? '',
-    nfcUrl: row.nfcUrl ?? '',
-    cardStatus: row.cardStatus ?? row.status ?? '',
+    memberId: row.memberId || row.communityId || '',
+    fullName: row.fullName || row.name || `${row.firstName || ''} ${row.lastName || ''}`.trim(),
+    firstName: row.firstName || '',
+    lastName: row.lastName || '',
+    bloodType: row.bloodType || '',
+    photoUrl: row.photoUrl || '',
+    verifyUrl: row.verifyUrl || row.nfcUrl || '',
   }));
 }
 
@@ -46,11 +52,7 @@ export function buildPrinterCsv(rows: PrinterExportRow[]): string {
   };
   const lines = [
     PRINTER_HEADERS.join(','),
-    ...rows.map((row) =>
-      [row.name, row.communityId, row.ministry, row.photoUrl, row.nfcUrl, row.cardStatus]
-        .map(escape)
-        .join(','),
-    ),
+    ...rows.map((row) => PRINTER_HEADERS.map((key) => escape(row[key])).join(',')),
   ];
   return `${lines.join('\n')}\n`;
 }
@@ -58,7 +60,7 @@ export function buildPrinterCsv(rows: PrinterExportRow[]): string {
 export function buildPrinterWorkbook(rows: PrinterExportRow[]): ArrayBuffer {
   const sheet = XLSX.utils.json_to_sheet(rows, { header: [...PRINTER_HEADERS] });
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, sheet, 'NFC Cards');
+  XLSX.utils.book_append_sheet(workbook, sheet, 'ID Print');
   return XLSX.write(workbook, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer;
 }
 

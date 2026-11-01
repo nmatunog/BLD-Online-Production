@@ -38,21 +38,31 @@ describe('nfc-card helpers', () => {
     expect(isValidDoorCard('REVOKED')).toBe(false);
   });
 
-  it('resolves ministry from member, then current history, then user', () => {
+  it('resolves ministry from current history, then member, then user', () => {
     expect(
       resolveMemberMinistry({
         ministry: 'Worship',
-        ministryHistory: [{ ministry: 'Music', endDate: null }],
+        ministryHistory: [{ ministry: 'Music', endDate: null, startDate: '2026-02-01' }],
+        user: { ministry: 'Service' },
+      }),
+    ).toBe('Music');
+    expect(
+      resolveMemberMinistry({
+        ministry: 'Worship',
+        ministryHistory: [
+          { ministry: 'Older Current', endDate: null, startDate: '2025-01-01' },
+          { ministry: 'Newest Current', endDate: null, startDate: '2026-06-01' },
+        ],
+        user: { ministry: 'Service' },
+      }),
+    ).toBe('Newest Current');
+    expect(
+      resolveMemberMinistry({
+        ministry: 'Worship',
+        ministryHistory: [{ ministry: 'Closed', endDate: '2026-01-01' }],
         user: { ministry: 'Service' },
       }),
     ).toBe('Worship');
-    expect(
-      resolveMemberMinistry({
-        ministry: null,
-        ministryHistory: [{ ministry: 'Praise Ministry', endDate: null }],
-        user: { ministry: 'Service' },
-      }),
-    ).toBe('Praise Ministry');
     expect(
       resolveMemberMinistry({
         ministry: '  ',
@@ -60,7 +70,7 @@ describe('nfc-card helpers', () => {
         user: { ministry: 'Intercessory' },
       }),
     ).toBe('Intercessory');
-    expect(resolveMemberMinistry({ ministry: null })).toBeNull();
+    expect(resolveMemberMinistry({ ministry: null })).toBe('No ministry assigned');
   });
 
   it('limits card admin tools to privileged admins', () => {

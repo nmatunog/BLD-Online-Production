@@ -9,19 +9,27 @@ import {
   Post,
   Query,
   Req,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import type { Request } from 'express';
+import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { ApiResponse as ApiResponseDto } from '../common/interfaces/api-response.interface';
 import { CARD_ADMIN_ROLES, CARD_VERIFY_STAFF_ROLES } from './member-card-roles';
 import { MemberCardsService, type CardActor } from './member-cards.service';
+import { OptionalJwtAuthGuard } from './optional-jwt-auth.guard';
 import { CardQueryDto, ExportCardsDto, MemberIdsQueryDto } from './dto/card-query.dto';
-import { CheckInByCardDto, IssueCardsDto, IssueForWriteDto } from './dto/issue-cards.dto';
+import {
+  CheckInByCardDto,
+  IssueCardsDto,
+  IssueForWriteDto,
+  PrintPackDto,
+} from './dto/issue-cards.dto';
 
 function clientIp(req: Request): string {
   const forwarded = req.headers['x-forwarded-for'];
@@ -85,6 +93,22 @@ export class MemberCardsController {
     return { success: true, data, message: 'Card export ready' };
   }
 
+  @Post('print-pack')
+  @UseGuards(RolesGuard)
+  @Roles(...CARD_ADMIN_ROLES)
+  @Header('Cache-Control', 'no-store')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'ZIP for the ID printer: cards.csv + ID photos + verify-link QR codes (admin only)',
+  })
+  async printPack(@Body() dto: PrintPackDto): Promise<StreamableFile> {
+    const file = await this.memberCardsService.buildPrintPack(dto.memberIds);
+    return new StreamableFile(file.buffer, {
+      type: 'application/zip',
+      disposition: `attachment; filename="${file.filename}"`,
+    });
+  }
+
   @Post('issue')
   @UseGuards(RolesGuard)
   @Roles(...CARD_ADMIN_ROLES)
@@ -115,18 +139,21 @@ export class MemberCardsController {
     return { success: true, data, message: 'Card ready to write' };
   }
 
+  @Public()
   @Get('verify/:token')
-  @UseGuards(RolesGuard)
-  @Roles(...CARD_VERIFY_STAFF_ROLES)
+  @UseGuards(OptionalJwtAuthGuard)
   @Header('Cache-Control', 'no-store')
-  @ApiOperation({ summary: 'Verify an NFC card token (admin/staff only; live member data)' })
+  @ApiOperation({
+    summary: 'Verify an NFC card token (public allowlist; staff/admins receive the full door view)',
+  })
   @ApiResponse({ status: 200, description: 'Lookup result' })
   async verify(
     @Param('token') token: string,
-    @CurrentUser() user: { id: string; role: UserRole; ministry?: string | null },
     @Req() req: Request,
+    @CurrentUser() user?: { id: string; role: UserRole; ministry?: string | null },
   ): Promise<ApiResponseDto<unknown>> {
-    const data = await this.memberCardsService.verify(token, toActor(user), clientIp(req));
+    const actor = user?.id && user.role ? toActor(user) : null;
+    const data = await this.memberCardsService.verify(token, actor, clientIp(req));
     return { success: true, data };
   }
 

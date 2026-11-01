@@ -22,3 +22,11 @@ export class CheckInByCardDto {
   @IsString()
   sessionSlot?: string;
 }
+
+export class PrintPackDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @IsUUID('4', { each: true })
+  memberIds!: string[];
+}

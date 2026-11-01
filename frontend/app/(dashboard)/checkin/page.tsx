@@ -23,6 +23,12 @@ import { toast } from 'sonner';
 import DashboardHeader from '@/components/layout/DashboardHeader';
 import { qrUtils } from '@/lib/qr-scanner-service';
 import {
+  extractCardToken,
+  resolveCardScan,
+  REVOKED_CARD_MESSAGE,
+  UNKNOWN_CARD_MESSAGE,
+} from '@/lib/card-scan';
+import {
   QRScannerCard,
   ManualCheckInCard,
   CheckInStats,
@@ -305,6 +311,19 @@ function CheckInContent() {
         if (event) {
           setSelectedEvent(eventData.eventId);
           toast.success(`Event selected: ${event.title}`);
+        }
+        return;
+      }
+
+      const cardToken = extractCardToken(decodedText);
+      if (cardToken) {
+        const card = await resolveCardScan(cardToken);
+        if (card.kind === 'member') {
+          await performCheckIn(card.communityId);
+        } else if (card.kind === 'revoked') {
+          setCheckInResult(resultFromCheckInError(REVOKED_CARD_MESSAGE, card.name, card.communityId));
+        } else {
+          setCheckInResult(resultFromCheckInError(UNKNOWN_CARD_MESSAGE));
         }
         return;
       }

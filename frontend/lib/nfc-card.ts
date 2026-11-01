@@ -3,32 +3,68 @@ export const PUBLIC_NFC_ORIGIN = 'https://app.bldcebu.com';
 export type MemberCardStatus = 'ACTIVE' | 'ENCODED' | 'REVOKED';
 export type DoorVerifyStatus = 'ACTIVE' | 'REVOKED' | 'NOT_FOUND';
 
+/** Resolved display DTO. `ministry` is never null — use resolveMemberMinistry(). */
 export type PublicCardMember = {
   id: string;
   firstName: string;
   lastName: string;
   nickname: string | null;
   communityId: string;
-  ministry: string | null;
+  ministry: string;
   photoUrl: string | null;
+};
+
+/** Prisma/DB shape before display fallback. */
+export type MemberMinistryDbRecord = {
+  ministry?: string | null;
+  ministryHistory?: Array<{
+    ministry?: string | null;
+    endDate?: string | Date | null;
+    startDate?: string | Date | null;
+  }>;
+  user?: { ministry?: string | null } | null;
+};
+
+export type PublicVerifyMember = {
+  fullName: string;
+  memberId: string;
+  ministry: string;
+  photoUrl: string | null;
+};
+
+export type PublicVerifyResult = {
+  view: 'public';
+  status: 'VALID' | 'REVOKED' | 'NOT_FOUND';
+  member: PublicVerifyMember | null;
+};
+
+export type StaffVerifyResult = {
+  view: 'staff';
+  status: DoorVerifyStatus;
+  cardStatus: MemberCardStatus | null;
+  member: PublicCardMember | null;
+  cardId: string | null;
 };
 
 export function buildNfcUrl(token: string, origin = PUBLIC_NFC_ORIGIN): string {
   return `${origin.replace(/\/$/, '')}/verify/${token}`;
 }
 
-export function resolveMemberMinistry(member: {
-  ministry?: string | null;
-  ministryHistory?: Array<{ ministry?: string | null; endDate?: string | Date | null }>;
-  user?: { ministry?: string | null } | null;
-}): string | null {
+export const NO_MINISTRY_ASSIGNED = 'No ministry assigned';
+
+export function resolveMemberMinistry(member: MemberMinistryDbRecord): string {
+  const open = (member.ministryHistory ?? []).filter((row) => row.endDate == null);
+  const latest = [...open].sort((a, b) => {
+    const aTime = a.startDate ? new Date(a.startDate).getTime() : 0;
+    const bTime = b.startDate ? new Date(b.startDate).getTime() : 0;
+    return bTime - aTime;
+  })[0];
+  const fromHistory = latest?.ministry?.trim();
+  if (fromHistory) return fromHistory;
   const fromMember = member.ministry?.trim();
   if (fromMember) return fromMember;
-  const currentHistory = member.ministryHistory?.find((row) => row.endDate == null);
-  const fromHistory = currentHistory?.ministry?.trim();
-  if (fromHistory) return fromHistory;
   const fromUser = member.user?.ministry?.trim();
-  return fromUser || null;
+  return fromUser || NO_MINISTRY_ASSIGNED;
 }
 
 export function printerMemberName(member: {

@@ -52,6 +52,8 @@ async function proxy(req: Request, ctx: { params: Promise<{ path?: string[] }> }
   // Avoid leaking hop-by-hop headers
   resHeaders.delete('transfer-encoding');
   resHeaders.delete('content-encoding');
+  // fetch() already decoded the body, so the upstream length may be wrong; let Next set it.
+  resHeaders.delete('content-length');
 
   const contentType = upstream.headers.get('content-type') || '';
   if (contentType.includes('application/json')) {
@@ -59,8 +61,9 @@ async function proxy(req: Request, ctx: { params: Promise<{ path?: string[] }> }
     return NextResponse.json(json, { status: upstream.status, headers: resHeaders });
   }
 
-  const text = await upstream.text();
-  return new NextResponse(text, { status: upstream.status, headers: resHeaders });
+  // Pass bytes through untouched: decoding as text corrupts ZIP/XLSX downloads.
+  const bytes = await upstream.arrayBuffer();
+  return new NextResponse(bytes, { status: upstream.status, headers: resHeaders });
 }
 
 export async function GET(req: Request, ctx: { params: Promise<{ path?: string[] }> }) {

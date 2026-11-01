@@ -39,7 +39,14 @@ export default function IdleSessionWarning() {
 
     // Only apply on authenticated app pages, not on auth screens
     const path = window.location.pathname || '';
-    if (path.includes('/login') || path.includes('/register') || path.includes('/signup') || path.includes('/reset-password')) {
+    if (
+      path.includes('/login') ||
+      path.includes('/register') ||
+      path.includes('/signup') ||
+      path.includes('/reset-password') ||
+      path.includes('/verify') ||
+      !authService.isAuthenticated()
+    ) {
       return;
     }
 

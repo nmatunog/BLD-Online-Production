@@ -24,6 +24,24 @@ import {
   resolveCardTokenSecret,
 } from './member-card-token.util';
 import { resolveDisplayMinistry, type MinistrySourceMember } from './member-card-ministry';
+import {
+  assessPrintReadiness,
+  matchesPrintReadyFilter,
+  type PrintReadyFilter,
+} from './member-card-readiness';
+import { publicVerifyJson, toPublicVerifyResult } from './dto/public-verify-result.dto';
+import QRCode from 'qrcode';
+import sharp from 'sharp';
+import {
+  allowedPhotoHosts,
+  buildPrintPackZip,
+  isAllowedPhotoUrl,
+  PRINT_PACK_MAX_MEMBERS,
+  type PrintPackCard,
+  type PrintPackSkip,
+} from './member-card-print-pack';
+
+const PRINT_PHOTO_MAX_BYTES = 10 * 1024 * 1024;
 
 const VALID_CARD_STATUSES: MemberCardStatus[] = [
   MemberCardStatus.ACTIVE,
@@ -32,6 +50,7 @@ const VALID_CARD_STATUSES: MemberCardStatus[] = [
 
 const MAX_LOOKUPS_PER_WINDOW = 30;
 const LOOKUP_WINDOW_MS = 60_000;
+const MAX_TRACKED_LOOKUP_IPS = 5_000;
 
 export type CardActor = {
   id: string;
@@ -39,7 +58,19 @@ export type CardActor = {
   ministry?: string | null;
 };
 
+/** Resolved display DTO. `ministry` is never null — use resolveDisplayMinistry(). */
 export type PublicCardMember = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  nickname: string | null;
+  communityId: string;
+  ministry: string;
+  photoUrl: string | null;
+};
+
+/** Prisma/DB row: Member.ministry and user.ministry stay string | null. */
+export type MemberMinistryDbRecord = MinistrySourceMember & {
   id: string;
   firstName: string;
   lastName: string;
@@ -51,6 +82,34 @@ export type PublicCardMember = {
 
 export type DoorVerifyStatus = 'ACTIVE' | 'REVOKED' | 'NOT_FOUND';
 
+export type StaffVerifyResult = {
+  view: 'staff';
+  status: DoorVerifyStatus;
+  cardStatus: MemberCardStatus | null;
+  member: PublicCardMember | null;
+  cardId: string | null;
+};
+
+export type IdPrintExportRow = {
+  memberId: string;
+  fullName: string;
+  firstName: string;
+  lastName: string;
+  bloodType: string;
+  photoUrl: string;
+  verifyUrl: string;
+};
+
+export const ID_PRINT_EXPORT_COLUMNS = [
+  'memberId',
+  'fullName',
+  'firstName',
+  'lastName',
+  'bloodType',
+  'photoUrl',
+  'verifyUrl',
+] as const;
+
 const MEMBER_PUBLIC_SELECT = {
   id: true,
   firstName: true,
@@ -61,7 +120,7 @@ const MEMBER_PUBLIC_SELECT = {
   photoUrl: true,
   ministryHistory: {
     where: { endDate: null },
-    select: { ministry: true },
+    select: { ministry: true, startDate: true, endDate: true },
     orderBy: { startDate: 'desc' as const },
     take: 1,
   },
@@ -70,7 +129,23 @@ const MEMBER_PUBLIC_SELECT = {
   },
 } as const;
 
-type MemberPublicRecord = PublicCardMember & MinistrySourceMember;
+const PRINT_MEMBER_SELECT = {
+  ...MEMBER_PUBLIC_SELECT,
+  bloodType: true,
+  cards: {
+    orderBy: { issuedAt: 'desc' as const },
+    select: {
+      id: true,
+      status: true,
+      tokenEncrypted: true,
+      tokenHash: true,
+      issuedAt: true,
+      encodedAt: true,
+    },
+  },
+} as const;
+
+type MemberPublicRecord = MemberMinistryDbRecord;
 
 @Injectable()
 export class MemberCardsService {
@@ -84,6 +159,14 @@ export class MemberCardsService {
 
   isRateLimited(ip: string, now = Date.now()): boolean {
     const key = ip || 'unknown';
+    // Verify is public now, so cap the tracker: drop IPs with no lookups in the current window.
+    if (this.recentLookupsByIp.size > MAX_TRACKED_LOOKUP_IPS) {
+      for (const [trackedIp, times] of this.recentLookupsByIp) {
+        if (!times.some((t) => now - t <= LOOKUP_WINDOW_MS)) {
+          this.recentLookupsByIp.delete(trackedIp);
+        }
+      }
+    }
     const next = (this.recentLookupsByIp.get(key) ?? []).filter(
       (t) => now - t <= LOOKUP_WINDOW_MS,
     );
@@ -399,22 +482,66 @@ export class MemberCardsService {
     return where;
   }
 
-  async listMemberIds(query: { search?: string }) {
-    const rows = await this.prisma.member.findMany({
-      where: this.activeMemberWhere(query.search),
+  private async loadPrintMembers(where: Prisma.MemberWhereInput) {
+    return this.prisma.member.findMany({
+      where,
       orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        nickname: true,
-        communityId: true,
-      },
+      select: PRINT_MEMBER_SELECT,
     });
+  }
+
+  private toIdPrintExportRow(row: {
+    firstName: string;
+    lastName: string;
+    communityId: string;
+    bloodType?: string | null;
+    photoUrl?: string | null;
+    cards: Array<{
+      status: MemberCardStatus;
+      tokenEncrypted: string;
+    }>;
+  }): IdPrintExportRow {
+    const liveCard = row.cards.find((card) => VALID_CARD_STATUSES.includes(card.status));
+    const token = liveCard ? decryptCardToken(liveCard.tokenEncrypted, this.tokenSecret()) : '';
     return {
-      ids: rows.map((row) => row.id),
-      total: rows.length,
-      members: rows,
+      memberId: row.communityId,
+      fullName: `${row.firstName} ${row.lastName}`.trim(),
+      firstName: row.firstName,
+      lastName: row.lastName,
+      bloodType: row.bloodType?.trim() ?? '',
+      photoUrl: row.photoUrl ?? '',
+      verifyUrl: token ? buildNfcUrl(token) : '',
+    };
+  }
+
+  async listMemberIds(query: { search?: string; printReady?: PrintReadyFilter }) {
+    const rows = await this.loadPrintMembers(this.activeMemberWhere(query.search));
+    const assessed = rows.map((row) => {
+      const readiness = assessPrintReadiness(row);
+      return {
+        id: row.id,
+        firstName: row.firstName,
+        lastName: row.lastName,
+        nickname: row.nickname,
+        communityId: row.communityId,
+        photoUrl: row.photoUrl,
+        ministry: resolveDisplayMinistry(row),
+        ready: readiness.ready,
+        missing: readiness.missing,
+      };
+    });
+    const ready = assessed.filter((row) => row.ready);
+    const missing = assessed.filter((row) => !row.ready);
+    const filtered = assessed.filter((row) => matchesPrintReadyFilter(row.ready, query.printReady));
+    return {
+      ids: filtered.map((row) => row.id),
+      total: filtered.length,
+      counts: {
+        ready: ready.length,
+        missing: missing.length,
+        all: assessed.length,
+      },
+      members: filtered,
     };
   }
 
@@ -423,57 +550,116 @@ export class MemberCardsService {
     status?: MemberCardStatus;
     memberIds?: string[];
     all?: boolean;
-  }) {
+    printReady?: PrintReadyFilter;
+  }): Promise<IdPrintExportRow[]> {
     const uniqueIds = [...new Set((query.memberIds ?? []).filter(Boolean))];
     if (uniqueIds.length > 2000) {
       throw new BadRequestException('Too many member IDs for export');
     }
 
-    const where: Prisma.MemberWhereInput =
-      uniqueIds.length > 0 && query.all !== true
-        ? { id: { in: uniqueIds } }
-        : this.activeMemberWhere(query.search);
+    const selected = uniqueIds.length > 0 && query.all !== true;
+    const where: Prisma.MemberWhereInput = selected
+      ? { id: { in: uniqueIds } }
+      : this.activeMemberWhere(query.search);
 
-    const rows = await this.prisma.member.findMany({
-      where,
-      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
-      select: {
-        ...MEMBER_PUBLIC_SELECT,
-        cards: {
-          orderBy: { issuedAt: 'desc' },
-          select: {
-            id: true,
-            status: true,
-            tokenEncrypted: true,
-            issuedAt: true,
-            encodedAt: true,
-          },
-        },
-      },
-    });
+    const rows = await this.loadPrintMembers(where);
+    // The print filter applies to hand-picked members too, so "Ready" never exports an incomplete card.
+    const filtered = rows.filter((row) =>
+      matchesPrintReadyFilter(assessPrintReadiness(row).ready, query.printReady),
+    );
 
-    return rows.map((row) => {
-      const liveCard = row.cards.find((card) => VALID_CARD_STATUSES.includes(card.status));
-      const latestCard = liveCard ?? row.cards[0];
-      const token =
-        liveCard && latestCard
-          ? decryptCardToken(latestCard.tokenEncrypted, this.tokenSecret())
-          : '';
-      return {
-        cardId: latestCard?.id ?? '',
-        memberId: row.id,
-        name: `${row.firstName} ${row.lastName}`.trim(),
-        communityId: row.communityId,
-        ministry: resolveDisplayMinistry(row) ?? '',
-        photoUrl: row.photoUrl ?? '',
-        nfcUrl: token ? buildNfcUrl(token) : '',
-        cardStatus: latestCard?.status ?? '',
-        token,
-        status: latestCard?.status ?? '',
-        issuedAt: latestCard?.issuedAt ?? null,
-        encodedAt: latestCard?.encodedAt ?? null,
-      };
-    });
+    return filtered.map((row) => this.toIdPrintExportRow(row));
+  }
+
+  /** Download one ID photo from the BunnyCDN pull zone and normalise it to JPEG. */
+  protected async fetchPrintPhoto(photoUrl: string): Promise<Buffer> {
+    const response = await fetch(photoUrl, { signal: AbortSignal.timeout(15_000) });
+    if (!response.ok) {
+      throw new Error(`photo download failed (${response.status})`);
+    }
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length === 0 || bytes.length > PRINT_PHOTO_MAX_BYTES) {
+      throw new Error('photo is empty or too large');
+    }
+    return sharp(bytes).rotate().jpeg({ quality: 92 }).toBuffer();
+  }
+
+  /**
+   * ZIP for the ID printer: cards.csv + photos/ + qr/ (QR = public verify link).
+   * Only members who are ready for ID printing are included; the rest go to skipped.csv.
+   */
+  async buildPrintPack(memberIds: string[]): Promise<{ buffer: Buffer; filename: string }> {
+    const uniqueIds = [...new Set(memberIds.filter(Boolean))];
+    if (uniqueIds.length === 0) {
+      throw new BadRequestException('Select at least one member for the print pack');
+    }
+    if (uniqueIds.length > PRINT_PACK_MAX_MEMBERS) {
+      throw new BadRequestException(
+        `A print pack can hold up to ${PRINT_PACK_MAX_MEMBERS} members. Select fewer.`,
+      );
+    }
+
+    const rows = await this.loadPrintMembers({ id: { in: uniqueIds } });
+    const hosts = allowedPhotoHosts(process.env.BUNNYCDN_CDN_URL);
+    const cards: PrintPackCard[] = [];
+    const skipped: PrintPackSkip[] = [];
+
+    for (const row of rows) {
+      const fullName = `${row.firstName} ${row.lastName}`.trim();
+      const readiness = assessPrintReadiness(row);
+      if (!readiness.ready) {
+        skipped.push({
+          memberId: row.communityId,
+          fullName,
+          reason: `Not ready: missing ${readiness.missing.join(', ')}`,
+        });
+        continue;
+      }
+
+      const exportRow = this.toIdPrintExportRow(row);
+      if (!exportRow.verifyUrl) {
+        skipped.push({ memberId: row.communityId, fullName, reason: 'No verify link' });
+        continue;
+      }
+      if (!isAllowedPhotoUrl(row.photoUrl, hosts)) {
+        skipped.push({ memberId: row.communityId, fullName, reason: 'Photo is not on the ID photo CDN' });
+        continue;
+      }
+
+      let photo: Buffer;
+      try {
+        photo = await this.fetchPrintPhoto(row.photoUrl as string);
+      } catch (error) {
+        this.logger.warn(
+          `print-pack photo failed memberId=${row.id}: ${error instanceof Error ? error.message : error}`,
+        );
+        skipped.push({ memberId: row.communityId, fullName, reason: 'Photo could not be downloaded' });
+        continue;
+      }
+
+      const qr = await QRCode.toBuffer(exportRow.verifyUrl, {
+        type: 'png',
+        errorCorrectionLevel: 'M',
+        margin: 4,
+        width: 600,
+        color: { dark: '#000000', light: '#FFFFFF' },
+      });
+
+      cards.push({
+        memberId: exportRow.memberId,
+        fullName: exportRow.fullName,
+        firstName: exportRow.firstName,
+        lastName: exportRow.lastName,
+        bloodType: exportRow.bloodType,
+        verifyUrl: exportRow.verifyUrl,
+        photo,
+        qr,
+      });
+    }
+
+    const buffer = await buildPrintPackZip({ cards, skipped });
+    const stamp = new Date().toISOString().slice(0, 10);
+    return { buffer, filename: `bld-id-print-pack-${stamp}.zip` };
   }
 
   private logLookup(entry: {
@@ -495,17 +681,46 @@ export class MemberCardsService {
     );
   }
 
-  async verify(
-    rawToken: string,
-    actor: CardActor,
-    ip: string,
-  ): Promise<{
+  private toStaffVerifyResult(input: {
     status: DoorVerifyStatus;
     cardStatus: MemberCardStatus | null;
-    member: PublicCardMember | null;
+    member: MemberPublicRecord | null;
     cardId: string | null;
-  }> {
-    this.assertStaffCanVerify(actor);
+  }): StaffVerifyResult {
+    return {
+      view: 'staff',
+      status: input.status,
+      cardStatus: input.cardStatus,
+      member: input.member ? this.toPublicMember(input.member) : null,
+      cardId: input.cardId,
+    };
+  }
+
+  private presentVerifyResult(
+    actor: CardActor | null,
+    lookup: {
+      status: DoorVerifyStatus;
+      cardStatus: MemberCardStatus | null;
+      member: MemberPublicRecord | null;
+      cardId: string | null;
+    },
+  ): StaffVerifyResult | ReturnType<typeof publicVerifyJson> {
+    if (actor && isCardVerifyStaffRole(actor.role)) {
+      return this.toStaffVerifyResult(lookup);
+    }
+    return publicVerifyJson(
+      toPublicVerifyResult({
+        status: lookup.status === 'ACTIVE' ? 'VALID' : lookup.status,
+        member: lookup.member,
+      }),
+    );
+  }
+
+  async verify(
+    rawToken: string,
+    actor: CardActor | null,
+    ip: string,
+  ): Promise<StaffVerifyResult | ReturnType<typeof publicVerifyJson>> {
     if (this.isRateLimited(ip)) {
       throw new HttpException(
         'Too many card lookups. Please wait a moment and try again.',
@@ -514,9 +729,15 @@ export class MemberCardsService {
     }
 
     const token = (rawToken || '').trim();
+    const actorId = actor?.id ?? 'public';
     if (!isValidTokenFormat(token)) {
-      this.logLookup({ result: 'NOT_FOUND', userId: actor.id, ip });
-      return { status: 'NOT_FOUND', cardStatus: null, member: null, cardId: null };
+      this.logLookup({ result: 'NOT_FOUND', userId: actorId, ip });
+      return this.presentVerifyResult(actor, {
+        status: 'NOT_FOUND',
+        cardStatus: null,
+        member: null,
+        cardId: null,
+      });
     }
 
     const presentedHash = hashCardToken(token);
@@ -526,8 +747,13 @@ export class MemberCardsService {
     });
 
     if (!card || !cardTokenHashesEqual(card.tokenHash, presentedHash)) {
-      this.logLookup({ result: 'NOT_FOUND', userId: actor.id, ip });
-      return { status: 'NOT_FOUND', cardStatus: null, member: null, cardId: null };
+      this.logLookup({ result: 'NOT_FOUND', userId: actorId, ip });
+      return this.presentVerifyResult(actor, {
+        status: 'NOT_FOUND',
+        cardStatus: null,
+        member: null,
+        cardId: null,
+      });
     }
 
     await this.prisma.memberCard.update({
@@ -540,30 +766,30 @@ export class MemberCardsService {
         result: 'REVOKED',
         cardId: card.id,
         memberId: card.memberId,
-        userId: actor.id,
+        userId: actorId,
         ip,
       });
-      return {
+      return this.presentVerifyResult(actor, {
         status: 'REVOKED',
         cardStatus: card.status,
-        member: this.toPublicMember(card.member),
+        member: card.member,
         cardId: card.id,
-      };
+      });
     }
 
     this.logLookup({
       result: 'ACTIVE',
       cardId: card.id,
       memberId: card.memberId,
-      userId: actor.id,
+      userId: actorId,
       ip,
     });
-    return {
+    return this.presentVerifyResult(actor, {
       status: 'ACTIVE',
       cardStatus: card.status,
-      member: this.toPublicMember(card.member),
+      member: card.member,
       cardId: card.id,
-    };
+    });
   }
 
   async checkInByToken(
@@ -573,17 +799,19 @@ export class MemberCardsService {
     ip: string,
     sessionSlot?: string,
   ) {
+    this.assertStaffCanVerify(actor);
     const verified = await this.verify(rawToken, actor, ip);
-    if (verified.status !== 'ACTIVE' || !verified.member) {
+    const staffView = verified as StaffVerifyResult;
+    if (staffView.view !== 'staff' || staffView.status !== 'ACTIVE' || !staffView.member) {
       throw new BadRequestException(
-        verified.status === 'REVOKED'
+        staffView.status === 'REVOKED'
           ? 'This card has been revoked. Do not check this member in from this card.'
           : 'Card not found. Do not check anyone in.',
       );
     }
 
     const dto: CreateAttendanceDto = {
-      memberId: verified.member.id,
+      memberId: staffView.member.id,
       eventId,
       method: CheckInMethod.QR_CODE,
       ...(sessionSlot ? { sessionSlot } : {}),

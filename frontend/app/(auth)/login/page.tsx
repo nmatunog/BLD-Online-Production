@@ -26,6 +26,11 @@ import { normalizePhoneNumber } from '@/utils/phone.util';
 import { parseAuthError } from '@/utils/error-handler';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { QRScanner, qrUtils } from '@/lib/qr-scanner-service';
+import {
+  extractCardToken,
+  resolveCardScan,
+  UNKNOWN_CARD_MESSAGE,
+} from '@/lib/card-scan';
 import { deviceMemory } from '@/lib/device-memory';
 import { postLoginPathFromSearch } from '@/lib/safe-return-path';
 
@@ -94,8 +99,26 @@ export default function LoginPage() {
     };
   }, [qrLoginStep]);
 
-  const handleQrScanSuccess = (decodedText: string) => {
-    const memberData = qrUtils.extractMemberData(decodedText);
+  const handleQrScanSuccess = async (decodedText: string) => {
+    let memberData: { communityId: string; name?: string } | null = null;
+    const cardToken = extractCardToken(decodedText);
+    if (cardToken) {
+      try {
+        const card = await resolveCardScan(cardToken);
+        if (card.kind !== 'member') {
+          toast.error(card.kind === 'revoked' ? 'Card revoked' : 'Card not found', {
+            description: card.kind === 'revoked' ? 'This ID card has been revoked.' : UNKNOWN_CARD_MESSAGE,
+          });
+          return;
+        }
+        memberData = { communityId: card.communityId, name: card.name };
+      } catch {
+        toast.error('Could not read this ID card', { description: 'Please try again.' });
+        return;
+      }
+    } else {
+      memberData = qrUtils.extractMemberData(decodedText);
+    }
     if (!memberData?.communityId) {
       toast.error('Invalid QR code', { description: 'Please scan your member QR code.' });
       return;

@@ -1,6 +1,7 @@
-import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { MemberCardStatus } from '@prisma/client';
+import { PRINT_READY_FILTERS, type PrintReadyFilter } from '../member-card-readiness';
 
 function toBooleanFlag(value: unknown): unknown {
   if (value === 'true' || value === true) return true;
@@ -62,10 +63,18 @@ export class ExportCardsDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @IsOptional()
+  @IsIn(PRINT_READY_FILTERS)
+  printReady?: PrintReadyFilter;
 }
 
 export class MemberIdsQueryDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @IsOptional()
+  @IsIn(PRINT_READY_FILTERS)
+  printReady?: PrintReadyFilter;
 }
