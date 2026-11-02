@@ -77,6 +77,8 @@ export interface SignupRequest {
   phone: string;
   idPhoto: string;
   bloodType?: string;
+  /** Set after the person confirms a same-name member is not them. */
+  confirmNotDuplicate?: boolean;
 }
 
 export interface SignupUpdateRequest {
@@ -91,6 +93,7 @@ export interface SignupUpdateRequest {
   phone?: string;
   password?: string;
   bloodType?: string;
+  confirmNotDuplicate?: boolean;
 }
 
 export interface SignupResult {
