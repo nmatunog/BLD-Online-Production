@@ -33,6 +33,7 @@ import { AllowExtraFieldsPipe } from './pipes/allow-extra-fields.pipe';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadPhotoDto } from './dto/upload-photo.dto';
 import { BulkPermanentDeleteDto } from './dto/bulk-permanent-delete.dto';
+import { AdminCreateMemberDto } from './dto/admin-create-member.dto';
 
 @ApiTags('Members')
 @Controller('members')
@@ -86,6 +87,29 @@ export class MembersController {
       success: true,
       data: member,
       message: 'Member created successfully',
+    };
+  }
+
+  @Post('admin-create')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.SUPER_USER, UserRole.ADMINISTRATOR)
+  @ApiOperation({
+    summary:
+      'Admin: add a new member account. Without a mobile the member gets an ID + QR but cannot log in until an admin adds one.',
+  })
+  @ApiResponse({ status: 201, description: 'Member added' })
+  @ApiResponse({ status: 400, description: 'Invalid input' })
+  @ApiResponse({ status: 403, description: 'Only SUPER_USER and ADMINISTRATOR' })
+  @ApiResponse({ status: 409, description: 'Duplicate mobile/email, or POSSIBLE_DUPLICATE name' })
+  async adminCreate(
+    @Body() dto: AdminCreateMemberDto,
+    @CurrentUser() user: { id: string; role: UserRole },
+  ): Promise<ApiResponseDto<unknown>> {
+    const member = await this.membersService.adminCreate(dto, { id: user.id, role: user.role });
+    return {
+      success: true,
+      data: member,
+      message: 'Member added',
     };
   }
 
@@ -446,6 +470,7 @@ export class MembersController {
     const updatedMember = await this.membersService.update(id, updateMemberDto, {
       allowCommunityId,
       allowAttendanceAdminFields: true,
+      actorRole: user.role,
     });
     return {
       success: true,
