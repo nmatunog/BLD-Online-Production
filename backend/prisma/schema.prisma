@@ -72,6 +72,7 @@ model User {
   passwordHash String?
   role         UserRole @default(MEMBER)
   isActive     Boolean  @default(true)
+  adminActivationRequired Boolean @default(false) // admin-created without mobile: no login until an admin adds a mobile
   // Class Shepherd specific fields - which encounter class they shepherd
   // Note: Class Shepherds shepherd a DIFFERENT class than their own
   // e.g., A person from ME Class 18 can be assigned to shepherd ME Class 101
