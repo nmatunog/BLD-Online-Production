@@ -8,6 +8,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../common/prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
 import { LoginDto } from './dto/login.dto';
 import { LoginByQrDto } from './dto/login-by-qr.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -877,10 +878,15 @@ export class AuthService {
       expiresIn: process.env.JWT_EXPIRES_IN || '15m',
     });
 
-    const refreshToken = this.jwtService.sign(payload, {
-      secret: process.env.JWT_REFRESH_SECRET,
-      expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
-    });
+    // A random jti makes every refresh token unique, so two logins for the
+    // same user in the same second don't collide on Session.refreshToken (@unique).
+    const refreshToken = this.jwtService.sign(
+      { ...payload, jti: randomUUID() },
+      {
+        secret: process.env.JWT_REFRESH_SECRET,
+        expiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
+      },
+    );
 
     // Store refresh token in database
     const expiresAt = new Date();
