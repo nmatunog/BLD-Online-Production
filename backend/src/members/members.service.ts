@@ -4,6 +4,7 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Logger,
   OnModuleInit,
 } from '@nestjs/common';
@@ -13,7 +14,8 @@ import { UpdateMemberDto } from './dto/update-member.dto';
 import { MemberQueryDto } from './dto/member-query.dto';
 import { Prisma, UserRole } from '@prisma/client';
 import QRCode from 'qrcode';
-import { normalizePhoneNumber } from '../common/utils/phone.util';
+import { normalizePhoneNumber, phoneToE164 } from '../common/utils/phone.util';
+import { AdminCreateMemberDto } from './dto/admin-create-member.dto';
 import { BunnyCDNService } from '../common/services/bunnycdn.service';
 import {
   isValidMinistryForApostolate,
@@ -49,6 +51,12 @@ export type BulkPermanentDeleteResult = {
 };
 
 const BULK_PERMANENT_DELETE_ROLES: UserRole[] = [
+  UserRole.SUPER_USER,
+  UserRole.ADMINISTRATOR,
+];
+
+/** Roles allowed to add members and to activate admin-locked accounts. */
+export const ADMIN_ACTIVATION_ROLES: UserRole[] = [
   UserRole.SUPER_USER,
   UserRole.ADMINISTRATOR,
 ];
@@ -174,6 +182,231 @@ export class MembersService implements OnModuleInit {
       ...member,
       qrCodeUrl,
     };
+  }
+
+  /**
+   * Admin "Add member": creates a NEW User + Member (not attached to the caller).
+   * Without a mobile the account gets an ID + QR right away but is login-locked
+   * (adminActivationRequired) until an SU/ADMIN adds a mobile in Edit.
+   */
+  async adminCreate(
+    dto: AdminCreateMemberDto,
+    actor: { id: string; role: UserRole | string },
+  ) {
+    const trimOrNull = (v?: string | null) => {
+      const t = typeof v === 'string' ? v.trim() : '';
+      return t ? t : null;
+    };
+
+    const firstName = dto.firstName.trim();
+    const lastName = dto.lastName.trim();
+    if (!firstName || !lastName) {
+      throw new BadRequestException('First name and last name are required.');
+    }
+    const encounterType = dto.encounterType.trim().toUpperCase();
+    const classNum = parseInt(String(dto.classNumber).trim(), 10);
+    if (isNaN(classNum) || classNum < 1 || classNum > 999) {
+      throw new BadRequestException('Class number must be between 1 and 999');
+    }
+    const city = normalizeCityToCode(trimOrNull(dto.city) || 'Cebu') || 'CEB';
+
+    const rawApostolate = trimOrNull(dto.apostolate);
+    const rawMinistry = trimOrNull(dto.ministry);
+    const apostolate = rawApostolate ? normalizeApostolate(rawApostolate) ?? rawApostolate : null;
+    const ministry =
+      rawMinistry && apostolate ? normalizeMinistry(rawMinistry, apostolate) ?? rawMinistry : rawMinistry;
+    if (ministry && !apostolate) {
+      throw new BadRequestException('Select an apostolate before choosing a ministry.');
+    }
+    if (apostolate) {
+      if (!isValidApostolate(apostolate)) {
+        throw new BadRequestException(
+          `Invalid apostolate: ${rawApostolate}. Must be one of the valid BLD Cebu apostolates.`,
+        );
+      }
+      if (ministry && !isValidMinistryForApostolate(ministry, apostolate)) {
+        throw new BadRequestException(
+          `Ministry "${rawMinistry}" does not belong to apostolate "${apostolate}". Please select a valid ministry for this apostolate.`,
+        );
+      }
+    }
+
+    let phone: string | null = null;
+    const rawPhone = trimOrNull(dto.phone);
+    if (rawPhone) {
+      phone = normalizePhoneNumber(rawPhone);
+      if (!phone) {
+        throw new BadRequestException('Invalid Philippine mobile number. Use format: 09XXXXXXXXX');
+      }
+      const variants = [phone];
+      const e164 = phoneToE164(phone);
+      if (e164) variants.push(e164);
+      const phoneOwner = await this.prisma.user.findFirst({
+        where: { phone: { in: variants } },
+        select: { id: true },
+      });
+      if (phoneOwner) {
+        throw new ConflictException('This mobile number is already registered');
+      }
+    }
+
+    const rawEmail = trimOrNull(dto.email);
+    const email = rawEmail ? rawEmail.toLowerCase() : null;
+    if (email) {
+      const emailOwner = await this.prisma.user.findFirst({
+        where: { email: { equals: email, mode: 'insensitive' } },
+        select: { id: true },
+      });
+      if (emailOwner) {
+        throw new ConflictException('This email is already in use by another account.');
+      }
+    }
+
+    if (!dto.confirmNotDuplicate) {
+      const match = await this.prisma.member.findFirst({
+        where: {
+          firstName: { equals: firstName, mode: 'insensitive' },
+          lastName: { equals: lastName, mode: 'insensitive' },
+        },
+        select: {
+          firstName: true,
+          lastName: true,
+          nickname: true,
+          encounterType: true,
+          classNumber: true,
+          communityId: true,
+        },
+      });
+      if (match) {
+        throw new ConflictException({
+          code: 'POSSIBLE_DUPLICATE',
+          message: 'A member with this first and last name is already registered.',
+          possibleDuplicate: {
+            firstName: match.firstName,
+            lastName: match.lastName,
+            nickname: match.nickname,
+            encounterType: match.encounterType,
+            classNumber: match.classNumber,
+            communityId: match.communityId,
+          },
+          sameClass:
+            match.encounterType.toUpperCase() === encounterType && match.classNumber === classNum,
+        });
+      }
+    }
+
+    const ministryStart = ministry
+      ? parseManilaDateInput(trimOrNull(dto.ministryStartDate) ?? '') ??
+        parseManilaDateInput(manilaTodayDateString())
+      : null;
+    if (ministry && !ministryStart) {
+      throw new BadRequestException('Ministry start date must be YYYY-MM-DD.');
+    }
+    const loginLocked = !phone;
+
+    const MAX_ATTEMPTS = 3;
+    let created: { memberId: string; communityId: string } | null = null;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS && !created; attempt++) {
+      const communityId = await this.generateCommunityId(city, encounterType, String(classNum));
+      try {
+        created = await this.prisma.$transaction(async (tx) => {
+          const user = await tx.user.create({
+            data: {
+              email,
+              phone,
+              passwordHash: null,
+              role: UserRole.MEMBER,
+              isActive: true,
+              adminActivationRequired: loginLocked,
+            },
+          });
+          const member = await tx.member.create({
+            data: {
+              userId: user.id,
+              firstName,
+              lastName,
+              middleName: trimOrNull(dto.middleName),
+              suffix: trimOrNull(dto.suffix),
+              nickname: trimOrNull(dto.nickname),
+              communityId,
+              city,
+              encounterType,
+              classNumber: classNum,
+              gender: trimOrNull(dto.gender),
+              civilStatus: trimOrNull(dto.civilStatus),
+              apostolate,
+              ministry,
+            },
+          });
+          if (ministry && ministryStart) {
+            await tx.memberMinistryHistory.create({
+              data: { memberId: member.id, ministry, startDate: ministryStart, endDate: null },
+            });
+          }
+          return { memberId: member.id, communityId: member.communityId };
+        });
+      } catch (e: unknown) {
+        if (e instanceof HttpException) throw e;
+        const prismaError = e as { code?: string; meta?: { target?: string[] | string } };
+        if (prismaError?.code === 'P2002') {
+          const target = prismaError.meta?.target ?? [];
+          const has = (field: string) =>
+            Array.isArray(target) ? target.includes(field) : String(target).includes(field);
+          if (has('communityId')) {
+            this.logger.warn(
+              `admin-create communityId collision on ${communityId} (attempt ${attempt}/${MAX_ATTEMPTS})`,
+            );
+            continue;
+          }
+          if (has('email')) {
+            throw new ConflictException('This email is already in use by another account.');
+          }
+          if (has('phone')) {
+            throw new ConflictException('This mobile number is already registered');
+          }
+        }
+        this.logger.warn(
+          `admin-create failed: ${e instanceof Error ? e.message : String(e)}`,
+        );
+        throw new BadRequestException(
+          'Could not add the member. Please check the entries and try again.',
+        );
+      }
+    }
+    if (!created) {
+      throw new ConflictException(
+        'Could not assign a unique Community ID. Please try again.',
+      );
+    }
+
+    try {
+      await this.regenerateQRCode(created.memberId);
+    } catch (error) {
+      this.logger.warn(
+        `admin-create QR generation failed for ${created.communityId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    this.logger.log(
+      `admin-create member=${created.memberId} communityId=${created.communityId} by=${actor.id} loginLocked=${loginLocked}`,
+    );
+
+    return this.prisma.member.findUniqueOrThrow({
+      where: { id: created.memberId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            role: true,
+            isActive: true,
+            adminActivationRequired: true,
+          },
+        },
+        ministryHistory: { orderBy: { startDate: 'asc' } },
+      },
+    });
   }
 
   async findAll(
@@ -306,6 +539,7 @@ export class MembersService implements OnModuleInit {
               phone: true,
               role: true,
               isActive: true,
+              adminActivationRequired: true,
               shepherdEncounterType: true,
               shepherdClassNumber: true,
               ministry: true,
@@ -344,6 +578,7 @@ export class MembersService implements OnModuleInit {
             phone: true,
             role: true,
             isActive: true,
+            adminActivationRequired: true,
           },
         },
         ministryHistory: {
@@ -397,6 +632,7 @@ export class MembersService implements OnModuleInit {
             phone: true,
             role: true,
             isActive: true,
+            adminActivationRequired: true,
           },
         },
       },
@@ -502,6 +738,7 @@ export class MembersService implements OnModuleInit {
             phone: true,
             role: true,
             isActive: true,
+            adminActivationRequired: true,
           },
         },
       },
@@ -517,7 +754,12 @@ export class MembersService implements OnModuleInit {
   async update(
     id: string,
     updateMemberDto: UpdateMemberDto,
-    options?: { allowCommunityId?: boolean; allowAttendanceAdminFields?: boolean },
+    options?: {
+      allowCommunityId?: boolean;
+      allowAttendanceAdminFields?: boolean;
+      /** Caller role; required to activate an admin-locked account by adding a mobile. */
+      actorRole?: UserRole | string;
+    },
   ) {
     const member = await this.findOne(id); // Verify member exists
 
@@ -667,6 +909,25 @@ export class MembersService implements OnModuleInit {
         : null;
     }
 
+    // Admin-locked account (added without a mobile): adding a mobile activates login,
+    // and only an SU/ADMIN may do that.
+    const targetUser = member.user as { adminActivationRequired?: boolean } | null;
+    if (
+      targetUser?.adminActivationRequired === true &&
+      typeof updateMemberDto.phone === 'string' &&
+      updateMemberDto.phone.trim() !== ''
+    ) {
+      if (!userUpdateData.phone) {
+        throw new BadRequestException('Invalid Philippine mobile number. Use format: 09XXXXXXXXX');
+      }
+      if (!ADMIN_ACTIVATION_ROLES.includes(options?.actorRole as UserRole)) {
+        throw new ForbiddenException(
+          'Only an administrator can activate this account by adding a mobile number.',
+        );
+      }
+      userUpdateData.adminActivationRequired = false;
+    }
+
     // Update both member and user in a transaction
     try {
       const updated = await this.prisma.$transaction(async (tx) => {
@@ -716,6 +977,7 @@ export class MembersService implements OnModuleInit {
             phone: true,
             role: true,
             isActive: true,
+            adminActivationRequired: true,
             shepherdEncounterType: true,
             shepherdClassNumber: true,
             ministry: true,

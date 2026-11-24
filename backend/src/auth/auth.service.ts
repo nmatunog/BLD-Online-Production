@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../common/prisma/prisma.service';
@@ -17,10 +18,15 @@ import { SetPasswordFromTempDto } from './dto/set-password-from-temp.dto';
 import { AuthResult } from './interfaces/auth-result.interface';
 import { SignupResult, SignupSuggestion } from './interfaces/signup-result.interface';
 import { UserRole } from '@prisma/client';
-import { roleRequiresCredentials } from './auth.constants';
+import { ADMIN_ACTIVATION_MESSAGE, roleRequiresCredentials } from './auth.constants';
 import { normalizePhoneNumber, phoneToE164 } from '../common/utils/phone.util';
 import { SignupUpdateDto } from './dto/signup-lookup.dto';
 import { MembersService } from '../members/members.service';
+
+/** True for the deliberate "admin-locked account" rejection, so catch-all blocks can rethrow it. */
+function isAdminActivationError(error: unknown): boolean {
+  return error instanceof UnauthorizedException && error.message === ADMIN_ACTIVATION_MESSAGE;
+}
 
 /** Inputs that map to Cebu (Community ID starts with CEB) */
 const CEBU_ALIASES = ['talisay', 'don bosco', 'holy family', 'schoenstatt'];
@@ -342,6 +348,12 @@ export class AuthService {
       throw new BadRequestException('Member not found for this Community ID');
     }
 
+    // Admin-created accounts without a mobile cannot be activated (or edited) through
+    // the public signup update; only an SU/ADMIN adding a mobile in Edit unlocks them.
+    if (member.user?.adminActivationRequired) {
+      throw new ForbiddenException(ADMIN_ACTIVATION_MESSAGE);
+    }
+
     // Renaming to the same first + last name as another member: flag it, let them confirm.
     if (!dto.confirmNotDuplicate) {
       const clash = await this.findSignupNameMatch(lastName, firstName, member.id);
@@ -515,9 +527,13 @@ export class AuthService {
     passwordHash: string | null;
     role: UserRole;
     isActive: boolean;
+    adminActivationRequired?: boolean;
   }): void {
     if (!user.isActive) {
       throw new UnauthorizedException('Account is deactivated');
+    }
+    if (user.adminActivationRequired) {
+      throw new UnauthorizedException(ADMIN_ACTIVATION_MESSAGE);
     }
     if (!user.passwordHash) {
       if (roleRequiresCredentials(user.role)) {
@@ -671,6 +687,9 @@ export class AuthService {
       if (!session.user.isActive) {
         throw new UnauthorizedException('Account is deactivated');
       }
+      if (session.user.adminActivationRequired) {
+        throw new UnauthorizedException(ADMIN_ACTIVATION_MESSAGE);
+      }
 
       // Fetch member info for refresh token
       const userWithMember = await this.prisma.user.findUnique({
@@ -693,6 +712,9 @@ export class AuthService {
           : null,
       );
     } catch (error) {
+      if (isAdminActivationError(error)) {
+        throw error;
+      }
       throw new UnauthorizedException('Invalid refresh token');
     }
   }
@@ -771,6 +793,9 @@ export class AuthService {
       if (!user) {
         throw new UnauthorizedException('User not found');
       }
+      if (user.adminActivationRequired) {
+        throw new UnauthorizedException(ADMIN_ACTIVATION_MESSAGE);
+      }
 
       // Hash new password
       const passwordHash = await bcrypt.hash(resetDto.password, 10);
@@ -783,6 +808,9 @@ export class AuthService {
 
       return { message: 'Password reset successfully' };
     } catch (error) {
+      if (isAdminActivationError(error)) {
+        throw error;
+      }
       throw new UnauthorizedException('Invalid or expired reset token');
     }
   }
@@ -796,6 +824,10 @@ export class AuthService {
 
     if (!member?.user) {
       throw new UnauthorizedException('Invalid temporary credentials');
+    }
+
+    if (member.user.adminActivationRequired) {
+      throw new UnauthorizedException(ADMIN_ACTIVATION_MESSAGE);
     }
 
     if (!member.user.passwordHash) {

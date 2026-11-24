@@ -328,3 +328,110 @@ describe('MembersService.bulkPermanentDelete', () => {
     });
   });
 });
+
+describe('MembersService.update admin activation', () => {
+  const memberId = '77777777-7777-4777-8777-777777777777';
+  const userId = '77777777-7777-4777-8777-777777777770';
+  let tx: {
+    user: { findMany: jest.Mock; updateMany: jest.Mock; update: jest.Mock };
+    member: { update: jest.Mock; findUniqueOrThrow: jest.Mock };
+    attendance: { findFirst: jest.Mock };
+    memberMinistryHistory: { findMany: jest.Mock; update: jest.Mock; create: jest.Mock };
+  };
+  let service: MembersService;
+
+  function existingMember(adminActivationRequired: boolean, phone: string | null = null) {
+    return {
+      id: memberId,
+      userId,
+      firstName: 'Test',
+      lastName: 'Nomobile',
+      encounterType: 'ME',
+      classNumber: 99,
+      city: 'CEB',
+      apostolate: null,
+      ministry: null,
+      user: {
+        id: userId,
+        email: null,
+        phone,
+        role: UserRole.MEMBER,
+        isActive: true,
+        adminActivationRequired,
+      },
+    };
+  }
+
+  beforeEach(() => {
+    tx = {
+      user: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn(), update: jest.fn() },
+      member: {
+        update: jest.fn().mockResolvedValue({ attendanceStartDate: null, createdAt: new Date('2026-11-01') }),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({ id: memberId }),
+      },
+      attendance: { findFirst: jest.fn().mockResolvedValue(null) },
+      memberMinistryHistory: {
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn(),
+        create: jest.fn(),
+      },
+    };
+    const prisma = {
+      $transaction: jest.fn(async (fn: (client: typeof tx) => unknown) => fn(tx)),
+    };
+    service = new MembersService(prisma as never, { isConfigured: () => false } as never);
+  });
+
+  function withMember(adminActivationRequired: boolean, phone: string | null = null) {
+    jest.spyOn(service, 'findOne').mockResolvedValue(existingMember(adminActivationRequired, phone) as never);
+  }
+
+  it.each([UserRole.ADMINISTRATOR, UserRole.SUPER_USER])(
+    '%s adding a mobile to a locked account clears the flag',
+    async (actorRole) => {
+      withMember(true);
+      await service.update(memberId, { phone: '0917 123 4567' }, { actorRole });
+      expect(tx.user.update).toHaveBeenCalledWith({
+        where: { id: userId },
+        data: { phone: '09171234567', adminActivationRequired: false },
+      });
+    },
+  );
+
+  it.each([UserRole.MINISTRY_COORDINATOR, UserRole.CLASS_SHEPHERD, UserRole.DCS, undefined])(
+    '%s cannot activate a locked account (403, flag unchanged)',
+    async (actorRole) => {
+      withMember(true);
+      await expect(
+        service.update(memberId, { phone: '09171234567' }, { actorRole }),
+      ).rejects.toThrow(
+        new ForbiddenException('Only an administrator can activate this account by adding a mobile number.'),
+      );
+      expect(tx.user.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects an invalid mobile on a locked account with 400', async () => {
+    withMember(true);
+    await expect(
+      service.update(memberId, { phone: '12345' }, { actorRole: UserRole.ADMINISTRATOR }),
+    ).rejects.toThrow(new BadRequestException('Invalid Philippine mobile number. Use format: 09XXXXXXXXX'));
+    expect(tx.user.update).not.toHaveBeenCalled();
+  });
+
+  it('other edits to a locked account by a coordinator leave the flag alone', async () => {
+    withMember(true);
+    await service.update(memberId, { nickname: 'Tess' }, { actorRole: UserRole.MINISTRY_COORDINATOR });
+    expect(tx.user.update).not.toHaveBeenCalled();
+    expect(tx.member.update.mock.calls[0][0].data).toEqual({ nickname: 'Tess' });
+  });
+
+  it('non-locked accounts keep the existing phone behaviour for any staff role', async () => {
+    withMember(false, '09170000000');
+    await service.update(memberId, { phone: '09171234567' }, { actorRole: UserRole.CLASS_SHEPHERD });
+    expect(tx.user.update).toHaveBeenCalledWith({
+      where: { id: userId },
+      data: { phone: '09171234567' },
+    });
+  });
+});

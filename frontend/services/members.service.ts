@@ -118,6 +118,8 @@ export interface Member {
     phone: string | null;
     role: string;
     isActive: boolean;
+    /** Admin-added without a mobile: has an ID + QR but cannot log in until an admin adds a mobile. */
+    adminActivationRequired?: boolean;
     shepherdEncounterType?: string | null;
     shepherdClassNumber?: number | null;
     ministry?: string | null;
@@ -186,6 +188,83 @@ export interface CreateMemberRequest {
   apostolate?: string;
   ministry?: string;
   serviceArea?: string;
+}
+
+/** POST /members/admin-create (SUPER_USER / ADMINISTRATOR). Blank optional fields are omitted. */
+export interface AdminCreateMemberRequest {
+  firstName: string;
+  lastName: string;
+  encounterType: string;
+  classNumber: string;
+  middleName?: string;
+  suffix?: string;
+  nickname?: string;
+  gender?: string;
+  civilStatus?: string;
+  apostolate?: string;
+  ministry?: string;
+  email?: string;
+  phone?: string;
+  city?: string;
+  ministryStartDate?: string;
+  confirmNotDuplicate?: boolean;
+}
+
+/** The same-name member reported by a 409 POSSIBLE_DUPLICATE from admin-create. */
+export interface AdminCreatePossibleDuplicate {
+  firstName: string;
+  lastName: string;
+  nickname?: string | null;
+  encounterType?: string;
+  classNumber?: number;
+  communityId?: string;
+}
+
+/** Thrown by adminCreate on a same-name warning; resend with confirmNotDuplicate to add anyway. */
+export class AdminCreateDuplicateError extends Error {
+  constructor(
+    public readonly possibleDuplicate: AdminCreatePossibleDuplicate,
+    public readonly sameClass: boolean,
+  ) {
+    super('A member with this first and last name is already registered.');
+    this.name = 'AdminCreateDuplicateError';
+  }
+}
+
+/** Read the POSSIBLE_DUPLICATE payload from an admin-create error (see lib/signup-duplicate.ts). */
+export function extractAdminCreateDuplicate(error: unknown): AdminCreateDuplicateError | null {
+  const response = (error as { response?: { status?: number; data?: unknown } })?.response;
+  if (response?.status !== 409) return null;
+  const data = response.data as
+    | {
+        code?: string;
+        possibleDuplicate?: Partial<AdminCreatePossibleDuplicate>;
+        sameClass?: boolean;
+        message?: { code?: string; possibleDuplicate?: Partial<AdminCreatePossibleDuplicate>; sameClass?: boolean };
+      }
+    | undefined;
+  // Nest puts the object body at the top level; tolerate a wrapped { message: {...} } shape too.
+  const body = data?.code === 'POSSIBLE_DUPLICATE' ? data : data?.message;
+  if (!body || body.code !== 'POSSIBLE_DUPLICATE') return null;
+  const match = body.possibleDuplicate;
+  if (!match?.firstName || !match?.lastName) return null;
+  return new AdminCreateDuplicateError(
+    {
+      firstName: match.firstName,
+      lastName: match.lastName,
+      nickname: match.nickname ?? null,
+      encounterType: match.encounterType,
+      classNumber: match.classNumber,
+      communityId: match.communityId,
+    },
+    body.sameClass === true,
+  );
+}
+
+export const ADMIN_CREATE_MEMBER_ROLES = ['SUPER_USER', 'ADMINISTRATOR'] as const;
+
+export function canAdminCreateMember(role: string | null | undefined): boolean {
+  return !!role && (ADMIN_CREATE_MEMBER_ROLES as readonly string[]).includes(role);
 }
 
 export interface UpdateMemberRequest {
@@ -259,6 +338,26 @@ class MembersService {
       throw new Error(response.data.error || 'Failed to create member');
     }
     return response.data.data;
+  }
+
+  /**
+   * Admin "Add member". Throws AdminCreateDuplicateError on a same-name warning,
+   * otherwise an Error with the server's message.
+   */
+  async adminCreate(data: AdminCreateMemberRequest): Promise<Member> {
+    try {
+      const response = await apiClient.post<ApiResponse<Member>>('/members/admin-create', data, {
+        timeout: MEMBER_SAVE_TIMEOUT_MS,
+      });
+      if (!response.data.success || !response.data.data) {
+        throw new Error(asHumanErrorMessage(response.data.error, 'Failed to add member'));
+      }
+      return response.data.data;
+    } catch (error) {
+      const duplicate = extractAdminCreateDuplicate(error);
+      if (duplicate) throw duplicate;
+      throw new Error(getMemberApiErrorMessage(error, 'Failed to add member'));
+    }
   }
 
   async update(id: string, data: UpdateMemberRequest): Promise<Member> {

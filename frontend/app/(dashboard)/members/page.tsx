@@ -4,8 +4,9 @@ import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Search, Users, X, Edit, Trash2, QrCode, Plus, ArrowLeft, Loader2, RefreshCw, Download, Save, ChevronUp, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
-import { membersService, canBulkPermanentDelete, MAX_BULK_PERMANENT_DELETE, type Member, type MemberQueryParams, type UpdateMemberRequest } from '@/services/members.service';
+import { membersService, canAdminCreateMember, canBulkPermanentDelete, MAX_BULK_PERMANENT_DELETE, type Member, type MemberQueryParams, type UpdateMemberRequest } from '@/services/members.service';
 import { BulkPermanentDeleteDialog } from '@/components/members/BulkPermanentDeleteDialog';
+import { AddMemberDialog } from '@/components/members/AddMemberDialog';
 import { authService } from '@/services/auth.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -147,6 +148,8 @@ export default function MembersPage() {
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false);
   const loadMembersRequestIdRef = useRef(0);
   const canBulkDelete = canBulkPermanentDelete(userRole);
+  const canAddMember = canAdminCreateMember(userRole);
+  const [showAddMemberDialog, setShowAddMemberDialog] = useState(false);
 
   // Load user role and data (auth redirect handled by dashboard layout)
   useEffect(() => {
@@ -864,10 +867,13 @@ export default function MembersPage() {
     });
 
     try {
-      await membersService.update(editingMember.id, updateData as UpdateMemberRequest);
+      const saved = await membersService.update(editingMember.id, updateData as UpdateMemberRequest);
       toast.success('Member Updated', {
         description: 'The member has been updated successfully.',
       });
+      if (editingMember.user?.adminActivationRequired && saved.user?.adminActivationRequired === false) {
+        toast.success(`Login activated for ${memberRowDisplayName(editingMember)}`);
+      }
       setPendingPhotoDataUrl(null);
       setShowEditDialog(false);
       setEditingMember(null);
@@ -937,6 +943,15 @@ export default function MembersPage() {
                 >
                   <Plus className="w-4 h-4 mr-2" />
                   Open Signup Page
+                </Button>
+              )}
+              {canAddMember && (
+                <Button
+                  onClick={() => setShowAddMemberDialog(true)}
+                  className="bg-purple-700 text-white hover:bg-purple-800"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add member
                 </Button>
               )}
               <Button 
@@ -1250,6 +1265,15 @@ export default function MembersPage() {
                             >
                               {member.user.isActive ? 'Active' : 'Inactive'}
                             </Button>
+                            {member.user?.adminActivationRequired && (
+                              <Badge
+                                variant="outline"
+                                className="mt-1 block w-fit border-amber-400 bg-amber-50 text-xs text-amber-800"
+                                title="Added by an admin without a mobile. Add a mobile in Edit to enable login."
+                              >
+                                No login yet
+                              </Badge>
+                            )}
                           </TableCell>
                           <TableCell className="px-4 py-3">
                             <div className="flex space-x-2">
@@ -1586,7 +1610,13 @@ export default function MembersPage() {
                         type="tel"
                         value={editForm.phone}
                         onChange={(e) => setEditForm({...editForm, phone: e.target.value})}
+                        aria-describedby={editingMember?.user?.adminActivationRequired ? 'edit-phone-activation-hint' : undefined}
                       />
+                      {editingMember?.user?.adminActivationRequired && (
+                        <p id="edit-phone-activation-hint" className="mt-1 text-sm text-amber-800">
+                          Adding a mobile number activates login. The member then sets a password via Forgot Password.
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4 mt-4">
@@ -2087,6 +2117,14 @@ export default function MembersPage() {
               </div>
             </DialogContent>
           </Dialog>
+        )}
+
+        {canAddMember && (
+          <AddMemberDialog
+            open={showAddMemberDialog}
+            onOpenChange={setShowAddMemberDialog}
+            onMemberAdded={() => reloadCurrentPage()}
+          />
         )}
 
         {canBulkDelete && (

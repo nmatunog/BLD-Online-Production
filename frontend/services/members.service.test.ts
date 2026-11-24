@@ -14,7 +14,9 @@ vi.mock('./api-client', () => ({
 }));
 
 import {
+  AdminCreateDuplicateError,
   buildMemberPhotoUploadBody,
+  canAdminCreateMember,
   canBulkPermanentDelete,
   getMemberApiErrorMessage,
   membersService,
@@ -240,5 +242,74 @@ describe('membersService.bulkPermanentDelete', () => {
     await expect(membersService.bulkPermanentDelete(['not-a-uuid'])).rejects.toThrow(
       'memberIds must be a UUID',
     );
+  });
+});
+
+describe('membersService.adminCreate', () => {
+  beforeEach(() => {
+    post.mockReset();
+  });
+
+  const request = { firstName: 'Test', lastName: 'Nomobile', encounterType: 'ME', classNumber: '99' };
+
+  it('POSTs to /members/admin-create and returns the member', async () => {
+    post.mockResolvedValueOnce({ data: { success: true, data: { id: 'm1', communityId: 'CEB-ME9901' } } });
+    const member = await membersService.adminCreate(request);
+    expect(post).toHaveBeenCalledWith('/members/admin-create', request, expect.objectContaining({ timeout: expect.any(Number) }));
+    expect(member).toMatchObject({ id: 'm1', communityId: 'CEB-ME9901' });
+  });
+
+  it('turns a 409 POSSIBLE_DUPLICATE into AdminCreateDuplicateError with the match', async () => {
+    post.mockRejectedValueOnce({
+      response: {
+        status: 409,
+        data: {
+          code: 'POSSIBLE_DUPLICATE',
+          message: 'A member with this first and last name is already registered.',
+          possibleDuplicate: {
+            firstName: 'Test',
+            lastName: 'Nomobile',
+            nickname: 'Tess',
+            encounterType: 'ME',
+            classNumber: 99,
+            communityId: 'CEB-ME9905',
+          },
+          sameClass: true,
+        },
+      },
+    });
+    const error = await membersService.adminCreate(request).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(AdminCreateDuplicateError);
+    expect((error as AdminCreateDuplicateError).sameClass).toBe(true);
+    expect((error as AdminCreateDuplicateError).possibleDuplicate).toMatchObject({
+      communityId: 'CEB-ME9905',
+      nickname: 'Tess',
+    });
+  });
+
+  it('surfaces other errors with the server message', async () => {
+    post.mockRejectedValueOnce({
+      response: { status: 409, data: { statusCode: 409, message: 'This mobile number is already registered' } },
+    });
+    await expect(membersService.adminCreate({ ...request, phone: '09171234567' })).rejects.toThrow(
+      'This mobile number is already registered',
+    );
+  });
+
+  it('surfaces a 403 for non-admin roles', async () => {
+    post.mockRejectedValueOnce({
+      response: { status: 403, data: { statusCode: 403, message: 'Forbidden resource' } },
+    });
+    await expect(membersService.adminCreate(request)).rejects.toThrow('Forbidden resource');
+  });
+});
+
+describe('canAdminCreateMember', () => {
+  it('is true only for SUPER_USER and ADMINISTRATOR', () => {
+    expect(canAdminCreateMember('SUPER_USER')).toBe(true);
+    expect(canAdminCreateMember('ADMINISTRATOR')).toBe(true);
+    for (const role of ['DCS', 'MINISTRY_COORDINATOR', 'CLASS_SHEPHERD', 'MEMBER', '', null, undefined]) {
+      expect(canAdminCreateMember(role)).toBe(false);
+    }
   });
 });
